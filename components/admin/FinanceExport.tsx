@@ -350,12 +350,12 @@ export function FinanceExport() {
       )}
 
       {invalidMembers.length > 0 && (
-        <div className="space-y-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
           <p className="font-semibold">
             Achtung: Diese Mitglieder haben ungültige Bankdaten und wurden vom Export
             ausgeschlossen. Bitte manuell kontaktieren.
           </p>
-          <div className="overflow-x-auto rounded-md border border-red-200 bg-white/80">
+          <div className="overflow-x-auto rounded-md border border-destructive/20 bg-background/80">
             <Table>
               <TableHeader>
                 <TableRow>

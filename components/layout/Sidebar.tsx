@@ -24,6 +24,7 @@ import { LogoutButton } from "@/app/dashboard/logout-button";
 import { checkUnreadNews, markNewsAsRead } from "@/app/(intranet)/news/actions";
 import { SidebarNavIcon } from "@/components/layout/SidebarNavIcon";
 import { navItemVariants } from "@/components/layout/nav-icon-motion";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 
 type Profile = {
   vorname: string;
@@ -213,7 +214,13 @@ export function Sidebar({ profile }: { profile: Profile }) {
             </div>
             <div className="border-t pt-4">{renderNavLinks()}</div>
           </div>
-          <div className="flex flex-col items-center gap-3 border-t pt-4">
+          <div className="flex flex-col gap-3 border-t pt-4">
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Darstellung
+              </p>
+              <ThemeToggle />
+            </div>
             <div className="flex w-full items-center justify-between gap-2">
               <Image
                 src="/icr-logo.png"
@@ -297,9 +304,15 @@ export function Sidebar({ profile }: { profile: Profile }) {
             <div className="border-t pt-3">{renderNavLinks(() => setIsOpen(false))}</div>
           </div>
 
-          <div className="border-t pt-3">
+          <div className="space-y-3 border-t pt-3">
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Darstellung
+              </p>
+              <ThemeToggle />
+            </div>
             <div className="flex items-center justify-between gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                 {initials}
               </div>
               <LogoutButton />
