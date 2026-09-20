@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Banknote, Megaphone, CalendarDays, ArrowRight, KeyRound } from "lucide-react";
+import {
+  Users,
+  Banknote,
+  Megaphone,
+  CalendarDays,
+  ArrowRight,
+  KeyRound,
+  GraduationCap,
+} from "lucide-react";
 
 const ADMIN_CARDS = [
   {
@@ -32,6 +40,12 @@ const ADMIN_CARDS = [
     title: "BVH Login",
     description: "Anfragen für BVH-Zugangsdaten einsehen und abhaken.",
     icon: KeyRound,
+  },
+  {
+    href: "/admin/alumni-requests",
+    title: "Alumni-Anträge",
+    description: "Anträge auf Alumni-Status prüfen, freischalten oder ablehnen.",
+    icon: GraduationCap,
   },
 ];
 

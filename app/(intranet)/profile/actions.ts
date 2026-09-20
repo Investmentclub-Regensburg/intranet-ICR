@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { isCancelledProfile } from "@/lib/profile-status";
 
 export type ProfileActionState = {
   success: boolean;
@@ -193,4 +194,101 @@ export async function cancelMembership(): Promise<ProfileActionState> {
 
   // 5) Harte Weiterleitung zum Login
   redirect("/login");
+}
+
+// ---------------------------------------------------------------------------
+// Alumni-Status beantragen
+// ---------------------------------------------------------------------------
+
+export type AlumniRequestStatus = "none" | "pending" | "approved" | "rejected";
+
+/** Status des letzten Alumni-Antrags des eingeloggten Nutzers (RLS: nur eigene Zeilen). */
+export async function getAlumniRequestStatus(): Promise<AlumniRequestStatus> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return "none";
+
+  const { data, error } = await supabase
+    .from("alumni_requests")
+    .select("status")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return "none";
+
+  const status = String((data as { status?: unknown }).status ?? "").trim().toLowerCase();
+  if (status === "pending" || status === "approved" || status === "rejected") return status;
+  return "none";
+}
+
+/**
+ * Legt einen Alumni-Antrag an. Der DB-Trigger auf alumni_requests benachrichtigt den Vorstand.
+ * Läuft bewusst über den User-Client (RLS: auth.uid() = user_id).
+ */
+export async function requestAlumniStatus(): Promise<ProfileActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Nicht eingeloggt." };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select('id, Vorname, Nachname, "E-Mail", Rolle, Status')
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (profileError || !profile) {
+    return {
+      success: false,
+      error: "Profil nicht gefunden. Bitte kontaktiere den Vorstand.",
+    };
+  }
+
+  const raw = profile as Record<string, unknown>;
+  const rolle = String(raw.Rolle ?? "").trim().toLowerCase();
+  if (rolle === "alumni") {
+    return { success: false, error: "Du bist bereits Alumni." };
+  }
+  if (isCancelledProfile(raw)) {
+    return {
+      success: false,
+      error: "Für gekündigte Mitgliedschaften kann kein Alumni-Status beantragt werden.",
+    };
+  }
+
+  const email = String(raw["E-Mail"] ?? user.email ?? "").trim();
+  if (!email) {
+    return { success: false, error: "E-Mail im Profil fehlt." };
+  }
+
+  const { error } = await supabase.from("alumni_requests").insert({
+    user_id: user.id,
+    profile_id: String(raw.id ?? "") || null,
+    vorname: String(raw.Vorname ?? "").trim(),
+    nachname: String(raw.Nachname ?? "").trim(),
+    email,
+  });
+
+  if (error) {
+    // Partial Unique Index: nur ein offener Antrag pro Nutzer.
+    if (error.code === "23505") {
+      return { success: false, error: "Du hast bereits einen offenen Antrag gestellt." };
+    }
+    return {
+      success: false,
+      error: `Antrag konnte nicht gespeichert werden: ${error.message}`,
+    };
+  }
+
+  revalidatePath("/profile");
+  revalidatePath("/admin/alumni-requests");
+  return { success: true, error: "" };
 }
