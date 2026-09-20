@@ -17,8 +17,10 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
   updateProfile,
+  type AlumniRequestStatus,
   type ProfileActionState,
 } from "@/app/(intranet)/profile/actions";
+import { AlumniRequestButton } from "@/components/profile/AlumniRequestButton";
 
 type ProfileData = {
   vorname: string;
@@ -115,7 +117,13 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
 
 const INITIAL_STATE: ProfileActionState = { success: false, error: "" };
 
-export function ProfileForm({ profile }: { profile: ProfileData }) {
+export function ProfileForm({
+  profile,
+  alumniRequestStatus = "none",
+}: {
+  profile: ProfileData;
+  alumniRequestStatus?: AlumniRequestStatus;
+}) {
   const [state, formAction] = useActionState(updateProfile, INITIAL_STATE);
   const [editing, setEditing] = useState(false);
 
@@ -179,7 +187,7 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
                 </Badge>
               </dd>
             </div>
-            <div className="sm:col-span-2">
+            <div>
               <dt className="text-xs font-medium text-muted-foreground">
                 Mitglied seit
               </dt>
@@ -188,6 +196,18 @@ export function ProfileForm({ profile }: { profile: ProfileData }) {
                 <span className="text-muted-foreground">
                   {membershipDuration(profile.datumAntrag)}
                 </span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">
+                Alumni-Status
+              </dt>
+              <dd className="mt-1">
+                <AlumniRequestButton
+                  initialStatus={alumniRequestStatus}
+                  rolle={profile.rolle}
+                  status={profile.status}
+                />
               </dd>
             </div>
           </dl>

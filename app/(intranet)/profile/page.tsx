@@ -4,6 +4,7 @@ import { ProfileForm } from "@/components/profile/ProfileForm";
 import { CancelMembership } from "@/components/profile/CancelMembership";
 import { MyEventsSection } from "@/components/profile/MyEventsSection";
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
+import { getAlumniRequestStatus } from "@/app/(intranet)/profile/actions";
 
 export default async function ProfilePage() {
   const { user } = await getCachedAuth();
@@ -13,11 +14,10 @@ export default async function ProfilePage() {
   }
 
   const supabase = await getCachedSupabase();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const [{ data: profile }, alumniRequestStatus] = await Promise.all([
+    supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
+    getAlumniRequestStatus(),
+  ]);
 
   const profileData = {
     vorname: ((profile?.["Vorname"] as string) ?? "").trim(),
@@ -40,7 +40,7 @@ export default async function ProfilePage() {
   return (
     <div className="space-y-6 pb-24 md:pb-28 lg:pb-32">
       <h1 className="text-3xl font-bold">Mein Profil</h1>
-      <ProfileForm profile={profileData} />
+      <ProfileForm profile={profileData} alumniRequestStatus={alumniRequestStatus} />
 
       <MyEventsSection />
 
