@@ -45,6 +45,10 @@ Edge Function: `functions/notify-board/index.ts`
    URL und Shared Secret liest er aus dem Supabase Vault (`notify_board_url`, `notify_board_secret`).
 3. Die Edge Function lädt das Event mit der Service Role, verschickt die Mail über Resend an
    `NOTIFY_TO_EMAIL` und setzt `sent_at` bzw. `last_error`/`attempts`.
+4. Wird ein Alumni-Antrag entschieden (`alumni_requests.status` → `approved`/`rejected`, egal ob über
+   die Admin-Seite oder indirekt über das Rollen-Dropdown), entsteht ein Event `alumni_decided`, das
+   an das Mitglied selbst geht (`payload.recipient`, Reply-To = Vorstandsadresse).
+   Migration: `migrations/20260921090000_alumni_decision_mail.sql`.
 
 Fehlt ein Vault-Secret, bleibt das Event mit `sent_at = null` in der Outbox liegen; es geht nichts verloren.
 
@@ -82,6 +86,13 @@ where sent_at is null order by created_at;
 
 -- Letzte Webhook-Aufrufe (pg_net)
 select id, status_code, content::text, created from net._http_response order by id desc limit 10;
+```
+
+Health-Check (zeigt Secret-Namen, Resend-Domains, Empfänger/Absender – keine Werte):
+
+```bash
+curl -X POST "https://<project-ref>.supabase.co/functions/v1/notify-board" \
+  -H "x-notify-secret: <secret>" -H "Content-Type: application/json" -d '{"action":"health"}'
 ```
 
 Fehlgeschlagene Events erneut zustellen: die Function ohne `event_id` aufrufen, sie arbeitet bis zu 20 offene Events ab.
