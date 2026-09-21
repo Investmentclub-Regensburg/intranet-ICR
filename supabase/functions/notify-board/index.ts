@@ -8,6 +8,7 @@
 // Aufruf ohne event_id (z. B. manuell per curl) arbeitet bis zu 20 offene Events ab
 // (Retry für Events, deren Versand fehlgeschlagen ist).
 // Aufruf mit { "action": "health" } zeigt, welche Secrets gesetzt sind (nur Namen/Längen, keine Werte).
+// Events vom Typ alumni_decided gehen an das Mitglied (payload.recipient), alle anderen an den Vorstand.
 //
 // Secrets (Dashboard → Edge Functions → Secrets oder `supabase secrets set`):
 //   NOTIFY_BOARD_SECRET  – muss dem Vault-Secret notify_board_secret entsprechen
@@ -21,7 +22,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-type EventType = "member_registered" | "member_cancelled" | "alumni_requested" | "test";
+type EventType = "member_registered" | "member_cancelled" | "alumni_requested" | "alumni_decided" | "test";
 
 type NotificationEvent = {
   id: string;
@@ -104,7 +105,7 @@ function fullName(p: Record<string, unknown>): string {
   return name || "Unbekannt";
 }
 
-type Mail = { subject: string; html: string; text: string };
+type Mail = { subject: string; html: string; text: string; to: string[]; replyTo?: string };
 
 function renderRows(rows: Array<[string, string]>): { html: string; text: string } {
   const html = rows
@@ -170,6 +171,7 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         subject: title,
         html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: TO_EMAILS,
       };
     }
     case "member_cancelled": {
@@ -191,6 +193,7 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         subject: title,
         html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: TO_EMAILS,
       };
     }
     case "alumni_requested": {
@@ -210,6 +213,31 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         subject: title,
         html: wrapHtml(title, intro, r.html, adminLink("/admin/alumni-requests", "Alumni-Anträge öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: TO_EMAILS,
+      };
+    }
+    case "alumni_decided": {
+      const vorname = str(p.vorname) || "Hallo";
+      const approved = str(p.decision) === "approved";
+      const recipient = str(p.recipient) || str(p.email);
+      const title = approved
+        ? "Dein Alumni-Status wurde freigeschaltet"
+        : "Dein Alumni-Antrag wurde abgelehnt";
+      const intro = approved
+        ? `Hallo ${vorname}, der Vorstand hat deinen Antrag geprüft und dich als Alumni freigeschaltet. Dein Profil im Intranet zeigt ab sofort die Rolle „Alumni“.`
+        : `Hallo ${vorname}, der Vorstand hat deinen Antrag auf den Alumni-Status geprüft und ihn leider abgelehnt. Bei Fragen melde dich gern beim Vorstand.`;
+      const rows: Array<[string, string]> = [
+        ["Entscheidung", approved ? "Freigeschaltet" : "Abgelehnt"],
+        ["Entschieden am", formatDateTime(p.handled_at ?? ev.created_at)],
+        ["Rückfragen", TO_EMAILS[0] ?? ""],
+      ];
+      const r = renderRows(rows);
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, adminLink("/profile", "Mein Profil öffnen")),
+        text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: recipient ? [recipient] : [],
+        replyTo: TO_EMAILS[0],
       };
     }
     case "test":
@@ -227,6 +255,7 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         subject: title,
         html: wrapHtml(title, intro, r.html),
         text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: TO_EMAILS,
       };
     }
   }
@@ -234,7 +263,7 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
 
 async function sendViaResend(mail: Mail): Promise<void> {
   if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY fehlt (Edge Function Secret)");
-  if (TO_EMAILS.length === 0) throw new Error("NOTIFY_TO_EMAIL ist leer");
+  if (mail.to.length === 0) throw new Error("Kein Empfänger für diese Mail (NOTIFY_TO_EMAIL bzw. payload.recipient leer)");
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -244,7 +273,8 @@ async function sendViaResend(mail: Mail): Promise<void> {
     },
     body: JSON.stringify({
       from: FROM_EMAIL,
-      to: TO_EMAILS,
+      to: mail.to,
+      ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
       subject: mail.subject,
       html: mail.html,
       text: mail.text,
