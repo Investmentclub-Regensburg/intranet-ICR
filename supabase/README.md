@@ -1,35 +1,28 @@
 # Supabase (ICR Intranet)
 
-## Migration: `end_time` auf `public.events`
+## Migrationen
 
-Diese Migration fügt die Spalte `end_time` hinzu, die die App beim Event-Anlegen nutzt.
+Alle Schemaänderungen liegen unter `migrations/` und sind idempotent. Ausführen per Supabase CLI
+(`supabase link --project-ref <ref>` → `supabase db push`) oder Inhalt im SQL Editor einfügen.
 
-### Option A – Supabase Dashboard (schnell)
+## Events
 
-1. Projekt **Intranet-Database** öffnen.
-2. **SQL Editor** → New query.
-3. Inhalt von `migrations/20260222120000_add_events_end_time.sql` einfügen und **Run**.
+Migration: `migrations/20261003120000_events_overhaul.sql`
 
-### Option B – Supabase CLI (lokal)
+- `description`, `location`, `organizer`, `event_time`, `end_time` sind optional; `end_time` ist vom Typ `time`.
+  Liegt `end_time` vor `event_time`, endet das Event am Folgetag.
+- Schreibrechte auf `events` und Uploads in den Bucket `event-images` (max. 5 MB, nur Bilder) nur für
+  `admin`/`board` (`public.is_admin_or_board()`). Bilder lädt der Browser direkt nach `<user_id>/<uuid>.<ext>`.
+- Anmelden geht nur bei Events mit `requires_registration`, die noch nicht vorbei sind.
+- Jedes Event hat eine teilbare Detailseite `/events/<id>`. Nicht eingeloggte Besucher landen nach dem Login dort.
 
-```bash
-# Einmalig: https://supabase.com/docs/guides/cli
-brew install supabase/tap/supabase   # macOS
+### Event-Mail an Mitglieder
 
-cd web
-supabase login
-supabase link --project-ref <DEIN_PROJECT_REF>
-
-supabase db push
-# oder nur Remote ausführen:
-supabase db execute --file supabase/migrations/20260222120000_add_events_end_time.sql
-```
-
-`project-ref` steht in der Dashboard-URL: `https://supabase.com/dashboard/project/<project-ref>`.
-
-## Hinweis
-
-Die Datei `sql/add_events_end_time.sql` ist identisch zur Migration; die **kanonische** Version für CLI/Push liegt unter `migrations/`.
+Beim Anlegen (oder später auf `/admin/events/<id>` → „Mail senden“) schreibt die Server Action eine Zeile
+vom Typ `event_announcement` in die Outbox `notification_events`. `payload.recipients` enthält entweder alle
+Mitglieder mit Rolle `member`/`admin`/`board` und Status ≠ `cancelled` oder die einzeln eingegebenen Adressen.
+Die Edge Function verschickt jede Mail einzeln adressiert in Resend-Batches à 100 (`/emails/batch`), im Hintergrund
+(`EdgeRuntime.waitUntil`). Fortschritt steht in `payload.sent_count`; ein Retry setzt dort fort.
 
 ## Vorstands-Benachrichtigungen (Registrierung, Kündigung, Alumni-Antrag)
 
