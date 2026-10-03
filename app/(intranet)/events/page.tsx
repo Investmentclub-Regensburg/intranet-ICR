@@ -1,20 +1,42 @@
-import { MapPin, User } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
-import { getEvents } from "./actions";
+import { getEvents, type EventListItem } from "./actions";
+import { EventCard } from "@/components/events/EventCard";
 import { RegistrationButton } from "@/components/events/RegistrationButton";
+import { ShareEventButton } from "@/components/events/ShareEventButton";
+import { eventPath, splitUpcomingPast } from "@/lib/events";
 
 export default async function EventsPage() {
   const { user } = await getCachedAuth();
   const events = await getEvents();
 
+  const { upcoming, past } = splitUpcomingPast(events);
+
+  const renderEvent = (event: EventListItem, isPast: boolean) => (
+    <EventCard
+      key={event.id}
+      event={event}
+      href={eventPath(event.id)}
+      past={isPast}
+      actions={<ShareEventButton eventId={event.id} title={event.title} />}
+      footer={
+        event.requires_registration && (
+          <RegistrationButton
+            eventId={event.id}
+            eventTitle={event.title}
+            count={event.registration_count}
+            isRegistered={!!user && event.registered_user_ids.includes(user.id)}
+            closed={isPast}
+          />
+        )
+      }
+    />
+  );
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Events</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Veranstaltungen und Termine des ICR.
-        </p>
+        <p className="mt-1 text-sm text-muted-foreground">Veranstaltungen und Termine des ICR.</p>
       </div>
 
       {events.length === 0 ? (
@@ -22,77 +44,23 @@ export default async function EventsPage() {
           Noch keine Events vorhanden.
         </div>
       ) : (
-        <div className="mx-auto max-w-2xl space-y-4">
-          {events.map((event) => {
-            const date = event.event_date
-              ? new Date(
-                  event.event_date + (event.event_time ? "T" + event.event_time : "")
-                )
-              : null;
-            const dateStr =
-              date && !Number.isNaN(date.getTime())
-                ? date.toLocaleDateString("de-DE", {
-                    day: "2-digit",
-                    month: "long",
-                    year: "numeric",
-                    ...(event.event_time && {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                  })
-                : event.event_date;
-
-            return (
-              <Card key={event.id} className="overflow-hidden">
-                <CardContent className="p-0">
-                  <div className="flex items-center gap-3 p-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                      <User className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold">
-                        {event.organizer || "ICR"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{dateStr}</p>
-                    </div>
-                  </div>
-                  <div className="border-t px-3 pb-3 pt-2">
-                    <h2 className="font-semibold">{event.title}</h2>
-                    {event.description && (
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                        {event.description}
-                      </p>
-                    )}
-                  </div>
-                  {event.image_url && (
-                    <div className="w-full border-t">
-                      <img
-                        src={event.image_url}
-                        alt=""
-                        className="w-full object-cover"
-                        width={672}
-                        height={280}
-                      />
-                    </div>
-                  )}
-                  {event.location && (
-                    <div className="flex items-center gap-1.5 border-t px-3 py-2 text-xs text-muted-foreground">
-                      <MapPin className="h-3.5 w-3.5 shrink-0" />
-                      <span>{event.location}</span>
-                    </div>
-                  )}
-                  {event.requires_registration && (
-                    <RegistrationButton
-                      eventId={event.id}
-                      eventTitle={event.title}
-                      registrations={event.registrations}
-                      currentUserId={user?.id ?? null}
-                    />
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
+        <div className="mx-auto max-w-2xl space-y-8">
+          <section className="space-y-4">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Anstehend</h2>
+            {upcoming.length === 0 ? (
+              <p className="rounded-lg border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
+                Aktuell keine anstehenden Events.
+              </p>
+            ) : (
+              upcoming.map((e) => renderEvent(e, false))
+            )}
+          </section>
+          {past.length > 0 && (
+            <section className="space-y-4">
+              <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">Vergangen</h2>
+              {past.map((e) => renderEvent(e, true))}
+            </section>
+          )}
         </div>
       )}
     </div>

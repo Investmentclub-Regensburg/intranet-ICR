@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { LoginForm } from "./login-form";
+import { safeNextPath } from "@/lib/safe-redirect";
 import {
   Card,
   CardContent,
@@ -9,7 +10,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const next = safeNextPath((await searchParams).next) ?? undefined;
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
       <div className="w-full max-w-2xl space-y-8">
@@ -38,7 +45,7 @@ export default function LoginPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <LoginForm />
+              <LoginForm next={next} />
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 <Link
                   href="/forgot-password"

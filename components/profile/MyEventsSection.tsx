@@ -1,24 +1,9 @@
+import Link from "next/link";
 import { MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { getMyEvents } from "@/app/(intranet)/events/actions";
 import { UnregisterEventButton } from "./UnregisterEventButton";
-
-function formatEventDateTime(
-  event_date: string,
-  event_time: string | null
-): string {
-  const date = event_date
-    ? new Date(
-        event_date + (event_time ? "T" + event_time : "")
-      ).toLocaleDateString("de-DE", {
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-        ...(event_time && { hour: "2-digit", minute: "2-digit" }),
-      })
-    : event_date;
-  return date;
-}
+import { eventPath, formatEventWhen } from "@/lib/events";
 
 export async function MyEventsSection() {
   const { upcoming, attended } = await getMyEvents();
@@ -45,9 +30,11 @@ export async function MyEventsSection() {
                 className="flex flex-col gap-1 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
               >
                 <div className="min-w-0">
-                  <p className="font-medium">{event.title}</p>
+                  <Link href={eventPath(event.id)} className="block font-medium hover:text-primary hover:underline">
+                  {event.title}
+                </Link>
                   <p className="text-sm text-muted-foreground">
-                    {formatEventDateTime(event.event_date, event.event_time)}
+                    {formatEventWhen(event)}
                   </p>
                   {event.location && (
                     <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -83,9 +70,11 @@ export async function MyEventsSection() {
                 key={event.id}
                 className="rounded-lg border bg-muted/30 p-3"
               >
-                <p className="font-medium">{event.title}</p>
+                <Link href={eventPath(event.id)} className="block font-medium hover:text-primary hover:underline">
+                  {event.title}
+                </Link>
                 <p className="text-sm text-muted-foreground">
-                  {formatEventDateTime(event.event_date, event.event_time)}
+                  {formatEventWhen(event)}
                 </p>
                 {event.location && (
                   <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -9,7 +9,7 @@ import { loginAction } from "./actions";
 
 const initialState = { error: "", redirect: undefined as string | undefined };
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const router = useRouter();
   const [state, formAction] = useActionState(loginAction, initialState);
 
@@ -22,6 +22,7 @@ export function LoginForm() {
 
   return (
     <form action={formAction} className="space-y-4">
+      {next && <input type="hidden" name="next" value={next} />}
       <div className="space-y-2">
         <Label htmlFor="email">E-Mail</Label>
         <Input

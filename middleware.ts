@@ -1,6 +1,23 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isCancelledProfile } from "@/lib/profile-status";
+import { safeNextPath } from "@/lib/safe-redirect";
+
+// Alle Seiten der Route-Group (intranet) – nur mit Login erreichbar.
+const INTRANET_PREFIXES = [
+  "/dashboard",
+  "/admin",
+  "/events",
+  "/calendar",
+  "/news",
+  "/members",
+  "/board-members",
+  "/profile",
+  "/insights",
+  "/magazines",
+  "/contact",
+  "/whatsapp",
+];
 
 export async function middleware(request: NextRequest) {
   // 1. Initialisiere die Response
@@ -62,24 +79,25 @@ export async function middleware(request: NextRequest) {
   // 4. Definiere die Zonen
   // Wichtig: /reset-password darf NICHT bei isAuthRoute stehen – sonst würde
   // "if (isAuthRoute && user) -> dashboard" den User nach dem E-Mail-Link sofort ins Intranet schicken.
+  const { pathname, search } = request.nextUrl;
   const isAuthRoute =
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/register") ||
-    request.nextUrl.pathname.startsWith("/forgot-password");
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/register") ||
+    pathname.startsWith("/forgot-password");
   const isProtectedRoute =
-    request.nextUrl.pathname.startsWith("/dashboard") ||
-    request.nextUrl.pathname.startsWith("/admin") ||
-    request.nextUrl.pathname.startsWith("/reset-password");
+    INTRANET_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)) ||
+    pathname.startsWith("/reset-password");
 
   // 5. Die strikten Regeln (Kein Ping-Pong mehr)
   if (isAuthRoute && user) {
-    // Eingeloggt, aber will zum Login? Ab ins Dashboard.
-    return redirectWithSupabaseCookies("/dashboard");
+    // Eingeloggt, aber will zum Login? Ab ins Dashboard (oder zur ursprünglich angefragten Seite).
+    return redirectWithSupabaseCookies(safeNextPath(request.nextUrl.searchParams.get("next")) ?? "/dashboard");
   }
 
   if (isProtectedRoute && !user) {
-    // Nicht eingeloggt, will aber ins Dashboard/Admin? Ab zum Login.
-    return redirectWithSupabaseCookies("/login");
+    // Nicht eingeloggt? Ab zum Login – und danach zurück zur angefragten Seite (z. B. geteilter Event-Link).
+    if (pathname.startsWith("/reset-password")) return redirectWithSupabaseCookies("/login");
+    return redirectWithSupabaseCookies(`/login?next=${encodeURIComponent(pathname + search)}`);
   }
 
   // Alles in Ordnung, lass ihn passieren

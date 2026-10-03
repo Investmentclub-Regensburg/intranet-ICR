@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -15,46 +16,46 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { toggleRegistration } from "@/app/(intranet)/events/actions";
-import type { EventRegistration } from "@/app/(intranet)/events/actions";
 
 type Props = {
   eventId: string;
   eventTitle: string;
-  registrations: EventRegistration[];
-  currentUserId: string | null;
+  count: number;
+  isRegistered: boolean;
+  /** Event ist vorbei – keine Anmeldung mehr möglich. */
+  closed?: boolean;
 };
 
-export function RegistrationButton({
-  eventId,
-  eventTitle,
-  registrations,
-  currentUserId,
-}: Props) {
+export function RegistrationButton({ eventId, eventTitle, count, isRegistered, closed }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const isRegistered = currentUserId
-    ? registrations.some((r) => r.user_id === currentUserId)
-    : false;
+  const router = useRouter();
 
   async function handleToggle() {
     setLoading(true);
     try {
       const { error } = await toggleRegistration(eventId, isRegistered);
-      if (error) toast.error(error);
-      else setOpen(false);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      setOpen(false);
+      toast.success(isRegistered ? "Abgemeldet." : "Angemeldet.");
+      router.refresh();
     } finally {
       setLoading(false);
     }
   }
 
-  const count = registrations.length;
-
   return (
-    <div className="flex items-center justify-between border-t px-3 py-2">
+    <div className="flex items-center justify-between gap-3 border-t px-3 py-2">
       <span className="text-xs text-muted-foreground">
         {count} {count === 1 ? "Person nimmt teil" : "Personen nehmen teil"}
+        {isRegistered && " · du bist dabei"}
       </span>
-      {currentUserId && (
+      {closed ? (
+        <span className="text-xs text-muted-foreground">Anmeldung geschlossen</span>
+      ) : (
         <AlertDialog open={open} onOpenChange={setOpen}>
           <AlertDialogTrigger asChild>
             <Button variant={isRegistered ? "secondary" : "default"} size="sm">
@@ -63,13 +64,11 @@ export function RegistrationButton({
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>
-                {isRegistered ? "Abmeldung" : "Anmeldung"}
-              </AlertDialogTitle>
+              <AlertDialogTitle>{isRegistered ? "Abmeldung" : "Anmeldung"}</AlertDialogTitle>
               <AlertDialogDescription>
                 {isRegistered
-                  ? `Möchtest du deine Anmeldung für „${eventTitle}" zurückziehen?`
-                  : `Möchtest du dich für „${eventTitle}" verbindlich anmelden?`}
+                  ? `Möchtest du deine Anmeldung für „${eventTitle}“ zurückziehen?`
+                  : `Möchtest du dich für „${eventTitle}“ verbindlich anmelden?`}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

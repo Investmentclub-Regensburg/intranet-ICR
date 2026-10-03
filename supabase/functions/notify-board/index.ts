@@ -9,6 +9,8 @@
 // (Retry für Events, deren Versand fehlgeschlagen ist).
 // Aufruf mit { "action": "health" } zeigt, welche Secrets gesetzt sind (nur Namen/Längen, keine Werte).
 // Events vom Typ alumni_decided gehen an das Mitglied (payload.recipient), alle anderen an den Vorstand.
+// Events vom Typ event_announcement (neues Event) gehen an payload.recipients – einzeln adressiert,
+// in Resend-Batches à 100. Der Fortschritt steht in payload.sent_count, ein Retry setzt dort fort.
 //
 // Secrets (Dashboard → Edge Functions → Secrets oder `supabase secrets set`):
 //   NOTIFY_BOARD_SECRET  – muss dem Vault-Secret notify_board_secret entsprechen
@@ -22,7 +24,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-type EventType = "member_registered" | "member_cancelled" | "alumni_requested" | "alumni_decided" | "test";
+type EventType =
+  | "member_registered"
+  | "member_cancelled"
+  | "alumni_requested"
+  | "alumni_decided"
+  | "event_announcement"
+  | "test";
 
 type NotificationEvent = {
   id: string;
@@ -51,6 +59,9 @@ const INTRANET_URL = (Deno.env.get("INTRANET_URL") ?? "https://myicr.investmentc
 );
 
 const MAX_BATCH = 20;
+// Resend: max. 100 Mails pro Batch-Request, Default-Rate-Limit 2 Requests/Sekunde.
+const RESEND_BATCH_SIZE = 100;
+const RESEND_BATCH_PAUSE_MS = 600;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -118,7 +129,16 @@ function renderRows(rows: Array<[string, string]>): { html: string; text: string
   return { html, text };
 }
 
-function wrapHtml(title: string, intro: string, rowsHtml: string, link?: { href: string; label: string }): string {
+const DEFAULT_FOOTER =
+  "Automatische Benachrichtigung aus dem ICR Intranet. Antworten auf diese E-Mail werden nicht gelesen.";
+
+function wrapHtml(
+  title: string,
+  intro: string,
+  rowsHtml: string,
+  link?: { href: string; label: string },
+  opts: { footer?: string; headerHtml?: string; afterRowsHtml?: string } = {}
+): string {
   const linkHtml = link
     ? `<p style="margin:20px 0 0"><a href="${escapeHtml(link.href)}" style="display:inline-block;padding:10px 16px;background:#111827;color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px">${escapeHtml(link.label)}</a></p>`
     : "";
@@ -126,11 +146,13 @@ function wrapHtml(title: string, intro: string, rowsHtml: string, link?: { href:
 <html lang="de"><body style="margin:0;padding:24px;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:24px">
     <p style="margin:0 0 4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280">ICR Intranet</p>
+    ${opts.headerHtml ?? ""}
     <h1 style="margin:0 0 12px;font-size:20px">${escapeHtml(title)}</h1>
     <p style="margin:0 0 16px;font-size:14px;line-height:1.5">${escapeHtml(intro)}</p>
     <table style="border-collapse:collapse;font-size:14px;width:100%">${rowsHtml}</table>
+    ${opts.afterRowsHtml ?? ""}
     ${linkHtml}
-    <p style="margin:24px 0 0;font-size:12px;color:#9ca3af">Automatische Benachrichtigung aus dem ICR Intranet. Antworten auf diese E-Mail werden nicht gelesen.</p>
+    <p style="margin:24px 0 0;font-size:12px;color:#9ca3af">${escapeHtml(opts.footer ?? DEFAULT_FOOTER)}</p>
   </div>
 </body></html>`;
 }
@@ -138,6 +160,76 @@ function wrapHtml(title: string, intro: string, rowsHtml: string, link?: { href:
 function adminLink(path: string, label: string): { href: string; label: string } | undefined {
   if (!INTRANET_URL) return undefined;
   return { href: `${INTRANET_URL}${path}`, label };
+}
+
+// Datum/Uhrzeit der Events sind Berliner Wanduhrzeit ohne Zeitzone → ohne Date-Umrechnung formatieren.
+function formatEventDate(v: unknown): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str(v));
+  if (!m) return str(v) || "–";
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).toLocaleDateString("de-DE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatTimeRange(start: unknown, end: unknown): string {
+  const s = str(start).slice(0, 5);
+  const e = str(end).slice(0, 5);
+  if (!s) return "";
+  if (!e) return `${s} Uhr`;
+  return `${s} – ${e} Uhr${e <= s ? " (Folgetag)" : ""}`;
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max).trimEnd()} …` : text;
+}
+
+function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
+  const e = (ev.payload?.event ?? {}) as Record<string, unknown>;
+  const eventId = str(ev.payload?.event_id) || str(e.id);
+  const title = str(e.title) || "Neues Event";
+  const when = [formatEventDate(e.event_date), formatTimeRange(e.event_time, e.end_time)].filter(Boolean).join(", ");
+  const description = truncate(str(e.description), 600);
+  const imageUrl = str(e.image_url);
+  const needsRegistration = Boolean(e.requires_registration);
+
+  const rows: Array<[string, string]> = [["Wann", when]];
+  if (str(e.location)) rows.push(["Wo", str(e.location)]);
+  if (str(e.organizer)) rows.push(["Veranstalter", str(e.organizer)]);
+  if (needsRegistration) rows.push(["Anmeldung", "Erforderlich – bitte im Intranet anmelden"]);
+  const r = renderRows(rows);
+
+  const intro = "Im ICR Intranet gibt es ein neues Event:";
+  // Nur Bilder aus dem eigenen Supabase-Storage einbetten.
+  const headerHtml =
+    imageUrl && SUPABASE_URL && imageUrl.startsWith(`${SUPABASE_URL}/storage/v1/object/public/`)
+      ? `<img src="${escapeHtml(imageUrl)}" alt="" style="display:block;width:100%;max-height:280px;object-fit:cover;border-radius:8px;margin:0 0 16px" />`
+      : "";
+  const afterRowsHtml = description
+    ? `<p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#374151">${escapeHtml(description).replace(/\n/g, "<br />")}</p>`
+    : "";
+  const link = adminLink(`/events/${encodeURIComponent(eventId)}`, needsRegistration ? "Zum Event & anmelden" : "Event im Intranet ansehen");
+  const footer = "Du erhältst diese E-Mail als Mitglied des Investmentclub Regensburg. Bei Fragen antworte einfach auf diese Mail.";
+
+  return {
+    subject: `Neues Event: ${title}`,
+    html: wrapHtml(title, intro, r.html, link, { footer, headerHtml, afterRowsHtml }),
+    text: [
+      title,
+      "",
+      intro,
+      "",
+      r.text,
+      description ? `\n${description}` : "",
+      link ? `\n${link.label}: ${link.href}` : "",
+      "",
+      footer,
+    ].join("\n"),
+    replyTo: TO_EMAILS[0],
+  };
 }
 
 function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | null }): Mail {
@@ -287,6 +379,109 @@ async function sendViaResend(mail: Mail): Promise<void> {
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Event-Ankündigung an viele Empfänger: jede Mail einzeln adressiert, in Batches à 100.
+ * Nach jedem Batch wird payload.sent_count gespeichert, damit ein Retry nicht doppelt versendet.
+ * Der Idempotency-Key schützt zusätzlich, falls der Batch durchging, das Speichern aber nicht.
+ */
+async function sendAnnouncement(
+  supabase: ReturnType<typeof createClient>,
+  ev: NotificationEvent
+): Promise<void> {
+  if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY fehlt (Edge Function Secret)");
+  const recipients = (Array.isArray(ev.payload?.recipients) ? ev.payload.recipients : [])
+    .map((r) => str(r))
+    .filter(Boolean);
+  if (recipients.length === 0) throw new Error("Keine Empfänger in payload.recipients");
+
+  const mail = buildEventAnnouncement(ev);
+  let sent = Math.max(0, Number(ev.payload?.sent_count ?? 0) || 0);
+
+  while (sent < recipients.length) {
+    const chunk = recipients.slice(sent, sent + RESEND_BATCH_SIZE);
+    const res = await fetch("https://api.resend.com/emails/batch", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `${ev.id}-${sent}`,
+      },
+      body: JSON.stringify(
+        chunk.map((to) => ({
+          from: FROM_EMAIL,
+          to: [to],
+          ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
+          subject: mail.subject,
+          html: mail.html,
+          text: mail.text,
+        }))
+      ),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Resend ${res.status} nach ${sent}/${recipients.length} Mails: ${body.slice(0, 500)}`);
+    }
+
+    sent += chunk.length;
+    await supabase
+      .from("notification_events")
+      .update({ payload: { ...ev.payload, sent_count: sent } })
+      .eq("id", ev.id);
+    ev.payload = { ...ev.payload, sent_count: sent };
+
+    if (sent < recipients.length) await sleep(RESEND_BATCH_PAUSE_MS);
+  }
+}
+
+type Result = { id: string; type: string; ok: boolean; error?: string };
+
+async function processEvents(
+  supabase: ReturnType<typeof createClient>,
+  events: NotificationEvent[]
+): Promise<Result[]> {
+  const results: Result[] = [];
+
+  for (const ev of events) {
+    try {
+      let emailConfirmed: boolean | null = null;
+      if (ev.type === "member_registered") {
+        const userId = str(ev.payload?.user_id);
+        if (userId) {
+          const { data } = await supabase.auth.admin.getUserById(userId);
+          emailConfirmed = data?.user ? Boolean(data.user.email_confirmed_at) : null;
+        }
+      }
+
+      if (ev.type === "event_announcement") {
+        await sendAnnouncement(supabase, ev);
+      } else {
+        await sendViaResend(buildMail(ev, { emailConfirmed }));
+      }
+
+      await supabase
+        .from("notification_events")
+        .update({ sent_at: new Date().toISOString(), attempts: ev.attempts + 1, last_error: null })
+        .eq("id", ev.id);
+
+      results.push({ id: ev.id, type: ev.type, ok: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await supabase
+        .from("notification_events")
+        .update({ attempts: ev.attempts + 1, last_error: message.slice(0, 1000) })
+        .eq("id", ev.id);
+      results.push({ id: ev.id, type: ev.type, ok: false, error: message });
+      console.error(`notify-board: Event ${ev.id} (${ev.type}) fehlgeschlagen: ${message}`);
+    }
+  }
+
+  return results;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
@@ -366,39 +561,17 @@ Deno.serve(async (req) => {
     return json({ error: `Events konnten nicht geladen werden: ${loadError.message}` }, 500);
   }
 
-  const results: Array<{ id: string; type: string; ok: boolean; error?: string }> = [];
+  const pending = (events ?? []) as NotificationEvent[];
+  const work = processEvents(supabase, pending);
 
-  for (const ev of (events ?? []) as NotificationEvent[]) {
-    try {
-      let emailConfirmed: boolean | null = null;
-      if (ev.type === "member_registered") {
-        const userId = str(ev.payload?.user_id);
-        if (userId) {
-          const { data } = await supabase.auth.admin.getUserById(userId);
-          emailConfirmed = data?.user ? Boolean(data.user.email_confirmed_at) : null;
-        }
-      }
-
-      const mail = buildMail(ev, { emailConfirmed });
-      await sendViaResend(mail);
-
-      await supabase
-        .from("notification_events")
-        .update({ sent_at: new Date().toISOString(), attempts: ev.attempts + 1, last_error: null })
-        .eq("id", ev.id);
-
-      results.push({ id: ev.id, type: ev.type, ok: true });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      await supabase
-        .from("notification_events")
-        .update({ attempts: ev.attempts + 1, last_error: message.slice(0, 1000) })
-        .eq("id", ev.id);
-      results.push({ id: ev.id, type: ev.type, ok: false, error: message });
-      console.error(`notify-board: Event ${ev.id} (${ev.type}) fehlgeschlagen: ${message}`);
-    }
+  // Rundmails an viele Mitglieder dauern länger als der pg_net-Timeout (8 s):
+  // sofort antworten und im Hintergrund weiterarbeiten.
+  if (pending.some((ev) => ev.type === "event_announcement")) {
+    EdgeRuntime.waitUntil(work);
+    return json({ accepted: pending.length }, 202);
   }
 
+  const results = await work;
   const failed = results.filter((r) => !r.ok).length;
   return json({ processed: results.length, failed, results }, failed > 0 ? 502 : 200);
 });

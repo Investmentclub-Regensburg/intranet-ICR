@@ -10,7 +10,9 @@ import {
   setYear,
 } from "date-fns";
 import { de } from "date-fns/locale";
+import Link from "next/link";
 import { getEvents } from "@/app/(intranet)/events/actions";
+import { eventPath, shortTime } from "@/lib/events";
 import { CalendarNav } from "@/components/calendar/CalendarNav";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
@@ -47,7 +49,6 @@ export default async function CalendarPage({
   const { year, month } = parseMonthYear(params);
 
   const events = await getEvents();
-  const now = new Date();
   const viewDate = setMonth(setYear(new Date(), year), month - 1);
   const monthStart = startOfMonth(viewDate);
   const monthEnd = endOfMonth(viewDate);
@@ -123,17 +124,17 @@ export default async function CalendarPage({
                 </span>
                 <div className="mt-1 flex flex-1 flex-col gap-1 overflow-hidden">
                   {dayEvents.slice(0, 3).map((ev) => (
-                    <div
+                    <Link
                       key={ev.id}
-                      className="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground shadow-xs"
+                      href={eventPath(ev.id)}
+                      title={ev.title}
+                      className="truncate rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground shadow-xs transition-opacity hover:opacity-90"
                     >
                       {ev.event_time && (
-                        <span className="mr-1 opacity-90">
-                          {ev.event_time.slice(0, 5)}
-                        </span>
+                        <span className="mr-1 opacity-90">{shortTime(ev.event_time)}</span>
                       )}
-                      <span className="truncate font-medium">{ev.title}</span>
-                    </div>
+                      <span className="font-medium">{ev.title}</span>
+                    </Link>
                   ))}
                   {dayEvents.length > 3 && (
                     <span className="text-xs text-muted-foreground">
