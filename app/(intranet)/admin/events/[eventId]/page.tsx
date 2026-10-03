@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +60,12 @@ export default async function AdminEventDetailPage({ params }: Props) {
             <Link href={eventPath(event.id)}>
               <ExternalLink className="h-4 w-4" />
               Ansehen
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/admin/events/${event.id}/edit`}>
+              <Pencil className="h-4 w-4" />
+              Bearbeiten
             </Link>
           </Button>
           <ShareEventButton eventId={event.id} title={event.title} label />

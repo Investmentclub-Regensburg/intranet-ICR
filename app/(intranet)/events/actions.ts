@@ -242,7 +242,7 @@ export async function getAnnouncementRecipientCount(): Promise<number> {
 // Schreiben
 // ---------------------------------------------------------------------------
 
-export type CreateEventInput = {
+export type EventFormInput = {
   title: string;
   description: string;
   event_date: string;
@@ -250,10 +250,18 @@ export type CreateEventInput = {
   end_time: string;
   location: string;
   organizer: string;
+  requires_registration: boolean;
+};
+
+export type CreateEventInput = EventFormInput & {
   /** Pfad im Bucket event-images, vom Client direkt hochgeladen (`<userId>/<uuid>.<ext>`). */
   image_path: string | null;
-  requires_registration: boolean;
   announce: AnnouncementTarget | null;
+};
+
+export type UpdateEventInput = EventFormInput & {
+  /** Bild behalten, entfernen oder durch einen neuen Upload ersetzen. */
+  image: "keep" | "remove" | { path: string };
 };
 
 export type CreateEventResult = {
@@ -264,34 +272,66 @@ export type CreateEventResult = {
   announceError: string;
 };
 
+/** Gemeinsame Validierung für Anlegen und Bearbeiten. Liefert die DB-Spalten oder eine Fehlermeldung. */
+function parseEventFields(input: EventFormInput) {
+  const title = input.title?.trim() ?? "";
+  const eventDate = input.event_date?.trim() ?? "";
+  const eventTime = input.event_time?.trim().slice(0, 5) ?? "";
+  const endTime = input.end_time?.trim().slice(0, 5) ?? "";
+
+  if (!title) return { error: "Titel ist Pflicht." };
+  if (title.length > 200) return { error: "Titel ist zu lang (max. 200 Zeichen)." };
+  if (!DATE_RE.test(eventDate) || Number.isNaN(Date.parse(eventDate))) return { error: "Bitte ein gültiges Datum wählen." };
+  if (eventTime && !TIME_RE.test(eventTime)) return { error: "Ungültige Startzeit." };
+  if (endTime && !TIME_RE.test(endTime)) return { error: "Ungültige Endzeit." };
+  if (endTime && !eventTime) return { error: "Für eine Endzeit bitte auch eine Startzeit angeben." };
+  if (endTime && endTime === eventTime) return { error: "Endzeit muss nach der Startzeit liegen." };
+  if ((input.description ?? "").length > 5000) return { error: "Beschreibung ist zu lang (max. 5000 Zeichen)." };
+
+  return {
+    error: "",
+    row: {
+      title,
+      description: input.description?.trim() || null,
+      event_date: eventDate,
+      event_time: eventTime || null,
+      end_time: endTime || null,
+      location: input.location?.trim() || null,
+      organizer: input.organizer?.trim() || null,
+      requires_registration: !!input.requires_registration,
+    },
+  };
+}
+
+/** Öffentliche URL zu einem frisch hochgeladenen Bild – nur aus dem eigenen Upload-Ordner, keine beliebigen URLs. */
+async function imageUrlFromPath(path: string, userId: string): Promise<string | null> {
+  if (!IMAGE_PATH_RE.test(path) || !path.startsWith(`${userId}/`)) return null;
+  const supabase = await getCachedSupabase();
+  return supabase.storage.from(EVENT_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+async function removeStoredImage(imageUrl: string | null) {
+  const marker = `/object/public/${EVENT_IMAGE_BUCKET}/`;
+  if (!imageUrl?.includes(marker)) return;
+  const path = decodeURIComponent(imageUrl.split(marker)[1] ?? "");
+  if (!path) return;
+  const supabase = await getCachedSupabase();
+  await supabase.storage.from(EVENT_IMAGE_BUCKET).remove([path]);
+}
+
 export async function createEvent(input: CreateEventInput): Promise<CreateEventResult> {
   const fail = (error: string): CreateEventResult => ({ id: null, error, announced: 0, announceError: "" });
 
   const auth = await requireAdmin();
   if ("error" in auth) return fail(auth.error);
 
-  const title = input.title?.trim() ?? "";
-  const eventDate = input.event_date?.trim() ?? "";
-  const eventTime = input.event_time?.trim() ?? "";
-  const endTime = input.end_time?.trim() ?? "";
-
-  if (!title) return fail("Titel ist Pflicht.");
-  if (title.length > 200) return fail("Titel ist zu lang (max. 200 Zeichen).");
-  if (!DATE_RE.test(eventDate) || Number.isNaN(Date.parse(eventDate))) return fail("Bitte ein gültiges Datum wählen.");
-  if (eventTime && !TIME_RE.test(eventTime)) return fail("Ungültige Startzeit.");
-  if (endTime && !TIME_RE.test(endTime)) return fail("Ungültige Endzeit.");
-  if (endTime && !eventTime) return fail("Für eine Endzeit bitte auch eine Startzeit angeben.");
-  if (endTime && endTime === eventTime) return fail("Endzeit muss nach der Startzeit liegen.");
-  if ((input.description ?? "").length > 5000) return fail("Beschreibung ist zu lang (max. 5000 Zeichen).");
+  const parsed = parseEventFields(input);
+  if (!parsed.row) return fail(parsed.error);
 
   let imageUrl: string | null = null;
   if (input.image_path) {
-    // Nur Bilder aus dem eigenen Upload-Ordner akzeptieren – keine beliebigen URLs in der DB.
-    if (!IMAGE_PATH_RE.test(input.image_path) || !input.image_path.startsWith(`${auth.userId}/`)) {
-      return fail("Ungültiges Bild.");
-    }
-    const supabase = await getCachedSupabase();
-    imageUrl = supabase.storage.from(EVENT_IMAGE_BUCKET).getPublicUrl(input.image_path).data.publicUrl;
+    imageUrl = await imageUrlFromPath(input.image_path, auth.userId);
+    if (!imageUrl) return fail("Ungültiges Bild.");
   }
 
   if (input.announce?.mode === "custom") {
@@ -302,18 +342,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   const supabase = await getCachedSupabase();
   const { data: row, error } = await supabase
     .from("events")
-    .insert({
-      title,
-      description: input.description?.trim() || null,
-      event_date: eventDate,
-      event_time: eventTime || null,
-      end_time: endTime || null,
-      location: input.location?.trim() || null,
-      organizer: input.organizer?.trim() || null,
-      image_url: imageUrl,
-      requires_registration: !!input.requires_registration,
-      created_by: auth.userId,
-    })
+    .insert({ ...parsed.row, image_url: imageUrl, created_by: auth.userId })
     .select("id")
     .single();
 
@@ -331,6 +360,44 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   return { id, error: "", announced: result.count, announceError: result.error };
 }
 
+export async function updateEvent(eventId: string, input: UpdateEventInput): Promise<{ error: string }> {
+  const auth = await requireAdmin();
+  if ("error" in auth) return { error: auth.error };
+
+  const parsed = parseEventFields(input);
+  if (!parsed.row) return { error: parsed.error };
+
+  const supabase = await getCachedSupabase();
+  const { data: current } = await supabase.from("events").select("image_url").eq("id", eventId).maybeSingle();
+  if (!current) return { error: "Event nicht gefunden." };
+  const oldImageUrl = (current.image_url as string | null) ?? null;
+
+  let imageUrl = oldImageUrl;
+  if (input.image === "remove") {
+    imageUrl = null;
+  } else if (input.image !== "keep") {
+    imageUrl = await imageUrlFromPath(input.image.path, auth.userId);
+    if (!imageUrl) return { error: "Ungültiges Bild." };
+  }
+
+  const { data: updated, error } = await supabase
+    .from("events")
+    .update({ ...parsed.row, image_url: imageUrl })
+    .eq("id", eventId)
+    .select("id");
+  if (error || !updated?.length) {
+    console.error("updateEvent:", error);
+    return { error: "Änderungen konnten nicht gespeichert werden." };
+  }
+
+  // Altes Bild erst nach erfolgreichem Update aus dem Storage löschen.
+  if (oldImageUrl && oldImageUrl !== imageUrl) await removeStoredImage(oldImageUrl);
+
+  invalidateEvents();
+  revalidatePath(`/admin/events/${eventId}`);
+  return { error: "" };
+}
+
 export async function deleteEvent(eventId: string): Promise<{ error: string }> {
   const auth = await requireAdmin();
   if ("error" in auth) return { error: auth.error };
@@ -345,12 +412,7 @@ export async function deleteEvent(eventId: string): Promise<{ error: string }> {
   if (!deleted?.length) return { error: "Event nicht gefunden." };
 
   // Bild aus dem Storage entfernen (Anmeldungen löscht die DB per ON DELETE CASCADE).
-  const imageUrl = deleted[0].image_url as string | null;
-  const marker = `/object/public/${EVENT_IMAGE_BUCKET}/`;
-  if (imageUrl?.includes(marker)) {
-    const path = decodeURIComponent(imageUrl.split(marker)[1] ?? "");
-    if (path) await supabase.storage.from(EVENT_IMAGE_BUCKET).remove([path]);
-  }
+  await removeStoredImage((deleted[0].image_url as string | null) ?? null);
 
   invalidateEvents();
   return { error: "" };

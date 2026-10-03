@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ArrowLeft, CalendarPlus, ChevronRight, Users } from "lucide-react";
+import { ArrowLeft, CalendarPlus, ChevronRight, Pencil, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { EventCreator } from "@/components/admin/EventCreator";
+import { EventForm } from "@/components/admin/EventForm";
 import { DeleteEventButton } from "@/components/admin/DeleteEventButton";
 import { ShareEventButton } from "@/components/events/ShareEventButton";
 import { getAnnouncementRecipientCount, getEvents, type EventListItem } from "@/app/(intranet)/events/actions";
@@ -29,6 +29,11 @@ function EventRow({ event }: { event: EventListItem }) {
           <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
         </div>
       </Link>
+      <Button variant="ghost" size="icon-sm" asChild>
+        <Link href={`/admin/events/${event.id}/edit`} aria-label={`${event.title} bearbeiten`} title="Bearbeiten">
+          <Pencil className="h-4 w-4" />
+        </Link>
+      </Button>
       <ShareEventButton eventId={event.id} title={event.title} />
       <DeleteEventButton eventId={event.id} title={event.title} />
     </li>
@@ -64,14 +69,14 @@ export default async function AdminEventsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <EventCreator memberCount={memberCount} />
+          <EventForm memberCount={memberCount} />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Events verwalten</CardTitle>
-          <CardDescription>Event anklicken für Teilnehmer und Mailversand.</CardDescription>
+          <CardDescription>Event anklicken für Teilnehmer und Mailversand, Stift zum Bearbeiten.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {events.length === 0 ? (

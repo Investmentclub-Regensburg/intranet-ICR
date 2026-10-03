@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, ImagePlus, Mail, MailX, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -19,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { createClient } from "@/utils/supabase/client";
-import { createEvent } from "@/app/(intranet)/events/actions";
+import { createEvent, updateEvent, type UpdateEventInput } from "@/app/(intranet)/events/actions";
 import { EventCard } from "@/components/events/EventCard";
 import { ShareEventButton, eventUrl } from "@/components/events/ShareEventButton";
 import {
@@ -27,13 +28,17 @@ import {
   EVENT_IMAGE_MAX_BYTES,
   EVENT_IMAGE_TYPES,
   eventPath,
+  shortTime,
   type AnnouncementTarget,
+  type EventCore,
 } from "@/lib/events";
 import { AnnouncementRecipients, recipientCount } from "./AnnouncementRecipients";
 
 type Props = {
-  /** Anzahl aktiver Mitglieder für die Rundmail. */
-  memberCount: number;
+  /** Anzahl aktiver Mitglieder für die Rundmail (nur beim Anlegen). */
+  memberCount?: number;
+  /** Gesetzt = Bearbeiten-Modus für dieses Event. */
+  event?: EventCore;
 };
 
 type Created = { id: string; title: string; announced: number; announceError: string };
@@ -52,14 +57,32 @@ const EMPTY = {
 const textareaClass =
   "border-input bg-background placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 flex w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px]";
 
+function formFromEvent(event: EventCore): typeof EMPTY {
+  return {
+    title: event.title,
+    organizer: event.organizer ?? "",
+    location: event.location ?? "",
+    eventDate: event.event_date,
+    eventTime: shortTime(event.event_time),
+    endTime: shortTime(event.end_time),
+    description: event.description ?? "",
+    requiresRegistration: event.requires_registration,
+  };
+}
+
 function todayInBerlin(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date());
 }
 
-export function EventCreator({ memberCount }: Props) {
-  const [form, setForm] = useState(EMPTY);
+/** Formular zum Anlegen und Bearbeiten von Events (mit Live-Vorschau). */
+export function EventForm({ memberCount = 0, event }: Props) {
+  const isEdit = !!event;
+  const router = useRouter();
+  const [form, setForm] = useState(() => (event ? formFromEvent(event) : EMPTY));
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  /** Bereits gespeichertes Bild (nur Bearbeiten); null = entfernt bzw. keins. */
+  const [existingImage, setExistingImage] = useState<string | null>(event?.image_url ?? null);
   const [announce, setAnnounce] = useState<AnnouncementTarget | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [created, setCreated] = useState<Created | null>(null);
@@ -99,6 +122,7 @@ export function EventCreator({ memberCount }: Props) {
   function clearImage() {
     setImageFile(null);
     setImagePreview(null);
+    setExistingImage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -151,7 +175,7 @@ export function EventCreator({ memberCount }: Props) {
         }
       }
 
-      const result = await createEvent({
+      const fields = {
         title: form.title,
         description: form.description,
         event_date: form.eventDate,
@@ -159,10 +183,28 @@ export function EventCreator({ memberCount }: Props) {
         end_time: form.endTime,
         location: form.location,
         organizer: form.organizer,
-        image_path: imagePath,
         requires_registration: form.requiresRegistration,
-        announce,
-      });
+      };
+
+      if (event) {
+        const image: UpdateEventInput["image"] = imagePath
+          ? { path: imagePath }
+          : existingImage
+            ? "keep"
+            : "remove";
+        const { error } = await updateEvent(event.id, { ...fields, image });
+        if (error) {
+          if (imagePath) await supabase.storage.from(EVENT_IMAGE_BUCKET).remove([imagePath]);
+          toast.error(error);
+          return;
+        }
+        toast.success("Änderungen gespeichert.");
+        router.push(`/admin/events/${event.id}`);
+        router.refresh();
+        return;
+      }
+
+      const result = await createEvent({ ...fields, image_path: imagePath, announce });
 
       if (result.error || !result.id) {
         if (imagePath) await supabase.storage.from(EVENT_IMAGE_BUCKET).remove([imagePath]);
@@ -312,11 +354,13 @@ export function EventCreator({ memberCount }: Props) {
               <div className="flex items-center gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
                   <ImagePlus className="h-4 w-4" />
-                  {imageFile ? "Anderes Bild" : "Bild auswählen"}
+                  {imageFile || existingImage ? "Anderes Bild" : "Bild auswählen"}
                 </Button>
-                {imageFile && (
+                {(imageFile || existingImage) && (
                   <>
-                    <span className="min-w-0 truncate text-xs text-muted-foreground">{imageFile.name}</span>
+                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                      {imageFile ? imageFile.name : "Aktuelles Bild"}
+                    </span>
                     <Button type="button" variant="ghost" size="icon-sm" onClick={clearImage} aria-label="Bild entfernen">
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -345,42 +389,62 @@ export function EventCreator({ memberCount }: Props) {
             </div>
           </fieldset>
 
-          <fieldset className="space-y-3 rounded-lg border p-4" disabled={isPending} aria-label="Mitglieder per E-Mail informieren">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-sm font-semibold">Mitglieder per E-Mail informieren</h3>
-                <p className="text-xs text-muted-foreground">
-                  Optional: Mail mit Vorschau und Link zum Event.
-                </p>
+          {!isEdit && (
+            <fieldset className="space-y-3 rounded-lg border p-4" disabled={isPending} aria-label="Mitglieder per E-Mail informieren">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Mitglieder per E-Mail informieren</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Optional: Mail mit Vorschau und Link zum Event.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant={announce ? "secondary" : "outline"}
+                  size="sm"
+                  aria-pressed={!!announce}
+                  onClick={() => setAnnounce(announce ? null : { mode: "custom", emails: [] })}
+                >
+                  {announce ? <MailX className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+                  {announce ? "Keine Mail senden" : "Mail senden"}
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant={announce ? "secondary" : "outline"}
-                size="sm"
-                aria-pressed={!!announce}
-                onClick={() => setAnnounce(announce ? null : { mode: "custom", emails: [] })}
-              >
-                {announce ? <MailX className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
-                {announce ? "Keine Mail senden" : "Mail senden"}
-              </Button>
-            </div>
-            {announce && (
-              <AnnouncementRecipients
-                value={announce}
-                onChange={setAnnounce}
-                memberCount={memberCount}
-                disabled={isPending}
-              />
-            )}
-          </fieldset>
+              {announce && (
+                <AnnouncementRecipients
+                  value={announce}
+                  onChange={setAnnounce}
+                  memberCount={memberCount}
+                  disabled={isPending}
+                />
+              )}
+            </fieldset>
+          )}
 
-          <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
-            {isPending
-              ? "Wird erstellt…"
-              : announce && announceCount > 0
-                ? `Event erstellen & an ${announceCount} senden`
-                : "Event erstellen"}
-          </Button>
+          {isEdit && event.requires_registration && !form.requiresRegistration && (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+              Die Anmeldung wird deaktiviert. Bestehende Anmeldungen bleiben gespeichert, sind für Mitglieder aber
+              nicht mehr sichtbar.
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
+              {isPending
+                ? isEdit
+                  ? "Wird gespeichert…"
+                  : "Wird erstellt…"
+                : isEdit
+                  ? "Änderungen speichern"
+                  : announce && announceCount > 0
+                    ? `Event erstellen & an ${announceCount} senden`
+                    : "Event erstellen"}
+            </Button>
+            {isEdit && (
+              <Button type="button" variant="ghost" disabled={isPending} asChild>
+                <Link href={`/admin/events/${event.id}`}>Abbrechen</Link>
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="lg:sticky lg:top-4 lg:self-start">
@@ -395,7 +459,7 @@ export function EventCreator({ memberCount }: Props) {
               end_time: form.endTime || null,
               location: form.location.trim() || null,
               organizer: form.organizer.trim() || null,
-              image_url: imagePreview,
+              image_url: imagePreview ?? existingImage,
               requires_registration: form.requiresRegistration,
             }}
             footer={
