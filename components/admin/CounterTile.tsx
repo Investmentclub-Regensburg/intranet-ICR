@@ -1,12 +1,14 @@
 "use client";
 
-import { CalendarDays, Check, GraduationCap, KeyRound, UserPlus, type LucideIcon } from "lucide-react";
+import { CalendarDays, GraduationCap, KeyRound, UserPlus, type LucideIcon } from "lucide-react";
 import { Tile } from "@/components/kit/Tile";
-import { cn } from "@/lib/utils";
+import { StatusPill } from "@/components/kit/StatusCard";
 
 // Zähler-Kachel für die Aufgaben-Übersicht: große Zahl wie die Kennzahlen der Website,
-// Beschriftung darunter, ganze Kachel führt zur Liste. Icons per Name, weil die Seite
-// eine Server-Komponente ist (Funktionen lassen sich nicht an Client-Komponenten geben).
+// Beschriftung darunter, ganze Kachel führt zur Liste. Zahlen immer in Schwarz (Hannes
+// 2026-10-08); ob etwas zu tun ist, zeigt nur die kleine Pille oben rechts.
+// Icons per Name, weil die Seite eine Server-Komponente ist (Funktionen lassen sich
+// nicht an Client-Komponenten geben).
 
 const ICONS = {
   "user-plus": UserPlus,
@@ -28,29 +30,22 @@ export function CounterTile({
   value: number;
   label: string;
   href: string;
-  /** task: offene Aufgaben (Zahl rot, solange > 0); neutral: reine Info. */
+  /** task: offene Aufgaben (Pille „Offen“ bzw. „Erledigt“); neutral: reine Info ohne Pille. */
   tone?: "task" | "neutral";
 }) {
-  const done = tone === "task" && value === 0;
   return (
     <Tile
       href={href}
       Icon={ICONS[icon]}
       actions={
-        done ? (
-          <span className="flex items-center gap-1 pt-1 pr-1 text-xs font-semibold text-muted-foreground">
-            <Check className="size-3.5" aria-hidden />
-            Erledigt
+        tone === "task" ? (
+          <span className="pt-1 pr-1">
+            {value > 0 ? <StatusPill status="open" /> : <StatusPill status="done" />}
           </span>
         ) : undefined
       }
       title={
-        <span
-          className={cn(
-            "block text-4xl leading-none tracking-[-0.05em] tabular-nums sm:text-5xl",
-            tone === "task" && value > 0 ? "text-primary" : "text-foreground",
-          )}
-        >
+        <span className="block text-4xl leading-none tracking-[-0.05em] text-foreground tabular-nums sm:text-5xl">
           {value.toLocaleString("de-DE")}
         </span>
       }
