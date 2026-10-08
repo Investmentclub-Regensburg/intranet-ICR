@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/kit/IconButton";
 import { buildBvhUnhandledRequestsCsv } from "@/app/(intranet)/magazines/actions";
 
 type Props = {
   unhandledCount: number;
 };
 
+/** CSV der offenen Anfragen für den Upload auf der BVH-Seite (nur Vorstand, die Action prüft selbst). */
 export function BvhCsvDownloadButton({ unhandledCount }: Props) {
   const [pending, setPending] = useState(false);
 
@@ -21,7 +22,7 @@ export function BvhCsvDownloadButton({ unhandledCount }: Props) {
         toast.error(error || "Export fehlgeschlagen.");
         return;
       }
-      const bom = "\uFEFF";
+      const bom = "﻿";
       const blob = new Blob([bom + csv], {
         type: "text/csv;charset=utf-8",
       });
@@ -45,16 +46,13 @@ export function BvhCsvDownloadButton({ unhandledCount }: Props) {
   }
 
   return (
-    <Button
-      type="button"
+    <IconButton
+      label="CSV der offenen Anfragen für die BVH-Seite laden"
       variant="outline"
-      size="sm"
-      className="gap-2"
       disabled={pending}
       onClick={handleClick}
     >
-      <Download className="h-4 w-4" />
-      {pending ? "Erzeuge CSV…" : "CSV laden"}
-    </Button>
+      {pending ? <Loader2 className="animate-spin" /> : <Download />}
+    </IconButton>
   );
 }

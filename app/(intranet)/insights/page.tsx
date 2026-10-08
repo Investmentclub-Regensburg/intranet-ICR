@@ -1,31 +1,9 @@
 import { redirect } from "next/navigation";
-import dynamic from "next/dynamic";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { getInsightsData } from "./actions";
 import { KeyMetricsCards } from "@/components/board/KeyMetricsCards";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const StatusPieChart = dynamic(
-  () => import("@/components/board/StatusPieChart").then((m) => m.StatusPieChart),
-  {
-    loading: () => (
-      <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">
-        Lade Status-Chart…
-      </div>
-    ),
-  }
-);
-
-const DemographicsChart = dynamic(
-  () => import("@/components/board/DemographicsChart").then((m) => m.DemographicsChart),
-  {
-    loading: () => (
-      <div className="flex h-72 items-center justify-center text-xs text-muted-foreground">
-        Lade Demografie-Chart…
-      </div>
-    ),
-  }
-);
+import { BarList } from "@/components/board/BarList";
+import { EmptyState } from "@/components/kit/PageHeader";
 
 const FEE_PER_MEMBER = 15;
 
@@ -41,31 +19,24 @@ export default async function InsightsPage() {
   if (!data) {
     return (
       <div>
-        <h1 className="text-2xl font-bold">Insights</h1>
-        <p className="mt-2 text-muted-foreground">
-          Keine Daten verfügbar.
-        </p>
+        <h1 className="sr-only">Insights</h1>
+        <EmptyState title="Keine Daten verfügbar." />
       </div>
     );
   }
 
-  const statusPieData = [
+  const status = [
     { name: "Aktiv", value: data.statusCounts.active },
     { name: "Alumni", value: data.statusCounts.alumni },
-    { name: "Bewerber", value: data.statusCounts.applicant },
-    { name: "Abgebrochen", value: data.statusCounts.cancelled },
+    { name: "Antrag offen", value: data.statusCounts.applicant },
+    { name: "Ausgetreten", value: data.statusCounts.cancelled },
   ];
-
+  const statusTotal = status.reduce((s, i) => s + i.value, 0);
   const cashflow = data.payingMembersCount * FEE_PER_MEMBER;
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">Insights</h1>
-        <p className="text-muted-foreground">
-          Übersicht für den Vorstand
-        </p>
-      </div>
+    <div className="space-y-10">
+      <h1 className="sr-only">Insights</h1>
 
       <KeyMetricsCards
         cashflow={cashflow}
@@ -74,23 +45,28 @@ export default async function InsightsPage() {
         cancellationsInLast6Months={data.cancellationsInLast6Months}
       />
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <StatusPieChart data={statusPieData} />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Studiengang / Fach</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DemographicsChart data={data.demographics} />
-          </CardContent>
-        </Card>
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <section className="space-y-5 rounded-2xl border border-border bg-card p-6" aria-labelledby="insights-status">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 id="insights-status" className="text-lg font-bold tracking-[-0.02em]">
+              Status
+            </h2>
+            <span className="text-xs text-muted-foreground tabular-nums">{statusTotal} Profile</span>
+          </div>
+          <BarList items={status} total={statusTotal} showShare />
+        </section>
+
+        <section className="space-y-5 rounded-2xl border border-border bg-card p-6" aria-labelledby="insights-fach">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 id="insights-fach" className="text-lg font-bold tracking-[-0.02em]">
+              Studiengang / Fach
+            </h2>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {data.demographics.length} {data.demographics.length === 1 ? "Fach" : "Fächer"}
+            </span>
+          </div>
+          <BarList items={data.demographics.map((d) => ({ name: d.name, value: d.count }))} />
+        </section>
       </div>
     </div>
   );
