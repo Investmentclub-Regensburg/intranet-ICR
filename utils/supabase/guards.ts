@@ -9,7 +9,7 @@ import { getCachedAuth } from "@/utils/supabase/cached-auth";
  * `requireUser()` oder `requireRole([...])` – vor jedem Datenbankzugriff,
  * insbesondere vor createServiceClient().
  *
- * Gekündigte Konten filtert bereits getCachedAuth().
+ * Gekündigte Konten und noch nicht freigegebene Anträge filtert bereits getCachedAuth().
  */
 
 export const ROLES = ["member", "admin", "board", "alumni"] as const;

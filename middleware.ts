@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { isCancelledProfile } from "@/lib/profile-status";
+import { isCancelledProfile, isPendingProfile } from "@/lib/profile-status";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 
 // Alle Seiten der Route-Group (intranet) – nur mit Login erreichbar.
@@ -73,7 +73,7 @@ export async function middleware(request: NextRequest) {
     return response;
   };
 
-  // Kritische Zugriffssperre: gekündigte Accounts sofort abmelden + blockieren.
+  // Kritische Zugriffssperre: gekündigte Accounts und nicht freigegebene Anträge sofort abmelden + blockieren.
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
@@ -81,7 +81,8 @@ export async function middleware(request: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (isCancelledProfile((profile ?? null) as Record<string, unknown> | null)) {
+    const p = (profile ?? null) as Record<string, unknown> | null;
+    if (isCancelledProfile(p) || isPendingProfile(p)) {
       await supabase.auth.signOut();
       return redirectWithSupabaseCookies("/login");
     }

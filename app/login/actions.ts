@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { isCancelledProfile } from "@/lib/profile-status";
+import { isCancelledProfile, isPendingProfile } from "@/lib/profile-status";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { LOGIN_FAILED_MESSAGE, MAX_PASSWORD_LENGTH, authErrorMessage } from "@/lib/auth-messages";
 
@@ -52,6 +52,14 @@ export async function loginAction(
     return {
       error:
         "Dein Account ist gekündigt und für das Intranet gesperrt. Bitte kontaktiere den Vorstand bei Rückfragen.",
+    };
+  }
+
+  if (isPendingProfile((profile ?? null) as Record<string, unknown> | null)) {
+    await supabase.auth.signOut();
+    return {
+      error:
+        "Dein Mitgliedsantrag wird noch vom Vorstand geprüft. Sobald er freigegeben ist, kannst du dich anmelden.",
     };
   }
 
