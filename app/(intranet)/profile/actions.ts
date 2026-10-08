@@ -7,6 +7,15 @@ import { getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isCancelledProfile } from "@/lib/profile-status";
+import {
+  FIELD_LIMITS,
+  checkBic,
+  checkIban,
+  checkPhone,
+  checkPlz,
+  checkText,
+  firstError,
+} from "@/lib/member-fields";
 
 export type ProfileActionState = {
   success: boolean;
@@ -31,6 +40,20 @@ export async function updateProfile(
 
   const iban = ibanRaw.replace(/\s/g, "").toUpperCase();
   const bic = bicRaw.replace(/\s/g, "").toUpperCase();
+
+  // Eingaben prüfen (gleiche Regeln wie bei der Registrierung); leere Felder bleiben erlaubt.
+  const validationError = firstError(
+    checkText(strasse, "Straße", FIELD_LIMITS.strasse),
+    checkText(hausnummer, "Hausnummer", FIELD_LIMITS.hausnummer),
+    checkText(ort, "Ort", FIELD_LIMITS.ort),
+    plz ? checkPlz(plz) : null,
+    mobil ? checkPhone(mobil) : null,
+    iban ? checkIban(iban) : null,
+    bic ? checkBic(bic) : null
+  );
+  if (validationError) {
+    return { success: false, error: validationError };
+  }
 
   // Für Updates nutzen wir den Service-Role-Client (Ziel ist ausschließlich die eigene Zeile über user.id).
   const admin = createServiceClient();

@@ -1,6 +1,14 @@
 "use server";
 import { createClient } from "@/utils/supabase/server";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
+import {
+  FIELD_LIMITS,
+  checkDialCode,
+  checkPhone,
+  checkPlz,
+  checkText,
+  firstError,
+} from "@/lib/member-fields";
 
 /** Bei Fehler zurückgegebene Formulardaten (ohne Passwörter) für erneute Anzeige. */
 export type RegisterSavedState = {
@@ -126,6 +134,25 @@ export async function registerAction(
     return { error: "Die SEPA-Bestätigung ist erforderlich.", saved };
   }
 
+  // Format und Länge der Angaben prüfen (gleiche Regeln wie im Profil).
+  const fieldError = firstError(
+    email!.length > 254 ? "Die E-Mail-Adresse ist zu lang." : null,
+    checkText(vorname!, "Vorname", FIELD_LIMITS.name),
+    checkText(nachname!, "Nachname", FIELD_LIMITS.name),
+    checkText(strasse!, "Straße", FIELD_LIMITS.strasse),
+    checkText(hausnummer!, "Hausnummer", FIELD_LIMITS.hausnummer),
+    checkText(ort!, "Ort", FIELD_LIMITS.ort),
+    checkPlz(plz!),
+    checkDialCode(landesvorwahl),
+    checkPhone(handynummerRaw!),
+    checkText(studiengang ?? "", "Studiengang", FIELD_LIMITS.studium),
+    checkText(abschluss ?? "", "Abschluss", FIELD_LIMITS.studium),
+    checkText(hochschultyp ?? "", "Hochschulart", FIELD_LIMITS.studium)
+  );
+  if (fieldError) {
+    return { error: fieldError, saved };
+  }
+
   if (password !== passwordRepeat) {
     return { error: "Die Passwörter stimmen nicht überein.", saved };
   }
@@ -200,19 +227,20 @@ export async function registerAction(
     email: email!,
     password: password!,
     options: {
+      // Geprüfte, getrimmte Werte übergeben (nicht die Roh-Formulardaten).
       data: {
-        Vorname: formData.get("vorname"),
-        Nachname: formData.get("nachname"),
-        Geburtsdatum: formData.get("geburtstag"),
-        "Straße": formData.get("strasse"),
-        Hausnr: formData.get("hausnummer"),
-        Ort: formData.get("ort"),
-        PLZ: formData.get("plz"),
+        Vorname: vorname,
+        Nachname: nachname,
+        Geburtsdatum: geburtstagRaw,
+        "Straße": strasse,
+        Hausnr: hausnummer,
+        Ort: ort,
+        PLZ: plz,
         Handynummer: handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
-        Fach: formData.get("studiengang"),
-        Abschluss: formData.get("abschluss"),
+        Fach: studiengang || null,
+        Abschluss: abschluss || null,
         Semester: student === "Ja" ? String(semesterNumber) : "",
-        "Uni/OTH": formData.get("hochschultyp"),
+        "Uni/OTH": hochschultyp || null,
         IBAN: ibanClean,
         BIC: bicClean,
         "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
