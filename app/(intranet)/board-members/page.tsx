@@ -1,5 +1,7 @@
 import Image from "next/image";
-import Link from "next/link";
+import { Linkedin } from "lucide-react";
+import { AreaHeader, VEREIN_TABS } from "@/components/area/AreaHeader";
+import { cn } from "@/lib/utils";
 
 type BoardMember = {
   name: string;
@@ -10,7 +12,8 @@ type BoardMember = {
   imageClassName?: string;
 };
 
-const TOP_ROW: BoardMember[] = [
+// Daten wie bisher im Code (Reihenfolge: Vorsitz und Finanzen zuerst).
+const BOARD: BoardMember[] = [
   {
     name: "Sarah Adloff",
     role: "Chief Executive Officer",
@@ -25,9 +28,6 @@ const TOP_ROW: BoardMember[] = [
     image: "/board/maximilian-thiel.png",
     linkedin: "https://www.linkedin.com/in/maximilian-thiel-499865246/",
   },
-];
-
-const BOTTOM_ROW: BoardMember[] = [
   {
     name: "Justin Bolfrey",
     role: "Head of Information Technology",
@@ -52,66 +52,53 @@ const BOTTOM_ROW: BoardMember[] = [
   },
 ];
 
-function BoardMemberCard({ member }: { member: BoardMember }) {
+/** Porträt-Kachel wie die PersonCard der Website: Bild rund 16 px, LinkedIn als Icon auf dem Bild. */
+function BoardMemberTile({ member }: { member: BoardMember }) {
   return (
-    <article className="group flex flex-col items-center text-center">
-      <div className="relative h-40 w-40 overflow-hidden rounded-full border border-border bg-muted shadow-sm transition-all duration-300 group-hover:border-primary/60 group-hover:shadow-lg sm:h-44 sm:w-44 md:h-48 md:w-48">
+    <article className="min-w-0">
+      <div className="relative aspect-[4/5] overflow-hidden rounded-2xl border border-border bg-muted">
         <Image
           src={member.image}
-          alt={member.name}
+          alt={`Porträt von ${member.name}`}
           fill
-          sizes="192px"
-          className={`object-cover transition-transform duration-300 group-hover:scale-105 ${member.imageClassName ?? ""}`}
+          sizes="(min-width: 1280px) 220px, (min-width: 768px) 30vw, 45vw"
+          className={cn("object-cover", member.imageClassName)}
         />
-      </div>
-
-      <div className="mt-3 space-y-0.5">
-        <h2 className="text-lg font-semibold">{member.name}</h2>
-        <p className="text-sm font-medium text-muted-foreground">
-          {member.role}
-        </p>
-        <p className="text-xs text-muted-foreground">{member.focus}</p>
-      </div>
-
-      <div className="mt-3">
-        <Link
+        <a
           href={member.linkedin}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={`LinkedIn-Profil von ${member.name} öffnen`}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-muted-foreground/40 bg-background text-sm font-semibold text-muted-foreground transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground"
+          aria-label={`${member.name} auf LinkedIn`}
+          title="LinkedIn"
+          className="absolute right-2.5 bottom-2.5 flex size-9 items-center justify-center rounded-full bg-card/90 text-foreground shadow-soft backdrop-blur transition-colors outline-none hover:bg-primary hover:text-primary-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
         >
-          in
-        </Link>
+          <Linkedin className="size-4" aria-hidden />
+        </a>
       </div>
+      <h2 className="mt-3 text-[0.9375rem] leading-snug font-bold tracking-[-0.02em] text-foreground">
+        {member.name}
+      </h2>
+      <p className="mt-0.5 text-xs font-semibold text-primary">{member.role}</p>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{member.focus}</p>
     </article>
   );
 }
 
 export default function BoardMembersPage() {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-      <header className="space-y-2 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-          Vorstand
-        </h1>
-        <p className="text-base text-muted-foreground md:text-lg">
-          Das aktuelle Vorstandsteam des Investmentclub Regensburg e.V.
-        </p>
-      </header>
+    <div className="space-y-8">
+      <AreaHeader
+        title="Verein"
+        tabs={VEREIN_TABS}
+        activeKey="board"
+        layoutId="tabs-verein"
+        ariaLabel="Bereiche des Vereins"
+      />
 
-      <section className="flex flex-col items-center gap-6 md:gap-8">
-        <div className="grid w-full max-w-3xl grid-cols-1 justify-items-center gap-6 sm:grid-cols-2 sm:gap-10">
-          {TOP_ROW.map((member) => (
-            <BoardMemberCard key={member.name} member={member} />
-          ))}
-        </div>
-
-        <div className="grid w-full max-w-5xl grid-cols-1 justify-items-center gap-6 sm:grid-cols-3 sm:gap-8">
-          {BOTTOM_ROW.map((member) => (
-            <BoardMemberCard key={member.name} member={member} />
-          ))}
-        </div>
+      <section aria-label="Vorstand" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:gap-x-6 md:grid-cols-3 xl:grid-cols-5">
+        {BOARD.map((member) => (
+          <BoardMemberTile key={member.name} member={member} />
+        ))}
       </section>
     </div>
   );
