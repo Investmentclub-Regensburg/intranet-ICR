@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isCancelledProfile } from "@/lib/profile-status";
-import { safeNextPath } from "@/lib/safe-redirect";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 // Alle Seiten der Route-Group (intranet) – nur mit Login erreichbar.
 const INTRANET_PREFIXES = [
@@ -102,7 +102,7 @@ export async function middleware(request: NextRequest) {
   // 5. Die strikten Regeln (Kein Ping-Pong mehr)
   if (isAuthRoute && user) {
     // Eingeloggt, aber will zum Login? Ab ins Dashboard (oder zur ursprünglich angefragten Seite).
-    return redirectWithSupabaseCookies(safeNextPath(request.nextUrl.searchParams.get("next")) ?? "/dashboard");
+    return redirectWithSupabaseCookies(safeRedirectPath(request.nextUrl.searchParams.get("next")));
   }
 
   if (isProtectedRoute && !user) {

@@ -2,7 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { isCancelledProfile } from "@/lib/profile-status";
-import { safeNextPath } from "@/lib/safe-redirect";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 export async function loginAction(
   _prevState: { error: string; redirect?: string },
@@ -50,5 +50,5 @@ export async function loginAction(
     };
   }
 
-  return { error: "", redirect: safeNextPath(formData.get("next")) ?? "/dashboard" };
+  return { error: "", redirect: safeRedirectPath(formData.get("next")) };
 }

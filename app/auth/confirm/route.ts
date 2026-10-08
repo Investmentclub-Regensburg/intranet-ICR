@@ -1,14 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
-
-function getSafeRedirectPath(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/";
-  }
-
-  return next;
-}
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 /**
  * Session-Cookies müssen auf die Redirect-Response geschrieben werden,
@@ -29,7 +22,7 @@ export async function GET(request: NextRequest) {
   const redirectTo =
     type === "recovery"
       ? new URL("/reset-password", request.url)
-      : new URL(getSafeRedirectPath(nextParam), request.url);
+      : new URL(safeRedirectPath(nextParam), request.url);
   const response = NextResponse.redirect(redirectTo);
 
   const supabase = createServerClient(
