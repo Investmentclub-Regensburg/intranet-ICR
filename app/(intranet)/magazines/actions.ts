@@ -13,10 +13,19 @@ import {
   vorstandFromRolle,
 } from "@/lib/bvh-mitglieder-csv";
 
-export type RequestBvhResult = { ok: boolean; error?: string };
+export type RequestBvhResult = {
+  ok: boolean;
+  error?: string;
+  /** Es gibt schon eine offene Anfrage (Statusanzeige auch ohne Lese-Policy möglich). */
+  alreadyOpen?: boolean;
+};
 
-/** Status der BVH-Anfrage des aktuellen Users (für Anzeige „Erledigt“ → „Login per E-Mail versendet“). */
-export type BvhLoginStatus = { hasRequested: boolean; handled: boolean };
+/**
+ * Status der letzten BVH-Anfrage des aktuellen Users, gelesen unter RLS.
+ * Ohne Lese-Policy für eigene Anfragen (Produktion bis Migrationsentwurf 20261008120300)
+ * liefert die Abfrage keine Zeile: dann hasRequested = false, die Seite zeigt keinen Status.
+ */
+export type BvhLoginStatus = { hasRequested: boolean; handled: boolean; requestedAt: string | null };
 
 export async function getBvhLoginStatusForCurrentUser(): Promise<BvhLoginStatus> {
   const supabase = await createClient();
@@ -24,22 +33,24 @@ export async function getBvhLoginStatusForCurrentUser(): Promise<BvhLoginStatus>
     data: { user },
   } = await supabase.auth.getUser();
   if (!user)
-    return { hasRequested: false, handled: false };
+    return { hasRequested: false, handled: false, requestedAt: null };
 
   const { data, error } = await supabase
     .from("bvh_login_requests")
-    .select("handled")
+    .select("handled, created_at")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error || !data)
-    return { hasRequested: false, handled: false };
+    return { hasRequested: false, handled: false, requestedAt: null };
 
+  const row = data as { handled?: boolean; created_at?: string | null };
   return {
     hasRequested: true,
-    handled: Boolean((data as { handled?: boolean }).handled),
+    handled: Boolean(row.handled),
+    requestedAt: row.created_at ?? null,
   };
 }
 
@@ -77,7 +88,7 @@ export async function requestBvhLogin(): Promise<RequestBvhResult> {
     return { ok: false, error: "Anfrage konnte nicht gespeichert werden." };
   }
   if ((openCount ?? 0) > 0) {
-    return { ok: false, error: "Du hast bereits eine offene Anfrage." };
+    return { ok: false, error: "Du hast bereits eine offene Anfrage.", alreadyOpen: true };
   }
 
   const { error } = await supabase.from("bvh_login_requests").insert({
