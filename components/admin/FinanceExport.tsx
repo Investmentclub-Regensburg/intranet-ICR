@@ -19,6 +19,7 @@ import {
   type FinanceMemberRow,
   type InvalidFinanceMemberRow,
   type FilterStats,
+  type SepaCreditor,
 } from "@/app/(intranet)/admin/actions/finance";
 import {
   buildSepaIdentifier,
@@ -87,17 +88,18 @@ export function FinanceExport() {
   /** Vollständige Exportdaten erst beim Download vom Server holen (Vorschau zeigt gekürzte IBANs). */
   async function loadExportRows(): Promise<{
     rows: FinanceMemberRow[];
+    creditor: SepaCreditor | null;
     period: { semester: Semester; year: number };
   } | null> {
     if (!loadedPeriod) return null;
     setError(null);
     try {
-      const { validMembers: rows } = await getFinanceExportData(
+      const { validMembers: rows, creditor } = await getFinanceExportData(
         loadedPeriod.semester,
         loadedPeriod.year,
         "export"
       );
-      return rows.length ? { rows, period: loadedPeriod } : null;
+      return rows.length ? { rows, creditor, period: loadedPeriod } : null;
     } catch (err) {
       console.error("Fehler beim Laden der Exportdaten:", err);
       setError(
@@ -138,7 +140,13 @@ export function FinanceExport() {
   async function handleExportSepaXml() {
     const data = await loadExportRows();
     if (!data) return;
-    const { rows, period } = data;
+    const { rows, period, creditor } = data;
+    if (!creditor) {
+      setError(
+        "SEPA-Gläubigerdaten sind nicht konfiguriert (SEPA_CREDITOR_IBAN, SEPA_CREDITOR_BIC, SEPA_CREDITOR_ID). Bitte in der Server-Umgebung hinterlegen."
+      );
+      return;
+    }
 
     const today = new Date().toISOString().slice(0, 10);
     const periodLabel = getPeriodLabel(period.semester, period.year);
@@ -151,10 +159,11 @@ export function FinanceExport() {
       .reduce((sum, row) => sum + row.amount, 0)
       .toFixed(2);
 
-    const creditorName = "Investmentclub Regensburg e.V.";
-    const creditorIban = "DE79750500000026907543";
-    const creditorBic = "BYLADEM1RBG";
-    const creditorId = "DE58ZZZ00001948916";
+    // Gläubigerdaten kommen aus der Server-Umgebung (SEPA_CREDITOR_*), nicht aus dem Bundle.
+    const creditorName = creditor.name;
+    const creditorIban = creditor.iban;
+    const creditorBic = creditor.bic;
+    const creditorId = creditor.creditorId;
 
     const txInfos = rows
       .map((row, idx) => {
