@@ -159,6 +159,13 @@
     background-color: var(--color-brand);
     color: white;
   }
+
+  /* Edge/IE: eigenes Auge und Löschen-X im Passwortfeld ausblenden, sonst liegen
+     zwei Augen übereinander (unser Knopf: components/kit/PasswordInput.tsx). */
+  input::-ms-reveal,
+  input::-ms-clear {
+    display: none;
+  }
 }
 
 @layer components {
@@ -183,12 +190,98 @@
   background: linear-gradient(90deg, var(--color-bordeaux) 0%, var(--color-brand) 55%, var(--color-brand-soft) 100%);
 }
 
-/* Rote Markenfläche der Auth-Seiten: klares Logo-Rot, nach rechts oben heller,
-   ohne Schwarz/Bordeaux. */
-@utility bg-brand-stage {
-  background:
-    radial-gradient(120% 90% at 85% 0%, rgb(255 255 255 / 0.1) 0%, transparent 60%),
-    linear-gradient(160deg, var(--color-brand) 0%, var(--color-brand) 45%, var(--color-brand-soft) 100%);
+/* ---------- Aurora (Signatur der Website, ohne Korn) ----------
+   Nur auf den Auth-Seiten (Login, Registrierung, Passwort), Hannes 2026-10-08:
+   rote Mitte, dunkler Rand. Bordeaux-Grund, driftende Rot-Nebel, Vignette. Komponente:
+   components/brand/Aurora.tsx. Muss in einem `relative isolate
+   overflow-hidden`-Container liegen. */
+.aurora-base {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(130% 110% at 62% 30%, #4a040a 0%, #2a0206 46%, #130102 100%);
+  background-color: var(--color-night);
+}
+
+.aurora-blobs {
+  position: absolute;
+  inset: -12%;
+  filter: blur(48px);
+}
+
+.aurora-blob {
+  position: absolute;
+  width: 72vw;
+  height: 72vw;
+  max-width: 1100px;
+  max-height: 1100px;
+  border-radius: 50%;
+}
+
+.aurora-blob-1 {
+  top: -22%;
+  left: -14%;
+  background: radial-gradient(circle at center, rgb(122 6 14 / 0.85) 0%, transparent 62%);
+  animation: aurora-drift-1 27s ease-in-out infinite alternate;
+}
+
+.aurora-blob-2 {
+  right: -14%;
+  bottom: -26%;
+  background: radial-gradient(circle at center, rgb(92 4 12 / 0.9) 0%, transparent 60%);
+  animation: aurora-drift-2 33s ease-in-out infinite alternate;
+}
+
+.aurora-blob-3 {
+  top: 30%;
+  left: 52%;
+  width: 52vw;
+  height: 52vw;
+  max-width: 780px;
+  max-height: 780px;
+  background: radial-gradient(circle at center, rgb(163 1 1 / 0.6) 0%, transparent 66%);
+  animation: aurora-drift-3 24s ease-in-out infinite alternate;
+}
+
+.aurora-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(125% 105% at 50% 38%, transparent 44%, rgb(10 0 1 / 0.6) 100%);
+}
+
+@keyframes aurora-drift-1 {
+  to {
+    transform: translate3d(8%, 6%, 0) scale(1.12);
+  }
+}
+
+@keyframes aurora-drift-2 {
+  from {
+    transform: scale(1.06);
+  }
+  to {
+    transform: translate3d(-7%, -5%, 0) scale(1);
+  }
+}
+
+@keyframes aurora-drift-3 {
+  from {
+    transform: translate3d(-5%, 2%, 0) scale(0.94);
+  }
+  to {
+    transform: translate3d(6%, -6%, 0) scale(1.16);
+  }
+}
+
+@media (max-width: 767px) {
+  .aurora-blobs {
+    filter: blur(32px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob {
+    animation: none !important;
+  }
 }
 
 /* ---------- Seitenwechsel im Intranet ---------- */
