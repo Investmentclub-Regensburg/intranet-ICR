@@ -113,6 +113,16 @@ export function reportStepValidity(form: HTMLFormElement | null, key: string): b
   return false;
 }
 
+/** Ausschnitt i von count aus einem durchgehenden Markenverlauf (Bordeaux → Rot → helles Rot). */
+function gradientSlice(i: number, count: number) {
+  return {
+    backgroundImage:
+      "linear-gradient(90deg, var(--color-bordeaux) 0%, var(--color-brand) 55%, var(--color-brand-soft) 100%)",
+    backgroundSize: `${count * 100}% 100%`,
+    backgroundPosition: `${count > 1 ? (i / (count - 1)) * 100 : 0}% 0`,
+  };
+}
+
 /** Fortschritt als Striche: erledigt und aktuell gefüllt, kommende leer. */
 export function WizardProgress({
   count,
@@ -125,15 +135,15 @@ export function WizardProgress({
   index: number;
   /** Name des aktuellen Schritts. */
   label?: string;
-  tone?: "default" | "onDark";
+  tone?: "default" | "onBrand";
   className?: string;
 }) {
-  const onDark = tone === "onDark";
+  const onBrand = tone === "onBrand";
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex items-baseline justify-between gap-3 text-xs font-semibold">
-        <span className={onDark ? "text-white/85" : "text-foreground"}>{label}</span>
-        <span className={cn("tabular-nums", onDark ? "text-white/60" : "text-muted-foreground")}>
+        <span className={onBrand ? "text-white" : "text-foreground"}>{label}</span>
+        <span className={cn("tabular-nums", onBrand ? "text-white/75" : "text-muted-foreground")}>
           {index + 1} / {count}
         </span>
       </div>
@@ -149,10 +159,13 @@ export function WizardProgress({
         {Array.from({ length: count }, (_, i) => (
           <span
             key={i}
-            className={cn("relative h-1 flex-1 overflow-hidden rounded-full", onDark ? "bg-white/20" : "bg-border")}
+            className={cn("relative h-1 flex-1 overflow-hidden rounded-full", onBrand ? "bg-white/25" : "bg-border")}
           >
             <motion.span
-              className={cn("absolute inset-0 origin-left rounded-full", onDark ? "bg-white" : "bg-primary")}
+              className={cn("absolute inset-0 origin-left rounded-full", onBrand && "bg-white")}
+              // Auf hellem Grund: ein durchgehender Markenverlauf über alle Striche
+              // (jeder Strich zeigt seinen Ausschnitt), Markierung des Fortschritts.
+              style={onBrand ? undefined : gradientSlice(i, count)}
               initial={false}
               animate={{ scaleX: i <= index ? 1 : 0 }}
               transition={{ duration: 0.5, ease: EASE }}
@@ -234,7 +247,7 @@ export type WizardRow<K extends string> = {
 
 /**
  * Zusammenfassung: eine Zeile je beantworteter Frage, die offene ist hinterlegt. Klick
- * springt in den Schritt zurück. `onDark` für die Aurora-Bühne.
+ * springt in den Schritt zurück. `onBrand` für die rote Markenfläche der Auth-Seiten.
  */
 export function WizardSummary<K extends string>({
   rows,
@@ -246,10 +259,10 @@ export function WizardSummary<K extends string>({
   rows: WizardRow<K>[];
   activeKey?: K | null;
   onSelect: (key: K) => void;
-  tone?: "default" | "onDark";
+  tone?: "default" | "onBrand";
   className?: string;
 }) {
-  const onDark = tone === "onDark";
+  const onBrand = tone === "onBrand";
   return (
     <ul className={cn("space-y-0.5", className)}>
       <AnimatePresence initial={false}>
@@ -269,15 +282,15 @@ export function WizardSummary<K extends string>({
               onClick={() => onSelect(r.key)}
               className={cn(
                 "group flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left transition-colors outline-none focus-visible:ring-[3px]",
-                onDark
-                  ? "text-white hover:bg-white/10 focus-visible:ring-white/40"
+                onBrand
+                  ? "text-white hover:bg-white/12 focus-visible:ring-white/50"
                   : "text-foreground hover:bg-accent focus-visible:ring-ring/40",
-                activeKey === r.key && (onDark ? "bg-white/10" : "bg-accent"),
+                activeKey === r.key && (onBrand ? "bg-white/15" : "bg-accent"),
               )}
             >
               {r.Icon && (
                 <r.Icon
-                  className={cn("mt-0.5 size-4 shrink-0", onDark ? "text-white/60" : "text-muted-foreground")}
+                  className={cn("mt-0.5 size-4 shrink-0", onBrand ? "text-white/80" : "text-muted-foreground")}
                   aria-hidden
                 />
               )}
@@ -285,7 +298,7 @@ export function WizardSummary<K extends string>({
                 <span
                   className={cn(
                     "block text-[0.6875rem] font-semibold tracking-[0.14em] uppercase",
-                    onDark ? "text-white/55" : "text-muted-foreground",
+                    onBrand ? "text-white/75" : "text-muted-foreground",
                   )}
                 >
                   {r.label}
@@ -295,7 +308,7 @@ export function WizardSummary<K extends string>({
               <Pencil
                 className={cn(
                   "mt-1 size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-70 group-focus-visible:opacity-70",
-                  onDark ? "text-white" : "text-muted-foreground",
+                  onBrand ? "text-white" : "text-muted-foreground",
                 )}
                 aria-hidden
               />
@@ -339,7 +352,7 @@ export function PickTile({
     <label
       className={cn(
         "group relative flex cursor-pointer items-center gap-3 rounded-xl border border-input bg-card px-4 py-3.5 transition-[border-color,background-color,box-shadow] duration-200",
-        "hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-accent",
+        "hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:shadow-soft",
         "has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/40",
         className,
       )}
@@ -354,7 +367,7 @@ export function PickTile({
         className="peer sr-only"
       />
       {Icon && (
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-has-[:checked]:bg-primary group-has-[:checked]:text-primary-foreground">
+        <span className="group-has-[:checked]:bg-brand-gradient flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-has-[:checked]:text-white">
           <Icon className="size-4" aria-hidden />
         </span>
       )}
@@ -364,9 +377,9 @@ export function PickTile({
       </span>
       <span
         aria-hidden
-        className="flex size-5 shrink-0 items-center justify-center rounded-full border border-input transition-colors group-has-[:checked]:border-primary group-has-[:checked]:bg-primary"
+        className="group-has-[:checked]:bg-brand-gradient flex size-5 shrink-0 items-center justify-center rounded-full border border-input transition-colors group-has-[:checked]:border-transparent"
       >
-        <Check className="size-3 text-primary-foreground opacity-0 transition-opacity group-has-[:checked]:opacity-100" />
+        <Check className="size-3 text-white opacity-0 transition-opacity group-has-[:checked]:opacity-100" />
       </span>
     </label>
   );

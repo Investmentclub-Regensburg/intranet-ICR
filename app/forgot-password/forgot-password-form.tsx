@@ -20,7 +20,7 @@ export function ForgotPasswordForm() {
     return (
       <div className="space-y-4">
         <div className="flex flex-col items-center gap-2 text-center">
-          <span className="flex size-12 items-center justify-center rounded-full bg-accent text-primary">
+          <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint text-primary">
             <CheckCircle2 className="size-6" aria-hidden="true" />
           </span>
           <p className="font-medium text-foreground">E-Mail zum Zurücksetzen gesendet</p>

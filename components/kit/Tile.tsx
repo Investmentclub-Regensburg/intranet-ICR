@@ -67,7 +67,7 @@ function TileInner({ Icon, title, meta, actions, footer, children }: TileProps) 
       {(Icon || actions) && (
         <div className="flex items-start justify-between gap-3">
           {Icon ? (
-            <span className="flex size-10 items-center justify-center rounded-xl bg-accent text-primary transition-colors duration-300 group-hover:bg-primary group-hover:text-primary-foreground">
+            <span className="flex size-10 items-center justify-center rounded-xl bg-brand-tint text-primary">
               <Icon className="size-5" aria-hidden />
             </span>
           ) : (

@@ -3,7 +3,7 @@
 import { useActionState, useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import { resetPasswordAction, type ResetPasswordState } from "./actions";
 
@@ -38,10 +38,9 @@ export function ResetPasswordForm() {
     <form action={formAction} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="newPassword">Neues Passwort</Label>
-        <Input
+        <PasswordInput
           id="newPassword"
           name="newPassword"
-          type="password"
           required
           minLength={6}
           autoComplete="new-password"
@@ -54,11 +53,10 @@ export function ResetPasswordForm() {
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">Passwort bestätigen</Label>
-        <Input
+        <PasswordInput
           ref={confirmRef}
           id="confirmPassword"
           name="confirmPassword"
-          type="password"
           required
           minLength={6}
           autoComplete="new-password"

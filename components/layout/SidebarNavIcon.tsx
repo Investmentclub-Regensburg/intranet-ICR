@@ -36,7 +36,7 @@ const CUSTOM_NAV_ICONS: Record<string, ComponentType<CustomNavIconProps>> = {
 };
 
 function iconColorClass(active: boolean): string {
-  return active ? "text-sidebar-primary" : "text-sidebar-muted group-hover:text-sidebar-primary";
+  return active ? "text-white" : "text-sidebar-muted group-hover:text-sidebar-primary";
 }
 
 const iconShellClass =

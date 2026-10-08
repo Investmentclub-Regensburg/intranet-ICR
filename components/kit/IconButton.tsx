@@ -15,7 +15,7 @@ export type IconButtonVariant = "ghost" | "outline" | "primary" | "danger";
 const VARIANTS: Record<IconButtonVariant, string> = {
   ghost: "text-muted-foreground hover:bg-accent hover:text-foreground",
   outline: "border border-input bg-card text-foreground hover:border-primary/35 hover:bg-accent",
-  primary: "bg-primary text-primary-foreground shadow-brand hover:bg-brand-hover dark:hover:bg-primary/90",
+  primary: "bg-primary text-primary-foreground shadow-brand hover:bg-brand-hover",
   danger: "text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
 };
 
