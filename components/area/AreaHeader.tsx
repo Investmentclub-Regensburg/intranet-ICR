@@ -41,9 +41,14 @@ export const EVENT_TABS: TabItem[] = [
   { key: "calendar", label: "Kalender", href: "/calendar" },
 ];
 
-/** Tabs des Bereichs Verein. */
+/**
+ * Tabs des Bereichs Verein (Reihenfolge Hannes 2026-10-08, Einstieg = WhatsApp-Gruppe).
+ * Satzung liegt unter /members/satzung, damit sie ohne Änderung an der Middleware unter
+ * deren Login-Schutz fällt (Präfix /members/); auf dem Pfad gewinnt der längere Tab.
+ */
 export const VEREIN_TABS: TabItem[] = [
-  { key: "board", label: "Vorstand", href: "/board-members" },
-  { key: "members", label: "Mitglieder", href: "/members" },
   { key: "whatsapp", label: "WhatsApp-Gruppe", href: "/whatsapp" },
+  { key: "members", label: "Mitglieder", href: "/members", exact: true },
+  { key: "board", label: "Vorstand", href: "/board-members" },
+  { key: "statute", label: "Satzung", href: "/members/satzung" },
 ];
