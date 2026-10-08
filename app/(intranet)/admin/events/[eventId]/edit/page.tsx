@@ -1,10 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { IconLink } from "@/components/kit/IconButton";
 import { EventForm } from "@/components/admin/EventForm";
 import { getEvent } from "@/app/(intranet)/events/actions";
+import { formatEventDate } from "@/lib/events";
 
 type Props = {
   params: Promise<{ eventId: string }>;
@@ -16,24 +15,33 @@ export default async function AdminEventEditPage({ params }: Props) {
   if (!event) notFound();
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" asChild>
-          <Link href={`/admin/events/${event.id}`} aria-label="Zurück zum Event">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-semibold">Event bearbeiten</h1>
-          <p className="text-sm text-muted-foreground">{event.title}</p>
+    <div className="space-y-8">
+      <header className="flex min-w-0 items-start gap-3">
+        <IconLink href={`/admin/events/${event.id}`} label="Zurück zur Veranstaltung" variant="outline" className="mt-1">
+          <ArrowLeft />
+        </IconLink>
+        <div className="min-w-0 space-y-2">
+          <p className="eyebrow">Bearbeiten · {formatEventDate(event.event_date)}</p>
+          <h1 className="text-[1.75rem] leading-[1.05] font-bold tracking-[-0.035em] break-words sm:text-4xl">
+            {event.title}
+          </h1>
         </div>
-      </div>
+      </header>
 
-      <Card>
-        <CardContent>
-          <EventForm event={event} />
-        </CardContent>
-      </Card>
+      <EventForm
+        event={{
+          id: event.id,
+          title: event.title,
+          description: event.description,
+          event_date: event.event_date,
+          event_time: event.event_time,
+          end_time: event.end_time,
+          location: event.location,
+          organizer: event.organizer,
+          image_url: event.image_url,
+          requires_registration: event.requires_registration,
+        }}
+      />
     </div>
   );
 }
