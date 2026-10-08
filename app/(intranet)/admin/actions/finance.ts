@@ -1,7 +1,7 @@
 "use server";
 
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
+import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
 import { sanitizeForSEPA } from "@/lib/sepa";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 
@@ -39,11 +39,49 @@ export type FilterStats = {
   valid: number;
 };
 
+export type SepaCreditor = {
+  name: string;
+  iban: string;
+  bic: string;
+  creditorId: string;
+};
+
 export type FinanceExportResult = {
   validMembers: FinanceMemberRow[];
   invalidMembers: InvalidFinanceMemberRow[];
   stats: FilterStats;
+  /** Nur im Export-Modus und nur, wenn die SEPA_CREDITOR_*-Variablen gültig gesetzt sind. */
+  creditor: SepaCreditor | null;
 };
+
+const CREDITOR_ID_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{3}[A-Z0-9]{1,28}$/;
+
+/**
+ * Gläubigerdaten des Vereins für das SEPA-XML aus der Server-Umgebung
+ * (nicht im Repository und nicht im Browser-Bundle).
+ */
+function getSepaCreditor(): SepaCreditor | null {
+  const name = (process.env.SEPA_CREDITOR_NAME ?? "").trim() || "Investmentclub Regensburg e.V.";
+  const iban = (process.env.SEPA_CREDITOR_IBAN ?? "").replace(/\s/g, "").toUpperCase();
+  const bic = (process.env.SEPA_CREDITOR_BIC ?? "").replace(/\s/g, "").toUpperCase();
+  const creditorId = (process.env.SEPA_CREDITOR_ID ?? "").replace(/\s/g, "").toUpperCase();
+  if (!validateIBAN(iban) || !validateBICFormat(bic) || !CREDITOR_ID_RE.test(creditorId)) {
+    return null;
+  }
+  return { name, iban, bic, creditorId };
+}
+
+/** IBAN für die Vorschau kürzen (Ländercode + Prüfziffer … letzte 4 Stellen). */
+function maskIban(iban: string): string {
+  if (iban.length <= 8) return iban ? "••••" : "";
+  return `${iban.slice(0, 4)} •••• ${iban.slice(-4)}`;
+}
+
+/**
+ * "preview": Vorschau im Browser, IBANs gekürzt.
+ * "export": vollständige Daten, nur für den Download der Export-Datei.
+ */
+export type FinanceExportMode = "preview" | "export";
 
 function getPeriodStart(semester: Semester, year: number): Date {
   if (semester === "SoSe") {
@@ -54,22 +92,24 @@ function getPeriodStart(semester: Semester, year: number): Date {
 
 export async function getFinanceExportData(
   semester: Semester,
-  year: number
+  year: number,
+  mode: FinanceExportMode = "preview"
 ): Promise<FinanceExportResult> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) {
-    throw new Error("Nicht eingeloggt.");
+  const auth = await requireRole(EXPORT_ROLES, "Keine Berechtigung für den Finanzexport.");
+  if (!auth.ok) {
+    throw new Error(auth.error);
+  }
+  const showFullIban = mode === "export";
+
+  const maxYear = new Date().getFullYear() + 1;
+  if (semester !== "SoSe" && semester !== "WiSe") {
+    throw new Error("Ungültiges Semester.");
+  }
+  if (!Number.isInteger(year) || year < 2000 || year > maxYear) {
+    throw new Error("Ungültiges Jahr.");
   }
 
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") {
-    throw new Error("Keine Berechtigung für den Finanzexport.");
-  }
-
-  const supabase = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = createServiceClient();
   const periodStart = getPeriodStart(semester, year);
 
   const { data: profiles, error } = await supabase
@@ -174,7 +214,7 @@ export async function getFinanceExportData(
         id,
         firstName,
         lastName,
-        iban: ibanClean,
+        iban: showFullIban ? ibanClean : maskIban(ibanClean),
         bic: bicClean,
         status,
         joinedAt,
@@ -187,7 +227,7 @@ export async function getFinanceExportData(
         firstName,
         lastName,
         email,
-        iban: ibanClean,
+        iban: showFullIban ? ibanClean : maskIban(ibanClean),
         bic: bicClean,
         status,
       });
@@ -196,6 +236,11 @@ export async function getFinanceExportData(
 
   stats.valid = validMembers.length;
 
-  return { validMembers, invalidMembers, stats };
+  return {
+    validMembers,
+    invalidMembers,
+    stats,
+    creditor: showFullIban ? getSepaCreditor() : null,
+  };
 }
 

@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath, unstable_cache } from "next/cache";
-import { createClient } from "@/utils/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { getCachedSupabase } from "@/utils/supabase/cached-auth";
+import { requireRole, requireUser } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
+import { isSafeId } from "@/lib/validation";
 
 export type NewsActionState = {
   success: boolean;
@@ -18,29 +20,15 @@ export type NewsItem = {
   author_nachname: string;
 };
 
+const MAX_TITLE_LENGTH = 200;
+const MAX_CONTENT_LENGTH = 10000;
+
 export async function createNews(
   _prev: NewsActionState,
   formData: FormData
 ): Promise<NewsActionState> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: "Nicht eingeloggt." };
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") {
-    return { success: false, error: "Keine Berechtigung." };
-  }
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return { success: false, error: auth.error };
 
   const title = (formData.get("title") as string | null)?.trim() ?? "";
   const content = (formData.get("content") as string | null)?.trim() ?? "";
@@ -48,15 +36,20 @@ export async function createNews(
   if (!title || !content) {
     return { success: false, error: "Betreff und Nachricht sind Pflichtfelder." };
   }
+  if (title.length > MAX_TITLE_LENGTH || content.length > MAX_CONTENT_LENGTH) {
+    return { success: false, error: "Betreff oder Nachricht ist zu lang." };
+  }
 
+  const supabase = await getCachedSupabase();
   const { error } = await supabase.from("news").insert({
     title,
     content,
-    author_id: user.id,
+    author_id: auth.user.id,
   });
 
   if (error) {
-    return { success: false, error: `Fehler beim Erstellen: ${error.message}` };
+    console.error("createNews:", error);
+    return { success: false, error: "News konnte nicht gespeichert werden." };
   }
 
   revalidatePath("/news");
@@ -65,10 +58,7 @@ export async function createNews(
 }
 
 async function fetchNewsFromDb(): Promise<NewsItem[]> {
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { data: newsRows, error } = await admin
     .from("news")
@@ -109,26 +99,27 @@ async function fetchNewsFromDb(): Promise<NewsItem[]> {
   });
 }
 
-export const getNews = unstable_cache(fetchNewsFromDb, ["news-list"], {
+const getNewsCached = unstable_cache(fetchNewsFromDb, ["news-list"], {
   revalidate: 60,
 });
 
-export async function markNewsAsRead(): Promise<void> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+/** News-Liste – nur für eingeloggte Mitglieder. */
+export async function getNews(): Promise<NewsItem[]> {
+  const auth = await requireUser();
+  if (!auth.ok) return [];
+  return getNewsCached();
+}
 
-  if (!user) return;
+export async function markNewsAsRead(): Promise<void> {
+  const auth = await requireUser();
+  if (!auth.ok) return;
+  const user = auth.user;
 
   const readAt = new Date().toISOString();
 
   // Wie bei anderen Profil-Updates: Service-Role nutzen, damit das Update nicht
   // still an RLS scheitert (Sidebar bekam sonst weiter den alten Zeitstempel).
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   let { data: profileRow, error: lookupError } = await admin
     .from("profiles")
@@ -164,15 +155,21 @@ export async function markNewsAsRead(): Promise<void> {
 }
 
 export async function checkUnreadNews(lastReadAt: string | null): Promise<boolean> {
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const auth = await requireUser();
+  if (!auth.ok) return false;
 
+  // Nur gültige Zeitstempel als Filter übernehmen.
+  let since: string | null = null;
+  if (typeof lastReadAt === "string" && lastReadAt.length <= 64) {
+    const parsed = Date.parse(lastReadAt);
+    if (!Number.isNaN(parsed)) since = new Date(parsed).toISOString();
+  }
+
+  const admin = createServiceClient();
   let query = admin.from("news").select("id", { count: "exact", head: true });
 
-  if (lastReadAt) {
-    query = query.gt("created_at", lastReadAt);
+  if (since) {
+    query = query.gt("created_at", since);
   }
 
   const { count } = await query;
@@ -180,31 +177,17 @@ export async function checkUnreadNews(lastReadAt: string | null): Promise<boolea
 }
 
 export async function deleteNews(id: string): Promise<{ error: string }> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const auth = await requireRole(["admin", "board"], "Nur Admins/Vorstand dürfen News entfernen.");
+  if (!auth.ok) return { error: auth.error };
+  if (!isSafeId(id)) return { error: "Ungültige Auswahl." };
 
-  if (!user) return { error: "Nicht eingeloggt." };
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") {
-    return { error: "Nur Admins/Vorstand dürfen News entfernen." };
-  }
-
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { error } = await admin.from("news").delete().eq("id", id);
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("deleteNews:", error);
+    return { error: "News konnte nicht entfernt werden." };
+  }
 
   revalidatePath("/news");
   revalidatePath("/", "layout");

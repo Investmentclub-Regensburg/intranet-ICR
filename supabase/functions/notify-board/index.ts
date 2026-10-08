@@ -8,7 +8,8 @@
 // Aufruf ohne event_id (z. B. manuell per curl) arbeitet bis zu 20 offene Events ab
 // (Retry für Events, deren Versand fehlgeschlagen ist).
 // Aufruf mit { "action": "health" } zeigt, welche Secrets gesetzt sind (nur Namen/Längen, keine Werte).
-// Events vom Typ alumni_decided gehen an das Mitglied (payload.recipient), alle anderen an den Vorstand.
+// Events vom Typ alumni_decided gehen an das Mitglied (Adresse aus dem Profil zu payload.user_id),
+// alle anderen an den Vorstand.
 // Events vom Typ event_announcement (neues Event) gehen an payload.recipients – einzeln adressiert,
 // in Resend-Batches à 100. Der Fortschritt steht in payload.sent_count, ein Retry setzt dort fort.
 //
@@ -59,6 +60,11 @@ const INTRANET_URL = (Deno.env.get("INTRANET_URL") ?? "https://myicr.investmentc
 );
 
 const MAX_BATCH = 20;
+// Obergrenzen für Rundmails (Schutz gegen Missbrauch als Mail-Relay).
+const MAX_ANNOUNCEMENT_RECIPIENTS = 5000;
+const MAX_CUSTOM_RECIPIENTS = 50;
+const EMAIL_RE = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Resend: max. 100 Mails pro Batch-Request, Default-Rate-Limit 2 Requests/Sekunde.
 const RESEND_BATCH_SIZE = 100;
 const RESEND_BATCH_PAUSE_MS = 600;
@@ -80,7 +86,28 @@ function escapeHtml(v: unknown): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Betreffzeile: keine Zeilenumbrüche/Steuerzeichen, begrenzte Länge. */
+function cleanSubject(v: string): string {
+  return v.replace(/[\u0000-\u001F\u007F]+/g, " ").trim().slice(0, 200);
+}
+
+/** Shared Secret zeitkonstant vergleichen (SHA-256 beider Werte, dann XOR über feste Länge). */
+async function secretMatches(given: string, expected: string): Promise<boolean> {
+  if (!expected) return false;
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(given)),
+    crypto.subtle.digest("SHA-256", enc.encode(expected)),
+  ]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
 }
 
 function formatDate(v: unknown): string {
@@ -232,7 +259,38 @@ function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
   };
 }
 
-function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | null }): Mail {
+type MemberRecipient = { email: string; vorname: string };
+
+/**
+ * Empfänger für Mails an ein Mitglied (alumni_decided): ausschließlich aus dem Profil bzw.
+ * Auth-Konto zu payload.user_id – nie aus frei befüllbaren Feldern des Ereignisses.
+ */
+async function resolveMemberRecipient(
+  supabase: ReturnType<typeof createClient>,
+  ev: NotificationEvent
+): Promise<MemberRecipient | null> {
+  const userId = str(ev.payload?.user_id);
+  if (!UUID_RE.test(userId)) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select('"E-Mail", "Vorname"')
+    .eq("user_id", userId)
+    .maybeSingle();
+  const p = (profile ?? {}) as Record<string, unknown>;
+  const profileEmail = str(p["E-Mail"]).toLowerCase();
+  if (EMAIL_RE.test(profileEmail)) return { email: profileEmail, vorname: str(p["Vorname"]) };
+
+  const { data } = await supabase.auth.admin.getUserById(userId);
+  const authEmail = str(data?.user?.email).toLowerCase();
+  if (EMAIL_RE.test(authEmail)) return { email: authEmail, vorname: str(p["Vorname"]) };
+  return null;
+}
+
+function buildMail(
+  ev: NotificationEvent,
+  extra: { emailConfirmed?: boolean | null; recipient?: MemberRecipient | null }
+): Mail {
   const p = ev.payload ?? {};
   const name = fullName(p);
 
@@ -309,9 +367,10 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
       };
     }
     case "alumni_decided": {
-      const vorname = str(p.vorname) || "Hallo";
+      const vorname = str(extra.recipient?.vorname) || "Hallo";
       const approved = str(p.decision) === "approved";
-      const recipient = str(p.recipient) || str(p.email);
+      // Empfänger nur aus dem Profil des antragstellenden Kontos (siehe resolveMemberRecipient).
+      const recipient = extra.recipient?.email ?? "";
       const title = approved
         ? "Dein Alumni-Status wurde freigeschaltet"
         : "Dein Alumni-Antrag wurde abgelehnt";
@@ -367,7 +426,7 @@ async function sendViaResend(mail: Mail): Promise<void> {
       from: FROM_EMAIL,
       to: mail.to,
       ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
-      subject: mail.subject,
+      subject: cleanSubject(mail.subject),
       html: mail.html,
       text: mail.text,
     }),
@@ -397,6 +456,14 @@ async function sendAnnouncement(
     .map((r) => str(r))
     .filter(Boolean);
   if (recipients.length === 0) throw new Error("Keine Empfänger in payload.recipients");
+  // Liste nicht umsortieren/filtern (sent_count zeigt auf Positionen), sondern nur prüfen.
+  const limit = ev.payload?.mode === "custom" ? MAX_CUSTOM_RECIPIENTS : MAX_ANNOUNCEMENT_RECIPIENTS;
+  if (recipients.length > limit) {
+    throw new Error(`Zu viele Empfänger (${recipients.length} > ${limit})`);
+  }
+  if (recipients.some((r) => !EMAIL_RE.test(r))) {
+    throw new Error("Ungültige Empfängeradresse in payload.recipients");
+  }
 
   const mail = buildEventAnnouncement(ev);
   let sent = Math.max(0, Number(ev.payload?.sent_count ?? 0) || 0);
@@ -415,7 +482,7 @@ async function sendAnnouncement(
           from: FROM_EMAIL,
           to: [to],
           ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
-          subject: mail.subject,
+          subject: cleanSubject(mail.subject),
           html: mail.html,
           text: mail.text,
         }))
@@ -456,10 +523,13 @@ async function processEvents(
         }
       }
 
+      const recipient =
+        ev.type === "alumni_decided" ? await resolveMemberRecipient(supabase, ev) : null;
+
       if (ev.type === "event_announcement") {
         await sendAnnouncement(supabase, ev);
       } else {
-        await sendViaResend(buildMail(ev, { emailConfirmed }));
+        await sendViaResend(buildMail(ev, { emailConfirmed, recipient }));
       }
 
       await supabase
@@ -487,7 +557,7 @@ Deno.serve(async (req) => {
     return json({ error: "Method not allowed" }, 405);
   }
 
-  if (!NOTIFY_SECRET || req.headers.get("x-notify-secret") !== NOTIFY_SECRET) {
+  if (!(await secretMatches(req.headers.get("x-notify-secret") ?? "", NOTIFY_SECRET))) {
     return json({ error: "Unauthorized" }, 401);
   }
 

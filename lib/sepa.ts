@@ -1,3 +1,8 @@
+/** Datum im Format YYYY-MM-DD (für SEPA-Felder wie DtOfSgntr), sonst Fallback. */
+export function sepaDate(value: string | null | undefined, fallback: string): string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : fallback;
+}
+
 export function sanitizeForSEPA(text: string | null | undefined): string {
   if (!text) return "";
 
@@ -55,11 +60,13 @@ export function buildNumericIdentifier(
 }
 
 /**
- * Escaped XML-Sonderzeichen in dynamischen Inhalten.
+ * Escaped XML-Sonderzeichen in dynamischen Inhalten und entfernt Zeichen,
+ * die in XML 1.0 nicht erlaubt sind (Steuerzeichen außer Tab/LF/CR).
  */
 export function escapeXml(text: string | null | undefined): string {
   if (!text) return "";
-  return text
+  return String(text)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

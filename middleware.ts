@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { isCancelledProfile } from "@/lib/profile-status";
-import { safeNextPath } from "@/lib/safe-redirect";
+import { isCancelledProfile, isPendingProfile } from "@/lib/profile-status";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 // Alle Seiten der Route-Group (intranet) – nur mit Login erreichbar.
 const INTRANET_PREFIXES = [
@@ -25,6 +25,10 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
+  // Header, die @supabase/ssr beim Setzen von Auth-Cookies mitliefert (Cache-Control: private, no-store …).
+  // Antworten mit Session-Cookies dürfen von keinem CDN/Proxy zwischengespeichert werden.
+  let authCacheHeaders: Record<string, string> = {};
+
   // 2. Baue den Supabase Client für die Middleware
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,7 +38,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
@@ -44,6 +48,10 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );
+          authCacheHeaders = { ...authCacheHeaders, ...headers };
+          for (const [key, value] of Object.entries(authCacheHeaders)) {
+            supabaseResponse.headers.set(key, value);
+          }
         },
       },
     }
@@ -59,10 +67,13 @@ export async function middleware(request: NextRequest) {
     for (const cookie of supabaseResponse.cookies.getAll()) {
       response.cookies.set(cookie);
     }
+    for (const [key, value] of Object.entries(authCacheHeaders)) {
+      response.headers.set(key, value);
+    }
     return response;
   };
 
-  // Kritische Zugriffssperre: gekündigte Accounts sofort abmelden + blockieren.
+  // Kritische Zugriffssperre: gekündigte Accounts und nicht freigegebene Anträge sofort abmelden + blockieren.
   if (user) {
     const { data: profile } = await supabase
       .from("profiles")
@@ -70,7 +81,8 @@ export async function middleware(request: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (isCancelledProfile((profile ?? null) as Record<string, unknown> | null)) {
+    const p = (profile ?? null) as Record<string, unknown> | null;
+    if (isCancelledProfile(p) || isPendingProfile(p)) {
       await supabase.auth.signOut();
       return redirectWithSupabaseCookies("/login");
     }
@@ -91,7 +103,7 @@ export async function middleware(request: NextRequest) {
   // 5. Die strikten Regeln (Kein Ping-Pong mehr)
   if (isAuthRoute && user) {
     // Eingeloggt, aber will zum Login? Ab ins Dashboard (oder zur ursprünglich angefragten Seite).
-    return redirectWithSupabaseCookies(safeNextPath(request.nextUrl.searchParams.get("next")) ?? "/dashboard");
+    return redirectWithSupabaseCookies(safeRedirectPath(request.nextUrl.searchParams.get("next")));
   }
 
   if (isProtectedRoute && !user) {

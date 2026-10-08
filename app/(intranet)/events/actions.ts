@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath, unstable_cache, updateTag } from "next/cache";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
+import { getCachedSupabase } from "@/utils/supabase/cached-auth";
+import { requireRole, requireUser, type Role } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
+import { isSafeId } from "@/lib/validation";
 import {
   EVENT_IMAGE_BUCKET,
   MAX_CUSTOM_RECIPIENTS,
@@ -50,20 +52,25 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const IMAGE_PATH_RE = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|gif|webp)$/;
 
-function serviceClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
+async function requireAdmin(): Promise<{ userId: string; role: Role } | { error: string }> {
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return { error: auth.error };
+  return { userId: auth.user.id, role: auth.role };
 }
 
-async function requireAdmin(): Promise<{ userId: string } | { error: string }> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return { error: "Nicht eingeloggt." };
-  const role = String(profile?.["Rolle"] ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") return { error: "Keine Berechtigung." };
-  return { userId: user.id };
+/** Abstand zwischen zwei Rundmails an alle Mitglieder zum selben Event. */
+const ANNOUNCEMENT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/** Prüft Ziel und Berechtigung einer Event-Mail (vor dem Anlegen bzw. Versenden). */
+function checkAnnouncementTarget(target: AnnouncementTarget | null | undefined, role: Role): string {
+  if (!target) return "";
+  if (target.mode !== "all" && target.mode !== "custom") return "Ungültige Empfängerauswahl.";
+  if (target.mode === "custom") {
+    // Mails an frei eingegebene Adressen nur durch den Vorstand.
+    if (role !== "board") return "Mails an einzelne Adressen darf nur der Vorstand verschicken.";
+    return normalizeCustomEmails(target.emails).error;
+  }
+  return "";
 }
 
 function invalidateEvents() {
@@ -93,7 +100,7 @@ function toEventCore(e: Record<string, unknown>): EventCore {
 
 const fetchEvents = unstable_cache(
   async (): Promise<EventListItem[]> => {
-    const admin = serviceClient();
+    const admin = createServiceClient();
     const [{ data: events, error }, { data: regs }] = await Promise.all([
       admin
         .from("events")
@@ -129,19 +136,21 @@ const fetchEvents = unstable_cache(
 
 /** Alle Events, aufsteigend nach Beginn. Nur serverseitig verwenden (enthält User-IDs der Anmeldungen). */
 export async function getEvents(): Promise<EventListItem[]> {
-  const { user } = await getCachedAuth();
-  if (!user) return [];
+  const auth = await requireUser();
+  if (!auth.ok) return [];
   return fetchEvents();
 }
 
 export async function getEvent(eventId: string): Promise<EventListItem | null> {
+  if (!isSafeId(eventId)) return null;
   const events = await getEvents();
   return events.find((e) => e.id === eventId) ?? null;
 }
 
 export async function getMyEvents(): Promise<MyEventsResult> {
-  const { user } = await getCachedAuth();
-  if (!user) return { upcoming: [], attended: [] };
+  const auth = await requireUser();
+  if (!auth.ok) return { upcoming: [], attended: [] };
+  const user = auth.user;
 
   const now = Date.now();
   const mine = (await fetchEvents()).filter((e) => e.registered_user_ids.includes(user.id));
@@ -170,11 +179,12 @@ export async function getEventWithParticipants(eventId: string): Promise<{
 } | null> {
   const auth = await requireAdmin();
   if ("error" in auth) return null;
+  if (!isSafeId(eventId)) return null;
 
   const event = await getEvent(eventId);
   if (!event) return null;
 
-  const admin = serviceClient();
+  const admin = createServiceClient();
   const [{ data: regs }, { data: notifications }] = await Promise.all([
     admin
       .from("event_registrations")
@@ -334,10 +344,8 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
     if (!imageUrl) return fail("Ungültiges Bild.");
   }
 
-  if (input.announce?.mode === "custom") {
-    const check = normalizeCustomEmails(input.announce.emails);
-    if (check.error) return fail(check.error);
-  }
+  const targetError = checkAnnouncementTarget(input.announce, auth.role);
+  if (targetError) return fail(targetError);
 
   const supabase = await getCachedSupabase();
   const { data: row, error } = await supabase
@@ -363,6 +371,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
 export async function updateEvent(eventId: string, input: UpdateEventInput): Promise<{ error: string }> {
   const auth = await requireAdmin();
   if ("error" in auth) return { error: auth.error };
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
 
   const parsed = parseEventFields(input);
   if (!parsed.row) return { error: parsed.error };
@@ -401,6 +410,7 @@ export async function updateEvent(eventId: string, input: UpdateEventInput): Pro
 export async function deleteEvent(eventId: string): Promise<{ error: string }> {
   const auth = await requireAdmin();
   if ("error" in auth) return { error: auth.error };
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
 
   const supabase = await getCachedSupabase();
   const { data: deleted, error } = await supabase
@@ -422,8 +432,10 @@ export async function toggleRegistration(
   eventId: string,
   isRegistered: boolean
 ): Promise<{ error: string }> {
-  const { user } = await getCachedAuth();
-  if (!user) return { error: "Nicht eingeloggt." };
+  const auth = await requireUser();
+  if (!auth.ok) return { error: auth.error };
+  const user = auth.user;
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
 
   const supabase = await getCachedSupabase();
   if (isRegistered) {
@@ -451,6 +463,10 @@ export async function sendEventAnnouncement(
 ): Promise<{ count: number; error: string }> {
   const auth = await requireAdmin();
   if ("error" in auth) return { count: 0, error: auth.error };
+  if (!isSafeId(eventId)) return { count: 0, error: "Event nicht gefunden." };
+  if (!target) return { count: 0, error: "Ungültige Empfängerauswahl." };
+  const targetError = checkAnnouncementTarget(target, auth.role);
+  if (targetError) return { count: 0, error: targetError };
   const result = await enqueueAnnouncement(eventId, target, auth.userId);
   revalidatePath(`/admin/events/${eventId}`);
   return result;
@@ -478,7 +494,7 @@ async function resolveRecipients(target: AnnouncementTarget): Promise<{ emails: 
   if (target.mode === "custom") return normalizeCustomEmails(target.emails);
 
   // Alle Mitglieder außer Alumni und Ausgetretenen (Status cancelled).
-  const { data, error } = await serviceClient()
+  const { data, error } = await createServiceClient()
     .from("profiles")
     .select('"E-Mail", "Status"')
     .in("Rolle", ["member", "admin", "board"])
@@ -487,7 +503,9 @@ async function resolveRecipients(target: AnnouncementTarget): Promise<{ emails: 
 
   const emails = new Set<string>();
   for (const p of data ?? []) {
-    if (String(p["Status"] ?? "").trim().toLowerCase() === "cancelled") continue;
+    const status = String(p["Status"] ?? "").trim().toLowerCase();
+    // Keine Ausgetretenen und keine offenen Mitgliedsanträge.
+    if (status === "cancelled" || status === "applicant") continue;
     const email = String(p["E-Mail"] ?? "").trim().toLowerCase();
     if (isValidEmail(email)) emails.add(email);
   }
@@ -499,13 +517,35 @@ async function enqueueAnnouncement(
   target: AnnouncementTarget,
   requestedBy: string
 ): Promise<{ count: number; error: string }> {
-  const admin = serviceClient();
+  const admin = createServiceClient();
   const { data: row, error: evError } = await admin
     .from("events")
     .select("id, title, description, event_date, event_time, end_time, location, organizer, image_url, requires_registration")
     .eq("id", eventId)
     .maybeSingle();
   if (evError || !row) return { count: 0, error: "Event nicht gefunden." };
+
+  // Rundmail an alle höchstens einmal pro Event und 24 Stunden.
+  if (target.mode === "all") {
+    const since = new Date(Date.now() - ANNOUNCEMENT_COOLDOWN_MS).toISOString();
+    const { count: recent, error: recentError } = await admin
+      .from("notification_events")
+      .select("id", { count: "exact", head: true })
+      .eq("type", "event_announcement")
+      .eq("payload->>event_id", eventId)
+      .eq("payload->>mode", "all")
+      .gte("created_at", since);
+    if (recentError) {
+      console.error("enqueueAnnouncement (Limit):", recentError);
+      return { count: 0, error: "Mailversand konnte nicht gestartet werden." };
+    }
+    if ((recent ?? 0) > 0) {
+      return {
+        count: 0,
+        error: "Für dieses Event ging in den letzten 24 Stunden bereits eine Mail an alle Mitglieder raus.",
+      };
+    }
+  }
 
   const { emails, error } = await resolveRecipients(target);
   if (error) return { count: 0, error };

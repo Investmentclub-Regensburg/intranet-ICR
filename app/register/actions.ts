@@ -1,6 +1,16 @@
 "use server";
 import { createClient } from "@/utils/supabase/server";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
+import {
+  FIELD_LIMITS,
+  checkDialCode,
+  checkPhone,
+  checkPlz,
+  checkText,
+  firstError,
+} from "@/lib/member-fields";
+import { authErrorMessage, checkPasswordLength } from "@/lib/auth-messages";
+import { isPendingProfile } from "@/lib/profile-status";
 
 /** Bei Fehler zurückgegebene Formulardaten (ohne Passwörter) für erneute Anzeige. */
 export type RegisterSavedState = {
@@ -126,8 +136,32 @@ export async function registerAction(
     return { error: "Die SEPA-Bestätigung ist erforderlich.", saved };
   }
 
+  // Format und Länge der Angaben prüfen (gleiche Regeln wie im Profil).
+  const fieldError = firstError(
+    email!.length > 254 ? "Die E-Mail-Adresse ist zu lang." : null,
+    checkText(vorname!, "Vorname", FIELD_LIMITS.name),
+    checkText(nachname!, "Nachname", FIELD_LIMITS.name),
+    checkText(strasse!, "Straße", FIELD_LIMITS.strasse),
+    checkText(hausnummer!, "Hausnummer", FIELD_LIMITS.hausnummer),
+    checkText(ort!, "Ort", FIELD_LIMITS.ort),
+    checkPlz(plz!),
+    checkDialCode(landesvorwahl),
+    checkPhone(handynummerRaw!),
+    checkText(studiengang ?? "", "Studiengang", FIELD_LIMITS.studium),
+    checkText(abschluss ?? "", "Abschluss", FIELD_LIMITS.studium),
+    checkText(hochschultyp ?? "", "Hochschulart", FIELD_LIMITS.studium)
+  );
+  if (fieldError) {
+    return { error: fieldError, saved };
+  }
+
   if (password !== passwordRepeat) {
     return { error: "Die Passwörter stimmen nicht überein.", saved };
+  }
+
+  const passwordError = checkPasswordLength(password);
+  if (passwordError) {
+    return { error: passwordError, saved };
   }
 
   if (!isValidDate(geburtstagRaw!)) {
@@ -162,7 +196,12 @@ export async function registerAction(
   const isLocalhostBypass =
     turnstileToken === "localhost-bypass" && process.env.NODE_ENV === "development";
 
-  if (!isLocalhostBypass) {
+  // Ist in Supabase Auth (Attack Protection) CAPTCHA mit Turnstile aktiviert, prüft Supabase
+  // das Token selbst – dann wird es nur durchgereicht (Turnstile-Tokens sind einmalig gültig).
+  // So greift der Bot-Schutz auch bei Registrierungen, die die App umgehen.
+  const supabaseVerifiesCaptcha = process.env.SUPABASE_AUTH_CAPTCHA === "true";
+
+  if (!isLocalhostBypass && !supabaseVerifiesCaptcha) {
     const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
     if (!turnstileSecret) {
       return {
@@ -200,19 +239,21 @@ export async function registerAction(
     email: email!,
     password: password!,
     options: {
+      ...(supabaseVerifiesCaptcha && !isLocalhostBypass ? { captchaToken: turnstileToken } : {}),
+      // Geprüfte, getrimmte Werte übergeben (nicht die Roh-Formulardaten).
       data: {
-        Vorname: formData.get("vorname"),
-        Nachname: formData.get("nachname"),
-        Geburtsdatum: formData.get("geburtstag"),
-        "Straße": formData.get("strasse"),
-        Hausnr: formData.get("hausnummer"),
-        Ort: formData.get("ort"),
-        PLZ: formData.get("plz"),
+        Vorname: vorname,
+        Nachname: nachname,
+        Geburtsdatum: geburtstagRaw,
+        "Straße": strasse,
+        Hausnr: hausnummer,
+        Ort: ort,
+        PLZ: plz,
         Handynummer: handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
-        Fach: formData.get("studiengang"),
-        Abschluss: formData.get("abschluss"),
+        Fach: studiengang || null,
+        Abschluss: abschluss || null,
         Semester: student === "Ja" ? String(semesterNumber) : "",
-        "Uni/OTH": formData.get("hochschultyp"),
+        "Uni/OTH": hochschultyp || null,
         IBAN: ibanClean,
         BIC: bicClean,
         "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
@@ -221,7 +262,14 @@ export async function registerAction(
   });
 
   if (signUpError) {
-    return { error: signUpError.message, saved };
+    console.error("registerAction:", signUpError.code ?? signUpError.status);
+    return {
+      error: authErrorMessage(
+        signUpError,
+        "Registrierung fehlgeschlagen. Bitte prüfe deine Angaben oder versuche es später erneut."
+      ),
+      saved,
+    };
   }
 
   if (!authData.user) {
@@ -233,6 +281,22 @@ export async function registerAction(
       error: "",
       confirmationMessage:
         "Registrierung erfolgreich. Bitte bestätige deine E-Mail-Adresse, bevor du dich anmeldest.",
+    };
+  }
+
+  // Sofortige Session (E-Mail-Bestätigung aus): Zugang erst nach Freigabe durch den Vorstand,
+  // falls das neue Profil als Antrag (Status applicant) angelegt wurde.
+  const { data: newProfile } = await supabase
+    .from("profiles")
+    .select('"Status"')
+    .eq("user_id", authData.user.id)
+    .maybeSingle();
+  if (isPendingProfile((newProfile ?? null) as Record<string, unknown> | null)) {
+    await supabase.auth.signOut();
+    return {
+      error: "",
+      confirmationMessage:
+        "Registrierung erfolgreich. Der Vorstand prüft deinen Mitgliedsantrag; danach kannst du dich anmelden.",
     };
   }
 

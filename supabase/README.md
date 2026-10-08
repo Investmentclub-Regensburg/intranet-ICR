@@ -5,6 +5,11 @@
 Alle Schemaänderungen liegen unter `migrations/` und sind idempotent. Ausführen per Supabase CLI
 (`supabase link --project-ref <ref>` → `supabase db push`) oder Inhalt im SQL Editor einfügen.
 
+**Entwürfe:** Dateien mit `_entwurf_` im Namen sind noch nicht freigegeben. Sie beginnen mit dem
+Kommentar „ENTWURF – vor Ausführung gegen Schema-Dump prüfen“ und brechen ab, solange in derselben
+Sitzung nicht `set icr.apply_drafts = on;` gesetzt ist (ein `supabase db push` stoppt deshalb an der
+ersten Entwurfsdatei). Nach Prüfung den Schutzblock entfernen oder die Zeile voranstellen.
+
 ## Events
 
 Migration: `migrations/20261003120000_events_overhaul.sql`
@@ -40,7 +45,8 @@ Edge Function: `functions/notify-board/index.ts`
    `NOTIFY_TO_EMAIL` und setzt `sent_at` bzw. `last_error`/`attempts`.
 4. Wird ein Alumni-Antrag entschieden (`alumni_requests.status` → `approved`/`rejected`, egal ob über
    die Admin-Seite oder indirekt über das Rollen-Dropdown), entsteht ein Event `alumni_decided`, das
-   an das Mitglied selbst geht (`payload.recipient`, Reply-To = Vorstandsadresse).
+   an das Mitglied selbst geht (Adresse aus `profiles."E-Mail"` zu `payload.user_id`, ersatzweise die
+   Adresse des Auth-Kontos; Reply-To = Vorstandsadresse).
    Migration: `migrations/20260921090000_alumni_decision_mail.sql`.
 
 Fehlt ein Vault-Secret, bleibt das Event mit `sent_at = null` in der Outbox liegen; es geht nichts verloren.

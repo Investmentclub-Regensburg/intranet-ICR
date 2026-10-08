@@ -2,6 +2,8 @@
 
 import { headers } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
+import { authErrorMessage } from "@/lib/auth-messages";
+import { getSiteOrigin } from "@/lib/site-url";
 
 export type ForgotPasswordState = {
   error: string;
@@ -14,12 +16,12 @@ export async function forgotPasswordAction(
   formData: FormData
 ): Promise<ForgotPasswordState> {
   const email = (formData.get("email") as string)?.trim();
-  if (!email) {
+  if (!email || email.length > 254) {
     return { error: "Bitte E-Mail-Adresse eingeben.", success: false, email: "" };
   }
 
   const supabase = await createClient();
-  const origin = (await headers()).get("origin") ?? "http://localhost:3000";
+  const origin = getSiteOrigin((await headers()).get("origin"));
   const redirectTo = `${origin}/auth/callback?next=/reset-password`;
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -27,7 +29,15 @@ export async function forgotPasswordAction(
   });
 
   if (error) {
-    return { error: error.message, success: false, email };
+    console.error("forgotPasswordAction:", error.code ?? error.status);
+    return {
+      error: authErrorMessage(
+        error,
+        "Die Anfrage konnte gerade nicht verarbeitet werden. Bitte versuche es später erneut."
+      ),
+      success: false,
+      email,
+    };
   }
 
   return { error: "", success: true, email };

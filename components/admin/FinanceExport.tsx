@@ -19,13 +19,16 @@ import {
   type FinanceMemberRow,
   type InvalidFinanceMemberRow,
   type FilterStats,
+  type SepaCreditor,
 } from "@/app/(intranet)/admin/actions/finance";
 import {
   buildSepaIdentifier,
   buildNumericIdentifier,
   escapeXml,
   sanitizeNameForBank,
+  sepaDate,
 } from "@/lib/sepa";
+import { joinCsvRow } from "@/lib/csv";
 
 const MIN_YEAR = 2000;
 
@@ -52,6 +55,8 @@ export function FinanceExport() {
   const [stats, setStats] = useState<FilterStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Zeitraum der geladenen Vorschau – der Export nutzt genau diesen Zeitraum.
+  const [loadedPeriod, setLoadedPeriod] = useState<{ semester: Semester; year: number } | null>(null);
 
   const handleLoadPreview = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -63,11 +68,13 @@ export function FinanceExport() {
       setValidMembers(validMembers);
       setInvalidMembers(invalidMembers);
       setStats(newStats);
+      setLoadedPeriod({ semester, year });
     } catch (err) {
       console.error("Fehler beim Laden der Daten:", err);
       setValidMembers([]);
       setInvalidMembers([]);
       setStats(null);
+      setLoadedPeriod(null);
       setError(
         err instanceof Error
           ? err.message
@@ -78,15 +85,42 @@ export function FinanceExport() {
     }
   };
 
-  function handleExportCsv() {
-    if (!validMembers.length) return;
+  /** Vollständige Exportdaten erst beim Download vom Server holen (Vorschau zeigt gekürzte IBANs). */
+  async function loadExportRows(): Promise<{
+    rows: FinanceMemberRow[];
+    creditor: SepaCreditor | null;
+    period: { semester: Semester; year: number };
+  } | null> {
+    if (!loadedPeriod) return null;
+    setError(null);
+    try {
+      const { validMembers: rows, creditor } = await getFinanceExportData(
+        loadedPeriod.semester,
+        loadedPeriod.year,
+        "export"
+      );
+      return rows.length ? { rows, creditor, period: loadedPeriod } : null;
+    } catch (err) {
+      console.error("Fehler beim Laden der Exportdaten:", err);
+      setError(
+        err instanceof Error ? err.message : "Es gab einen Fehler beim Laden der Exportdaten."
+      );
+      return null;
+    }
+  }
+
+  async function handleExportCsv() {
+    const data = await loadExportRows();
+    if (!data) return;
+    const { rows } = data;
 
     const header = "Name;IBAN;BIC;Betrag;Mandatsreferenz";
-    const lines = validMembers.map((row) => {
+    const lines = rows.map((row) => {
       const name = `${row.firstName} ${row.lastName}`.trim();
       const amount = row.amount.toFixed(2).replace(".", ",");
       const mandateId = buildNumericIdentifier(row.id, 35);
-      return [name, row.iban, row.bic, amount, mandateId].join(";");
+      // Zellen entschärfen (Formel-Injection) und korrekt quoten.
+      return joinCsvRow([name, row.iban, row.bic, amount, mandateId], ";");
     });
     const csv = [header, ...lines].join("\n");
 
@@ -103,26 +137,35 @@ export function FinanceExport() {
     URL.revokeObjectURL(url);
   }
 
-  function handleExportSepaXml() {
-    if (!validMembers.length) return;
+  async function handleExportSepaXml() {
+    const data = await loadExportRows();
+    if (!data) return;
+    const { rows, period, creditor } = data;
+    if (!creditor) {
+      setError(
+        "SEPA-Gläubigerdaten sind nicht konfiguriert (SEPA_CREDITOR_IBAN, SEPA_CREDITOR_BIC, SEPA_CREDITOR_ID). Bitte in der Server-Umgebung hinterlegen."
+      );
+      return;
+    }
 
     const today = new Date().toISOString().slice(0, 10);
-    const periodLabel = getPeriodLabel(semester, year);
+    const periodLabel = getPeriodLabel(period.semester, period.year);
     const periodToken = buildSepaIdentifier(periodLabel, 10) || "PERIODE";
     const messageId =
       buildSepaIdentifier(`ICRBEITRAG${periodToken}${today.replace(/-/g, "")}`) ||
       "ICRBEITRAG";
 
-    const totalAmount = validMembers
+    const totalAmount = rows
       .reduce((sum, row) => sum + row.amount, 0)
       .toFixed(2);
 
-    const creditorName = "Investmentclub Regensburg e.V.";
-    const creditorIban = "DE79750500000026907543";
-    const creditorBic = "BYLADEM1RBG";
-    const creditorId = "DE58ZZZ00001948916";
+    // Gläubigerdaten kommen aus der Server-Umgebung (SEPA_CREDITOR_*), nicht aus dem Bundle.
+    const creditorName = creditor.name;
+    const creditorIban = creditor.iban;
+    const creditorBic = creditor.bic;
+    const creditorId = creditor.creditorId;
 
-    const txInfos = validMembers
+    const txInfos = rows
       .map((row, idx) => {
         const nameRaw = `${row.firstName} ${row.lastName}`.trim();
         const name = sanitizeNameForBank(nameRaw) || "MITGLIED";
@@ -131,7 +174,7 @@ export function FinanceExport() {
           buildNumericIdentifier(row.id, 35) || String(idx + 1).padStart(6, "0");
         const endToEndId =
           buildSepaIdentifier(`${messageId}${idx + 1}`, 35) || `E2E${idx + 1}`;
-        const dtOfSgntr = row.mandateDate ?? today;
+        const dtOfSgntr = escapeXml(sepaDate(row.mandateDate, today));
         const bic = buildSepaIdentifier(row.bic, 11);
         const dbtrAgtXml = bic
           ? `<DbtrAgt>
@@ -178,7 +221,7 @@ export function FinanceExport() {
     <GrpHdr>
       <MsgId>${escapeXml(messageId)}</MsgId>
       <CreDtTm>${today}T00:00:00</CreDtTm>
-      <NbOfTxs>${validMembers.length}</NbOfTxs>
+      <NbOfTxs>${rows.length}</NbOfTxs>
       <CtrlSum>${totalAmount}</CtrlSum>
       <InitgPty>
         <Nm>${escapeXml(creditorName)}</Nm>
@@ -187,7 +230,7 @@ export function FinanceExport() {
     <PmtInf>
       <PmtInfId>${escapeXml(messageId)}</PmtInfId>
       <PmtMtd>DD</PmtMtd>
-      <NbOfTxs>${validMembers.length}</NbOfTxs>
+      <NbOfTxs>${rows.length}</NbOfTxs>
       <CtrlSum>${totalAmount}</CtrlSum>
       <PmtTpInf>
         <SvcLvl>

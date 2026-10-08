@@ -1,8 +1,9 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
-import { isCancelledProfile } from "@/lib/profile-status";
-import { safeNextPath } from "@/lib/safe-redirect";
+import { isCancelledProfile, isPendingProfile } from "@/lib/profile-status";
+import { safeRedirectPath } from "@/lib/safe-redirect";
+import { LOGIN_FAILED_MESSAGE, MAX_PASSWORD_LENGTH, authErrorMessage } from "@/lib/auth-messages";
 
 export async function loginAction(
   _prevState: { error: string; redirect?: string },
@@ -11,8 +12,11 @@ export async function loginAction(
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
 
-  if (!email || !password) {
+  if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
     return { error: "Bitte E-Mail und Passwort eingeben." };
+  }
+  if (email.length > 254 || password.length > MAX_PASSWORD_LENGTH) {
+    return { error: LOGIN_FAILED_MESSAGE };
   }
 
   const supabase = await createClient();
@@ -23,7 +27,8 @@ export async function loginAction(
   });
 
   if (error) {
-    return { error: error.message };
+    // Einheitliche Meldung: verrät nicht, ob ein Konto existiert oder noch unbestätigt ist.
+    return { error: authErrorMessage(error, LOGIN_FAILED_MESSAGE) };
   }
 
   const user = data.user;
@@ -50,5 +55,13 @@ export async function loginAction(
     };
   }
 
-  return { error: "", redirect: safeNextPath(formData.get("next")) ?? "/dashboard" };
+  if (isPendingProfile((profile ?? null) as Record<string, unknown> | null)) {
+    await supabase.auth.signOut();
+    return {
+      error:
+        "Dein Mitgliedsantrag wird noch vom Vorstand geprüft. Sobald er freigegeben ist, kannst du dich anmelden.",
+    };
+  }
+
+  return { error: "", redirect: safeRedirectPath(formData.get("next")) };
 }
