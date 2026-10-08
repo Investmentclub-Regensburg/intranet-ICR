@@ -451,15 +451,81 @@
   animation-delay: var(--fly-delay, 0s);
 }
 
-/* Startet bei jedem Schrittwechsel neu (Schritt wechselt von display:none). */
-.wizard-step > h2 {
-  animation: fly-rise-soft 0.7s var(--ease-out) 0.06s both;
+@keyframes fly-rise-mid {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* Rechte (weiße) Seite der Auth-Seiten: Kinder eines .fly-stack kommen nacheinander
+   (Überschrift, Felder, Knöpfe, Links). Ein verschachtelter .fly-stack (das Formular)
+   fliegt nicht selbst, sondern staffelt seine eigenen Kinder; was nach ihm kommt
+   (Links unten), wartet, bis die Felder da sind. Versteckte Felder (React legt für
+   Server Actions Hidden-Inputs an) zählen bei der Staffelung nicht mit. */
+.fly-stack > * {
+  animation: fly-rise-mid 0.9s var(--ease-out) both;
+}
+.fly-stack > :nth-child(1) {
+  animation-delay: 0.15s;
+}
+.fly-stack > :nth-child(2) {
+  animation-delay: 0.28s;
+}
+.fly-stack > :nth-child(n + 3) {
+  animation-delay: 0.8s;
+}
+.fly-stack > .fly-stack {
+  animation: none;
+}
+.fly-stack .fly-stack > :nth-child(1 of :not([type="hidden"])) {
+  animation-delay: 0.3s;
+}
+.fly-stack .fly-stack > :nth-child(2 of :not([type="hidden"])) {
+  animation-delay: 0.38s;
+}
+.fly-stack .fly-stack > :nth-child(3 of :not([type="hidden"])) {
+  animation-delay: 0.46s;
+}
+.fly-stack .fly-stack > :nth-child(4 of :not([type="hidden"])) {
+  animation-delay: 0.54s;
+}
+.fly-stack .fly-stack > :nth-child(n + 5 of :not([type="hidden"])) {
+  animation-delay: 0.62s;
+}
+
+/* Wizard: Inhalt eines Schritts (Frage, Felder, Knöpfe) kommt dezent gestaffelt,
+   bei jedem Schrittwechsel neu (Schritt wechselt von display:none). */
+.wizard-step > * {
+  animation: fly-rise-soft 0.7s var(--ease-out) both;
+}
+.wizard-step > :nth-child(1) {
+  animation-delay: 0.06s;
+}
+.wizard-step > :nth-child(2) {
+  animation-delay: 0.12s;
+}
+.wizard-step > :nth-child(3) {
+  animation-delay: 0.18s;
+}
+.wizard-step > :nth-child(4) {
+  animation-delay: 0.24s;
+}
+.wizard-step > :nth-child(n + 5) {
+  animation-delay: 0.3s;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .fly-rise,
   .fly-slide,
-  .wizard-step > h2 {
+  .fly-stack > *,
+  .wizard-step > * {
     animation: fade-only 0.3s linear both;
     animation-delay: 0s;
   }

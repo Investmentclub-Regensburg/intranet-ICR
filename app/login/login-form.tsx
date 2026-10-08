@@ -23,7 +23,7 @@ export function LoginForm({ next }: { next?: string }) {
   }, [state.redirect, router]);
 
   return (
-    <form action={formAction} className="space-y-5">
+    <form action={formAction} className="fly-stack space-y-5">
       {next && <input type="hidden" name="next" value={next} />}
       <div className="space-y-2">
         <Label htmlFor="email">E-Mail</Label>

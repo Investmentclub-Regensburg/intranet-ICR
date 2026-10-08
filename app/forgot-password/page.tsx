@@ -6,7 +6,7 @@ import { ForgotPasswordForm } from "./forgot-password-form";
 export default function ForgotPasswordPage() {
   return (
     <AuthFrame stage={<StageHeading title="Passwort vergessen" />}>
-      <div className="space-y-6">
+      <div className="fly-stack space-y-6">
         <p className="text-sm leading-relaxed text-muted-foreground">
           Gib deine E-Mail ein. Wir schicken dir einen Link zum Zurücksetzen
           des Passworts.

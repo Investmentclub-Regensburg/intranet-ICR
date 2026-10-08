@@ -15,7 +15,7 @@ export default async function LoginPage({
     <AuthFrame
       stage={<StageHeading title={["Willkommen", "im ICR-Intranet"]} />}
     >
-      <div className="space-y-8">
+      <div className="fly-stack space-y-8">
         <h2 className="text-2xl font-bold tracking-[-0.03em]">Anmelden</h2>
         <LoginForm next={next} />
         <div className="border-t border-border pt-6 text-sm text-muted-foreground">

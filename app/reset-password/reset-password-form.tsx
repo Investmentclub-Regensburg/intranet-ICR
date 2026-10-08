@@ -35,7 +35,7 @@ export function ResetPasswordForm() {
   }, []);
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="fly-stack space-y-4">
       <div className="space-y-2">
         <Label htmlFor="newPassword">Neues Passwort</Label>
         <PasswordInput
@@ -44,7 +44,6 @@ export function ResetPasswordForm() {
           required
           minLength={6}
           autoComplete="new-password"
-          placeholder="Mind. 6 Zeichen"
           className="h-11"
           onChange={(e) =>
             checkMatch(e.target.value, confirmRef.current?.value ?? "")
@@ -60,7 +59,6 @@ export function ResetPasswordForm() {
           required
           minLength={6}
           autoComplete="new-password"
-          placeholder="Passwort wiederholen"
           className={passwordMismatch ? "h-11 border-destructive" : "h-11"}
           aria-invalid={passwordMismatch}
           aria-describedby={passwordMismatch ? "confirm-error" : undefined}

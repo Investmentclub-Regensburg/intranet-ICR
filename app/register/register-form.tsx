@@ -304,7 +304,7 @@ export function RegisterForm() {
   if (state.confirmationMessage) {
     return (
       <AuthFrame stage={stage} width="wide">
-        <div className="space-y-5" role="status">
+        <div className="fly-stack space-y-5" role="status">
           <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint text-primary">
             <CircleCheck className="size-6" aria-hidden />
           </span>
@@ -739,7 +739,7 @@ export function RegisterForm() {
         )}
       </form>
 
-      <p className="mt-10 border-t border-border pt-6 text-sm text-muted-foreground">
+      <p className="fly-rise mt-10 border-t border-border pt-6 text-sm text-muted-foreground" style={flyDelay(0.7)}>
         Bereits ein Konto?{" "}
         <Link href="/login" className="font-semibold text-primary transition-colors hover:text-foreground">
           Zum Login

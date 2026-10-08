@@ -18,7 +18,7 @@ export function ForgotPasswordForm() {
 
   if (state.success) {
     return (
-      <div className="space-y-4">
+      <div className="fly-stack space-y-4">
         <div className="flex flex-col items-center gap-2 text-center">
           <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint text-primary">
             <CheckCircle2 className="size-6" aria-hidden="true" />
@@ -45,7 +45,7 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="fly-stack space-y-4">
       <div className="space-y-2">
         <Label htmlFor="email">E-Mail</Label>
         <Input
