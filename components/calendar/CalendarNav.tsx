@@ -1,99 +1,68 @@
-"use client";
-
-import { useRouter, usePathname } from "next/navigation";
+import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { IconLink } from "@/components/kit/IconButton";
+import { cn } from "@/lib/utils";
 
 const MONTHS = [
   "Januar", "Februar", "März", "April", "Mai", "Juni",
   "Juli", "August", "September", "Oktober", "November", "Dezember",
 ];
 
+export function monthName(month: number): string {
+  return MONTHS[month - 1] ?? "";
+}
+
+function monthHref(year: number, month: number): string {
+  return `/calendar?year=${year}&month=${month}`;
+}
+
 type Props = {
   year: number;
   month: number; // 1–12
+  /** Aktueller Monat in Berlin, für „Heute“. */
+  currentYear: number;
+  currentMonth: number;
 };
 
-export function CalendarNav({ year, month }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  function goTo( y: number, m: number ) {
-    const params = new URLSearchParams();
-    params.set("year", String(y));
-    params.set("month", String(m));
-    router.push(`${pathname}?${params.toString()}`);
-  }
-
-  function prevMonth() {
-    if (month === 1) goTo(year - 1, 12);
-    else goTo(year, month - 1);
-  }
-
-  function nextMonth() {
-    if (month === 12) goTo(year + 1, 1);
-    else goTo(year, month + 1);
-  }
-
-  function goToday() {
-    const now = new Date();
-    goTo(now.getFullYear(), now.getMonth() + 1);
-  }
-
-  const years: number[] = [];
-  const currentYear = new Date().getFullYear();
-  for (let y = currentYear - 2; y <= currentYear + 3; y++) years.push(y);
+/**
+ * Monatskopf: Monat und Jahr einmal, zentriert, Pfeile als Icon-Links, „Heute“ rechts.
+ * Reine Links (?year&month wie bisher), funktioniert ohne JavaScript.
+ */
+export function CalendarNav({ year, month, currentYear, currentMonth }: Props) {
+  const prev = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
+  const next = month === 12 ? { y: year + 1, m: 1 } : { y: year, m: month + 1 };
+  const isCurrent = year === currentYear && month === currentMonth;
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={prevMonth}
-          aria-label="Vorheriger Monat"
+    <div className="flex items-center justify-between gap-2 sm:grid sm:grid-cols-[1fr_auto_1fr]">
+      <span aria-hidden className="hidden sm:block" />
+      <div className="flex items-center gap-1 sm:gap-3">
+        <IconLink href={monthHref(prev.y, prev.m)} label={`${monthName(prev.m)} ${prev.y}`} variant="outline">
+          <ChevronLeft />
+        </IconLink>
+        <h2
+          className="min-w-[8.5rem] text-center text-base font-bold tracking-[-0.02em] text-foreground sm:min-w-[12rem] sm:text-xl"
+          aria-live="polite"
         >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={nextMonth}
-          aria-label="Nächster Monat"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={goToday}>
-          Heute
-        </Button>
+          {monthName(month)} {year}
+        </h2>
+        <IconLink href={monthHref(next.y, next.m)} label={`${monthName(next.m)} ${next.y}`} variant="outline">
+          <ChevronRight />
+        </IconLink>
       </div>
-      <div className="flex items-center gap-2">
-        <select
-          value={month}
-          onChange={(e) => goTo(year, Number(e.target.value))}
-          className="border-input bg-background h-9 rounded-md border px-3 py-1.5 text-sm font-medium shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring min-w-[120px] cursor-pointer"
-          aria-label="Monat wählen"
+      <div className="flex justify-end">
+        <Link
+          href={monthHref(currentYear, currentMonth)}
+          aria-current={isCurrent ? "date" : undefined}
+          className={cn(
+            "inline-flex h-9 items-center rounded-xs border px-3 text-sm font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+            isCurrent
+              ? "pointer-events-none border-transparent text-muted-foreground"
+              : "border-input bg-card text-foreground hover:border-primary/35 hover:bg-accent",
+          )}
         >
-          {MONTHS.map((name, i) => (
-            <option key={i} value={i + 1}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <select
-          value={year}
-          onChange={(e) => goTo(Number(e.target.value), month)}
-          className="border-input bg-background h-9 rounded-md border px-3 py-1.5 text-sm font-medium shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring min-w-[88px] cursor-pointer"
-          aria-label="Jahr wählen"
-        >
-          {years.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
+          Heute
+        </Link>
       </div>
     </div>
   );

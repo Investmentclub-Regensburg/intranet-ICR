@@ -1,27 +1,20 @@
+import { PageHeader } from "@/components/kit/PageHeader";
+import { Stagger } from "@/components/kit/Reveal";
 import { BvhLoginSection } from "@/components/magazines/BvhLoginSection";
 import { getBvhLoginStatusForCurrentUser } from "./actions";
 
+// Vorteile der Mitgliedschaft. Heute gibt es im Intranet genau einen (BVH-Zeitschriften);
+// weitere kommen als eigene Abschnitte in diese Liste, sobald es sie wirklich gibt.
 export default async function MagazinesPage() {
   const bvhStatus = await getBvhLoginStatusForCurrentUser();
 
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md space-y-8 text-center">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-            Zeitschriften
-          </h1>
-          <p className="mt-3 text-base text-muted-foreground md:text-lg">
-          Zugang zu den Zeitschriften des BVH (Capital, FAZ, Stern, Börse Online, Focus und mehr)
-          </p>
-        </div>
-        <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-          <BvhLoginSection
-            hasAlreadyRequested={bvhStatus.hasRequested}
-            handled={bvhStatus.handled}
-          />
-        </div>
-      </div>
+    <div className="space-y-8">
+      <PageHeader title="Vorteile" description="Was dir die Mitgliedschaft zusätzlich bringt." />
+
+      <Stagger className="space-y-6">
+        <BvhLoginSection initialStatus={bvhStatus} />
+      </Stagger>
     </div>
   );
 }
