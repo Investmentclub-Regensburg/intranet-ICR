@@ -9,6 +9,7 @@ import {
   checkText,
   firstError,
 } from "@/lib/member-fields";
+import { authErrorMessage, checkPasswordLength } from "@/lib/auth-messages";
 
 /** Bei Fehler zurückgegebene Formulardaten (ohne Passwörter) für erneute Anzeige. */
 export type RegisterSavedState = {
@@ -157,6 +158,11 @@ export async function registerAction(
     return { error: "Die Passwörter stimmen nicht überein.", saved };
   }
 
+  const passwordError = checkPasswordLength(password);
+  if (passwordError) {
+    return { error: passwordError, saved };
+  }
+
   if (!isValidDate(geburtstagRaw!)) {
     return { error: "Bitte wähle ein gültiges Geburtsdatum im Picker aus.", saved };
   }
@@ -249,7 +255,14 @@ export async function registerAction(
   });
 
   if (signUpError) {
-    return { error: signUpError.message, saved };
+    console.error("registerAction:", signUpError.code ?? signUpError.status);
+    return {
+      error: authErrorMessage(
+        signUpError,
+        "Registrierung fehlgeschlagen. Bitte prüfe deine Angaben oder versuche es später erneut."
+      ),
+      saved,
+    };
   }
 
   if (!authData.user) {

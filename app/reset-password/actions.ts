@@ -1,13 +1,12 @@
 "use server";
 
 import { createClient } from "@/utils/supabase/server";
+import { authErrorMessage, checkPasswordLength } from "@/lib/auth-messages";
 
 export type ResetPasswordState = {
   error: string;
   redirect?: string;
 };
-
-const MIN_PASSWORD_LENGTH = 6;
 
 export async function resetPasswordAction(
   _prevState: ResetPasswordState,
@@ -20,10 +19,9 @@ export async function resetPasswordAction(
     return { error: "Bitte beide Felder ausfüllen." };
   }
 
-  if (newPassword.length < MIN_PASSWORD_LENGTH) {
-    return {
-      error: `Das Passwort muss mindestens ${MIN_PASSWORD_LENGTH} Zeichen haben.`,
-    };
+  const lengthError = checkPasswordLength(newPassword);
+  if (lengthError) {
+    return { error: lengthError };
   }
 
   if (newPassword !== confirmPassword) {
@@ -46,7 +44,16 @@ export async function resetPasswordAction(
   const { error } = await supabase.auth.updateUser({ password: newPassword });
 
   if (error) {
-    return { error: error.message };
+    console.error("resetPasswordAction:", error.code ?? error.status);
+    return {
+      error: authErrorMessage(error, "Das Passwort konnte nicht geändert werden. Bitte erneut versuchen."),
+    };
+  }
+
+  // Alle anderen Sitzungen dieses Kontos beenden (z. B. auf fremden Geräten).
+  const { error: signOutError } = await supabase.auth.signOut({ scope: "others" });
+  if (signOutError) {
+    console.error("resetPasswordAction (andere Sitzungen beenden):", signOutError.code ?? signOutError.status);
   }
 
   return { error: "", redirect: "/dashboard" };
