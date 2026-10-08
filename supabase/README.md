@@ -5,6 +5,11 @@
 Alle Schemaänderungen liegen unter `migrations/` und sind idempotent. Ausführen per Supabase CLI
 (`supabase link --project-ref <ref>` → `supabase db push`) oder Inhalt im SQL Editor einfügen.
 
+**Entwürfe:** Dateien mit `_entwurf_` im Namen sind noch nicht freigegeben. Sie beginnen mit dem
+Kommentar „ENTWURF – vor Ausführung gegen Schema-Dump prüfen“ und brechen ab, solange in derselben
+Sitzung nicht `set icr.apply_drafts = on;` gesetzt ist (ein `supabase db push` stoppt deshalb an der
+ersten Entwurfsdatei). Nach Prüfung den Schutzblock entfernen oder die Zeile voranstellen.
+
 ## Events
 
 Migration: `migrations/20261003120000_events_overhaul.sql`
