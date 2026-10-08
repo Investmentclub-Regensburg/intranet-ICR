@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { PartyPopper } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -76,7 +77,7 @@ const ANIMATED_PARTS: AnimatedPart[] = [
  * Original party-popper icon; confetti elements flow in a staggered wave on hover.
  */
 export function EventsNavIcon({ className }: EventsNavIconProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
 
   if (prefersReducedMotion) {
     return (

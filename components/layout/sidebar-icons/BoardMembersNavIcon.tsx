@@ -3,8 +3,8 @@
 import {
   motion,
   useAnimationControls,
-  useReducedMotion,
 } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +37,7 @@ export function BoardMembersNavIcon({
   const figureControls = useAnimationControls();
   const headControls = useAnimationControls();
   const armControls = useAnimationControls();
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
 
   useEffect(() => {
     if (prefersReducedMotion) return;

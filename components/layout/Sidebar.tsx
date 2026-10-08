@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
   BookOpen,
   Calendar,
+  LayoutDashboard,
   LineChart,
   Menu,
   MessageCircle,
@@ -19,12 +19,14 @@ import {
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { LogoutButton } from "@/app/dashboard/logout-button";
 import { checkUnreadNews, markNewsAsRead } from "@/app/(intranet)/news/actions";
 import { SidebarNavIcon } from "@/components/layout/SidebarNavIcon";
 import { navItemVariants } from "@/components/layout/nav-icon-motion";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { IcrLogo, IcrWordmark } from "@/components/brand/IcrLogo";
+import { IconButton } from "@/components/kit/IconButton";
+import { cn } from "@/lib/utils";
 
 type Profile = {
   vorname: string;
@@ -40,16 +42,45 @@ type NavItem = {
   allowedRoles: string[];
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { name: "News", href: "/news", icon: Bell, allowedRoles: ["member", "admin", "board", "alumni"] },
-  { name: "Events", href: "/events", icon: PartyPopper, allowedRoles: ["member", "admin", "board", "alumni"] },
-  { name: "Zeitschriften", href: "/magazines", icon: BookOpen, allowedRoles: ["member", "admin", "board", "alumni"] },
-  { name: "Vorstand", href: "/board-members", icon: UsersRound, allowedRoles: ["member", "admin", "board", "alumni"] },
-  { name: "Mitglieder", href: "/members", icon: Users, allowedRoles: ["member", "admin", "board", "alumni"] },
-  { name: "Kalender", href: "/calendar", icon: Calendar, allowedRoles: ["member", "admin", "board", "alumni"] },
-  { name: "WhatsApp Gruppe", href: "/whatsapp", icon: MessageCircle, allowedRoles: ["member", "admin", "board", "alumni"] },
-  { name: "Admin Bereich", href: "/admin", icon: Settings, allowedRoles: ["admin", "board"] },
-  { name: "Insights", href: "/insights", icon: LineChart, allowedRoles: ["board"] },
+type NavGroup = {
+  key: string;
+  /** Abschnittsüberschrift; ohne = erste Gruppe. */
+  label?: string;
+  items: NavItem[];
+};
+
+const ALL_ROLES = ["member", "admin", "board", "alumni"];
+
+// Gleiche Einträge und Rollen wie bisher, neu: „Übersicht“ (/dashboard) oben.
+// Gruppiert nach Alltag, Verein und Verwaltung.
+const NAV_GROUPS: NavGroup[] = [
+  {
+    key: "main",
+    items: [
+      { name: "Übersicht", href: "/dashboard", icon: LayoutDashboard, allowedRoles: ALL_ROLES },
+      { name: "News", href: "/news", icon: Bell, allowedRoles: ALL_ROLES },
+      { name: "Events", href: "/events", icon: PartyPopper, allowedRoles: ALL_ROLES },
+      { name: "Kalender", href: "/calendar", icon: Calendar, allowedRoles: ALL_ROLES },
+      { name: "Zeitschriften", href: "/magazines", icon: BookOpen, allowedRoles: ALL_ROLES },
+    ],
+  },
+  {
+    key: "verein",
+    label: "Verein",
+    items: [
+      { name: "Mitglieder", href: "/members", icon: Users, allowedRoles: ALL_ROLES },
+      { name: "Vorstand", href: "/board-members", icon: UsersRound, allowedRoles: ALL_ROLES },
+      { name: "WhatsApp-Gruppe", href: "/whatsapp", icon: MessageCircle, allowedRoles: ALL_ROLES },
+    ],
+  },
+  {
+    key: "verwaltung",
+    label: "Verwaltung",
+    items: [
+      { name: "Admin-Bereich", href: "/admin", icon: Settings, allowedRoles: ["admin", "board"] },
+      { name: "Insights", href: "/insights", icon: LineChart, allowedRoles: ["board"] },
+    ],
+  },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
@@ -62,6 +93,8 @@ const ROLE_LABELS: Record<string, string> = {
 function getInitials(vorname: string, nachname: string) {
   return `${vorname.charAt(0)}${nachname.charAt(0)}`.toUpperCase();
 }
+
+const drawerEase = [0.22, 1, 0.36, 1] as const;
 
 export function Sidebar({ profile }: { profile: Profile }) {
   const pathname = usePathname();
@@ -120,206 +153,221 @@ export function Sidebar({ profile }: { profile: Profile }) {
     if (!isOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    // Escape schließt das mobile Menü.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey);
     };
   }, [isOpen]);
 
-  const visibleItems = NAV_ITEMS.filter((item) =>
-    item.allowedRoles.includes(profile.rolle)
-  );
+  const groups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => item.allowedRoles.includes(profile.rolle)),
+  })).filter((group) => group.items.length > 0);
   const initials = getInitials(profile.vorname, profile.nachname);
   const roleLabel = ROLE_LABELS[profile.rolle] ?? profile.rolle;
+  const profileActive = pathname === "/profile" || pathname.startsWith("/profile/");
 
-  const renderProfileHead = (onClick?: () => void) => (
-    <Link
-      href="/profile"
-      onClick={onClick}
-      className="group flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-red-50"
-    >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white transition-transform duration-300 group-hover:scale-105">
-        {initials}
-      </div>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-foreground">
-          {profile.vorname} {profile.nachname}
-        </p>
-        <p className="text-xs text-muted-foreground">{roleLabel}</p>
-      </div>
-    </Link>
+  // Laufende Nummer je Eintrag über alle Gruppen (Staffelung im mobilen Menü).
+  const groupOffsets = groups.map((_, gi) =>
+    groups.slice(0, gi).reduce((sum, g) => sum + g.items.length, 0)
   );
 
-  const renderNavLinks = (onNavigate?: () => void) => (
-    <nav aria-label="Intranet Navigation">
-      <ul className="space-y-1">
-        {visibleItems.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          const showDot = item.href === "/news" && hasUnread && !active;
+  const renderNav = (idPrefix: string, onNavigate?: () => void) => {
+    return (
+      <nav aria-label="Intranet Navigation" className="space-y-5">
+        {groups.map((group, gi) => (
+          <div key={group.key}>
+            {group.label && (
+              <p className="mb-1.5 px-3 text-[0.6875rem] font-semibold tracking-[0.16em] text-sidebar-muted uppercase">
+                {group.label}
+              </p>
+            )}
+            <ul className="space-y-0.5">
+              {group.items.map((item, ii) => {
+                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                const showUnread = item.href === "/news" && hasUnread && !active;
+                const i = groupOffsets[gi] + ii;
 
-          return (
-            <li key={item.href}>
-              <Link href={item.href} onClick={onNavigate}>
-                <motion.div
-                  initial="rest"
-                  whileHover="hover"
-                  variants={navItemVariants}
-                  onHoverStart={() => setHoveredHref(item.href)}
-                  onHoverEnd={() =>
-                    setHoveredHref((current) =>
-                      current === item.href ? null : current
-                    )
-                  }
-                  className={`group flex items-center gap-3 overflow-visible rounded-md px-3 py-2 text-sm transition-colors duration-200 ${
-                    active ? "bg-red-50" : "hover:bg-red-50"
-                  }`}
-                >
-                  <SidebarNavIcon
-                    href={item.href}
-                    icon={item.icon}
-                    active={active}
-                    isRowHovered={hoveredHref === item.href}
-                  />
-                  <span
-                    className={`truncate ${
-                      active
-                        ? "font-medium text-primary"
-                        : "text-gray-600 group-hover:text-primary"
-                    }`}
+                return (
+                  <motion.li
+                    key={item.href}
+                    // Mobil: Einträge kommen gestaffelt (Website-Menü), Desktop ohne Verzögerung.
+                    initial={onNavigate ? { opacity: 0, x: -12 } : false}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.35, delay: onNavigate ? 0.08 + i * 0.03 : 0, ease: drawerEase }}
                   >
-                    {item.name}
-                  </span>
-                  {showDot && (
-                    <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-red-500" />
-                  )}
-                </motion.div>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+                    <Link
+                      href={item.href}
+                      onClick={onNavigate}
+                      aria-current={active ? "page" : undefined}
+                      className="block rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                    >
+                      <motion.div
+                        initial="rest"
+                        whileHover="hover"
+                        whileTap={{ scale: 0.98 }}
+                        variants={navItemVariants}
+                        onHoverStart={() => setHoveredHref(item.href)}
+                        onHoverEnd={() =>
+                          setHoveredHref((current) =>
+                            current === item.href ? null : current
+                          )
+                        }
+                        className={cn(
+                          "group relative flex items-center gap-3 overflow-visible rounded-lg px-3 py-2 text-sm transition-colors duration-200",
+                          !active && "hover:bg-sidebar-accent/60",
+                        )}
+                      >
+                        {active && (
+                          // Aktive Fläche gleitet zwischen den Einträgen (layoutId, Muster TabBar).
+                          <motion.span
+                            layoutId={`${idPrefix}-nav-active`}
+                            className="absolute inset-0 rounded-lg bg-sidebar-accent"
+                            transition={{ type: "spring", stiffness: 500, damping: 42 }}
+                          />
+                        )}
+                        <span className="relative">
+                          <SidebarNavIcon
+                            href={item.href}
+                            icon={item.icon}
+                            active={active}
+                            isRowHovered={hoveredHref === item.href}
+                          />
+                        </span>
+                        <span
+                          className={cn(
+                            "relative truncate",
+                            active
+                              ? "font-semibold text-sidebar-accent-foreground"
+                              : "font-medium text-sidebar-muted group-hover:text-sidebar-foreground",
+                          )}
+                        >
+                          {item.name}
+                        </span>
+                        {showUnread && (
+                          <span className="relative ml-auto rounded-full bg-primary px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-primary-foreground uppercase">
+                            Neu
+                          </span>
+                        )}
+                      </motion.div>
+                    </Link>
+                  </motion.li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    );
+  };
+
+  const renderFooter = (idPrefix: string, onNavigate?: () => void) => (
+    <div className="space-y-3 border-t border-sidebar-border pt-4">
+      <ThemeToggle layoutId={`${idPrefix}-theme`} iconOnly />
+      <div className="flex items-center gap-1">
+        <Link
+          href="/profile"
+          onClick={onNavigate}
+          aria-current={profileActive ? "page" : undefined}
+          className={cn(
+            "group flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+            profileActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
+          )}
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground transition-transform duration-300 group-hover:scale-105">
+            {initials}
+          </span>
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+              {profile.vorname} {profile.nachname}
+            </span>
+            <span className="block truncate text-xs text-sidebar-muted">{roleLabel}</span>
+          </span>
+        </Link>
+        <LogoutButton />
+      </div>
+    </div>
   );
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside className="hidden h-screen w-64 shrink-0 flex-col border-r bg-background/80 md:sticky md:top-0 md:flex">
-        <div className="flex h-full flex-col justify-between px-4 py-4">
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Mein Profil
-              </p>
-              {renderProfileHead()}
-            </div>
-            <div className="border-t pt-4">{renderNavLinks()}</div>
-          </div>
-          <div className="flex flex-col gap-3 border-t pt-4">
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Darstellung
-              </p>
-              <ThemeToggle />
-            </div>
-            <div className="flex w-full items-center justify-between gap-2">
-              <Image
-                src="/icr-logo.png"
-                alt="ICR Logo"
-                width={40}
-                height={40}
-                unoptimized
-                className="h-10 w-10 shrink-0 object-contain"
-              />
-              <LogoutButton />
-            </div>
-          </div>
-        </div>
+      {/* Desktop-Sidebar: weiß wie der Website-Header, Bildmarke oben. */}
+      <aside className="hidden h-screen w-[17rem] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex">
+        <Link
+          href="/dashboard"
+          className="group flex items-center px-5 pt-6 pb-5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          aria-label="Investment Club Regensburg, Intranet-Übersicht"
+        >
+          <IcrWordmark logoClassName="transition-[rotate,scale] duration-700 ease-out group-hover:-rotate-6 group-hover:scale-[1.06]" />
+        </Link>
+        <div className="flex-1 overflow-y-auto px-3 pb-4">{renderNav("desktop")}</div>
+        <div className="px-3 pb-4">{renderFooter("desktop")}</div>
       </aside>
 
-      {/* Mobile Topbar */}
-      <header className="sticky top-0 z-40 flex w-full items-center justify-between border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <Image
-            src="/icr-logo.png"
-            alt="ICR Logo"
-            width={32}
-            height={32}
-            unoptimized
-            className="h-8 w-8 shrink-0 object-contain"
-          />
-          <span className="text-sm font-semibold">ICR Intranet</span>
+      {/* Mobile Topbar: Glas-Weiß wie der Website-Header. */}
+      <header className="sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b border-sidebar-border bg-background/80 px-4 backdrop-blur-xl md:hidden">
+        <Link href="/dashboard" className="flex items-center gap-2.5" aria-label="Intranet-Übersicht">
+          <IcrLogo className="h-8 w-auto text-brand dark:text-primary" />
+          <span className="text-sm font-semibold tracking-[-0.01em]">Intranet</span>
         </Link>
-        <Button
-          variant="outline"
-          size="icon"
-          aria-label="Navigation oeffnen"
+        <IconButton
+          label="Navigation öffnen"
+          aria-expanded={isOpen}
+          className="-mr-1 size-10 text-foreground [&_svg]:size-5"
           onClick={() => setIsOpen(true)}
         >
-          <Menu className="h-5 w-5" />
-        </Button>
+          <Menu />
+        </IconButton>
       </header>
 
-      {/* Mobile Drawer */}
-      <div
-        className={`fixed inset-0 z-50 bg-black/40 transition-opacity md:hidden ${
-          isOpen ? "opacity-100" : "pointer-events-none opacity-0"
-        }`}
-        onClick={() => setIsOpen(false)}
-      />
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] border-r bg-background p-4 transition-transform duration-200 md:hidden ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-        aria-hidden={!isOpen}
-      >
-        <div className="flex h-full flex-col justify-between">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Image
-                  src="/icr-logo.png"
-                  alt="ICR Logo"
-                  width={32}
-                  height={32}
-                  unoptimized
-                  className="h-8 w-8 shrink-0 object-contain"
-                />
-                <span className="text-sm font-semibold">Navigation</span>
+      {/* Mobiles Menü: Drawer von links, Backdrop in Night mit Unschärfe (Website). */}
+      <AnimatePresence>
+        {isOpen && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <motion.div
+              aria-hidden
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.25 }}
+              onClick={() => setIsOpen(false)}
+              className="absolute inset-0 bg-night/40 backdrop-blur-md"
+            />
+            <motion.aside
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "tween", duration: 0.4, ease: drawerEase }}
+              className="absolute inset-y-0 left-0 flex w-[19rem] max-w-[86vw] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-card"
+            >
+              <div className="flex items-center justify-between px-5 pt-5 pb-4">
+                <IcrWordmark />
+                <IconButton
+                  label="Navigation schließen"
+                  className="-mr-2 size-10 [&_svg]:size-5"
+                  onClick={() => setIsOpen(false)}
+                >
+                  <X />
+                </IconButton>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Navigation schliessen"
-                onClick={() => setIsOpen(false)}
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Mein Profil
-              </p>
-              {renderProfileHead(() => setIsOpen(false))}
-            </div>
-            <div className="border-t pt-3">{renderNavLinks(() => setIsOpen(false))}</div>
-          </div>
-
-          <div className="space-y-3 border-t pt-3">
-            <div className="space-y-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Darstellung
-              </p>
-              <ThemeToggle />
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                {initials}
+              <div className="flex-1 overflow-y-auto px-3 pb-4">
+                {renderNav("mobile", () => setIsOpen(false))}
               </div>
-              <LogoutButton />
-            </div>
+              <div className="px-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                {renderFooter("mobile", () => setIsOpen(false))}
+              </div>
+            </motion.aside>
           </div>
-        </div>
-      </aside>
+        )}
+      </AnimatePresence>
     </>
   );
 }

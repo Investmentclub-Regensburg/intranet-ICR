@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,7 +36,7 @@ const CUSTOM_NAV_ICONS: Record<string, ComponentType<CustomNavIconProps>> = {
 };
 
 function iconColorClass(active: boolean): string {
-  return active ? "text-primary" : "text-gray-600 group-hover:text-primary";
+  return active ? "text-sidebar-primary" : "text-sidebar-muted group-hover:text-sidebar-primary";
 }
 
 const iconShellClass =
@@ -47,7 +48,7 @@ export function SidebarNavIcon({
   active,
   isRowHovered,
 }: SidebarNavIconProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
   const colorClass = iconColorClass(active);
   const CustomIcon = CUSTOM_NAV_ICONS[href];
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 
 import {
   membersBackVariants,
@@ -16,7 +17,7 @@ type MembersNavIconProps = {
  * in a gentle wave. Paths match lucide-react `Users`.
  */
 export function MembersNavIcon({ className }: MembersNavIconProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
 
   if (prefersReducedMotion) {
     return (

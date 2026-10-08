@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useAnimationControls, useReducedMotion } from "framer-motion";
+import { motion, useAnimationControls } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { Settings } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -19,7 +20,7 @@ export function SettingsNavIcon({
   isRowHovered,
 }: SettingsNavIconProps) {
   const controls = useAnimationControls();
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
 
   useEffect(() => {
     if (prefersReducedMotion) return;
