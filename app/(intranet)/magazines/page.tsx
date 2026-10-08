@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/kit/PageHeader";
+import { Stagger } from "@/components/kit/Reveal";
 import { BvhLoginSection } from "@/components/magazines/BvhLoginSection";
 import { getBvhLoginStatusForCurrentUser } from "./actions";
 
@@ -9,16 +10,11 @@ export default async function MagazinesPage() {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-3">
-        <PageHeader title="Vorteile" />
-        <p className="fly-rise text-[0.9375rem] text-muted-foreground [--fly-delay:0.15s]">
-          Was dir die Mitgliedschaft zusätzlich bringt.
-        </p>
-      </header>
+      <PageHeader title="Vorteile" description="Was dir die Mitgliedschaft zusätzlich bringt." />
 
-      <div className="space-y-6">
+      <Stagger className="space-y-6">
         <BvhLoginSection initialStatus={bvhStatus} />
-      </div>
+      </Stagger>
     </div>
   );
 }

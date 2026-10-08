@@ -28,26 +28,20 @@ export function todayInBerlin(now = new Date()): string {
 }
 
 /**
- * Hover für klickbare Kacheln: Rahmen im dunkelroten Markenverlauf, leichter roter
- * Glow, Kachel hebt sich minimal; Inhalt bleibt unverändert (Brief UX-Umbau).
- * Lokal nachgebaut, weil die Kit-Kachel (components/kit/Tile.tsx) keinen Bild-Kopf hat.
+ * Klickbare Kachel mit Hover-Glow aus dem Kit (`.tile-glow`, globals.css): Rahmen im
+ * dunkelroten Verlauf, leichter Schein, hebt sich minimal; auch bei Tastatur-Fokus
+ * eines Kindes. Keine eigenen Rand-, Schatten-, Flächen- oder Transition-Klassen dazu.
+ * Eigene Kachel statt Kit-Tile, weil die Veranstaltungs-Kachel einen Bild-Kopf hat.
  */
-export const GLOW_TILE = cn(
-  "relative isolate rounded-2xl border border-border bg-card",
-  "transition-[translate,box-shadow,border-color] duration-300 ease-out",
-  "hover:-translate-y-0.5 hover:border-transparent",
-  "hover:[background:linear-gradient(var(--card),var(--card))_padding-box,linear-gradient(120deg,var(--color-bordeaux),var(--color-brand)_55%,var(--color-brand-soft))_border-box]",
-  "hover:shadow-[0_16px_40px_-18px_color-mix(in_srgb,var(--color-brand)_55%,transparent),0_0_0_3px_color-mix(in_srgb,var(--color-brand)_7%,transparent)]",
-  "focus-within:-translate-y-0.5",
-  "motion-reduce:transition-none motion-reduce:hover:translate-y-0",
-);
+export const GLOW_TILE = "tile-glow relative isolate rounded-2xl";
 
 /**
  * Link, dessen Klickfläche die ganze Kachel abdeckt (::after über der Kachel).
- * Weitere Bedienelemente in der Kachel brauchen `relative z-10`.
+ * Weitere Bedienelemente in der Kachel brauchen `relative z-10`. Den Fokus zeigt
+ * die Kachel selbst (tile-glow reagiert auf :has(:focus-visible)).
  */
 export const STRETCHED_LINK =
-  "outline-none after:absolute after:inset-0 after:z-0 after:rounded-2xl after:content-[''] focus-visible:after:ring-[3px] focus-visible:after:ring-ring/40";
+  "outline-none after:absolute after:inset-0 after:z-0 after:rounded-2xl after:content-['']";
 
 /** Datum-Block wie auf der Website: Monat klein in Rot, Tag groß, Wochentag darunter. */
 export function DateBlock({

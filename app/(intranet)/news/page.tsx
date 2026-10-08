@@ -39,19 +39,13 @@ export default async function NewsPage() {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-3">
-        <PageHeader
-          title="Schwarzes Brett"
-          action={
-            canManage ? (
-              <AdminShortcut href="/admin/news" label="Neue Mitteilung" />
-            ) : undefined
-          }
-        />
-        <p className="fly-rise text-[0.9375rem] text-muted-foreground [--fly-delay:0.15s]">
-          Mitteilungen vom Vorstand.
-        </p>
-      </header>
+      <PageHeader
+        title="Schwarzes Brett"
+        description="Mitteilungen vom Vorstand."
+        action={
+          canManage ? <AdminShortcut href="/admin/news" label="Neue Mitteilung" /> : undefined
+        }
+      />
 
       {items.length === 0 ? (
         <EmptyState

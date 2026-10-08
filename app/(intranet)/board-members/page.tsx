@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { Linkedin } from "lucide-react";
 import { AreaHeader, VEREIN_TABS } from "@/components/area/AreaHeader";
+import { staggerProps } from "@/components/kit/Reveal";
 import { cn } from "@/lib/utils";
 
 type BoardMember = {
@@ -90,12 +91,11 @@ export default function BoardMembersPage() {
       <AreaHeader
         title="Verein"
         tabs={VEREIN_TABS}
-        activeKey="board"
         layoutId="tabs-verein"
         ariaLabel="Bereiche des Vereins"
       />
 
-      <section aria-label="Vorstand" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:gap-x-6 md:grid-cols-3 xl:grid-cols-5">
+      <section {...staggerProps()} aria-label="Vorstand" className="grid grid-cols-2 gap-x-4 gap-y-8 sm:gap-x-6 md:grid-cols-3 xl:grid-cols-5">
         {BOARD.map((member) => (
           <BoardMemberTile key={member.name} member={member} />
         ))}

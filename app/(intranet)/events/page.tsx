@@ -23,7 +23,6 @@ export default async function EventsPage() {
         title="Veranstaltungen"
         intro="Hier findest du alle Termine zum Hingehen."
         tabs={EVENT_TABS}
-        activeKey="list"
         layoutId="tabs-veranstaltungen"
         ariaLabel="Ansicht der Veranstaltungen"
         action={

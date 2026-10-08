@@ -7,7 +7,6 @@ export default function MembersPage() {
       <AreaHeader
         title="Verein"
         tabs={VEREIN_TABS}
-        activeKey="members"
         layoutId="tabs-verein"
         ariaLabel="Bereiche des Vereins"
       />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { staggerProps } from "@/components/kit/Reveal";
 import { NewsCard } from "./NewsCard";
 
 export type NewsListItem = {
@@ -34,7 +35,7 @@ export function NewsList({
   });
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div {...staggerProps()} className="max-w-3xl space-y-4">
       {items.map((item) => {
         const created = Date.parse(item.createdAt);
         const unread = since === null || (!Number.isNaN(created) && created > since);

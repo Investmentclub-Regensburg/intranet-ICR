@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/kit/IconButton";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { Segmented } from "@/components/kit/Segmented";
+import { staggerProps } from "@/components/kit/Reveal";
 import { cn } from "@/lib/utils";
 import { searchMembers, getAllMembers, type MemberRow } from "@/app/(intranet)/members/actions";
 
@@ -147,7 +148,7 @@ export function MembersSearch() {
             <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
               {shown.length} {shown.length === 1 ? "Mitglied" : "Mitglieder"}
             </p>
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <ul {...staggerProps()} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {shown.map((m, i) => (
                 <MemberTile key={`${m.name}-${i}`} member={m} />
               ))}

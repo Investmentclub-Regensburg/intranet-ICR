@@ -4,18 +4,15 @@ import { TabBar, type TabItem } from "@/components/kit/TabBar";
 
 /**
  * Kopf eines Bereichs mit mehreren Seiten (Veranstaltungen: Liste | Kalender,
- * Verein: Vorstand · Mitglieder · WhatsApp-Gruppe). Titel des Bereichs, höchstens
- * ein erklärender Satz, darunter die Routen-TabBar. Jede Seite des Bereichs rendert
- * denselben Kopf mit ihrem aktiven Tab, die URLs bleiben unverändert.
- *
- * Lokal gebaut, weil das Kit (components/kit) noch keinen Bereichskopf hat
- * (PageHeader ohne Satz und ohne Tabs).
+ * Verein: Vorstand · Mitglieder · WhatsApp-Gruppe): PageHeader (Titel, höchstens
+ * ein Satz, Aktion) und darunter die Routen-TabBar. Jede Seite des Bereichs
+ * rendert denselben Kopf, die URLs bleiben unverändert; den aktiven Tab leitet
+ * die TabBar aus dem Pfad ab.
  */
 export function AreaHeader({
   title,
   intro,
   tabs,
-  activeKey,
   layoutId,
   ariaLabel,
   action,
@@ -24,24 +21,16 @@ export function AreaHeader({
   /** Ein Satz unter dem Titel, optional. */
   intro?: string;
   tabs: TabItem[];
-  activeKey: string;
   /** Eindeutig je Bereich, damit der Unterstrich nicht zwischen Leisten springt. */
   layoutId: string;
   ariaLabel: string;
-  /** Aktion rechts neben dem Titel (meist ein IconLink). */
+  /** Aktion rechts neben dem Titel. */
   action?: ReactNode;
 }) {
   return (
     <header className="space-y-6">
-      <div className="space-y-3">
-        <PageHeader title={title} action={action} />
-        {intro && (
-          <p className="fly-rise max-w-xl text-[0.9375rem] text-muted-foreground [--fly-delay:0.15s]">
-            {intro}
-          </p>
-        )}
-      </div>
-      <TabBar items={tabs} activeKey={activeKey} layoutId={layoutId} ariaLabel={ariaLabel} />
+      <PageHeader title={title} description={intro} action={action} />
+      <TabBar items={tabs} layoutId={layoutId} ariaLabel={ariaLabel} />
     </header>
   );
 }

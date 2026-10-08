@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, CircleCheck, ExternalLink, Hourglass, Newspaper } from "lucide-react";
+import { Check, ExternalLink, Newspaper } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { StatusCard } from "@/components/kit/StatusCard";
 import { cn } from "@/lib/utils";
 import { requestBvhLogin, type BvhLoginStatus } from "@/app/(intranet)/magazines/actions";
 
@@ -33,12 +34,8 @@ const STEPS = [
   { title: "Im BVH-Portal anmelden", text: "Dort schließt du die Abos der Zeitschriften ab." },
 ];
 
-function formatDay(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("de-DE", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Berlin" });
-}
+/** StatusCard steht hier in einer schmalen Spalte: untereinander statt nebeneinander. */
+const STATUS_IN_COLUMN = "sm:flex-col sm:items-stretch sm:gap-4 sm:p-5";
 
 function PortalLink({ className }: { className?: string }) {
   return (
@@ -93,8 +90,6 @@ export function BvhLoginSection({ initialStatus }: { initialStatus: BvhLoginStat
       setError(result.error ?? "Anfrage konnte nicht gesendet werden.");
     }
   }
-
-  const day = formatDay(requestedAt);
 
   return (
     <section
@@ -161,7 +156,7 @@ export function BvhLoginSection({ initialStatus }: { initialStatus: BvhLoginStat
                       {s.title}
                     </p>
                     <p className="mt-0.5 text-sm text-muted-foreground">{s.text}</p>
-                    {i === 2 && <PortalLink className="mt-2" />}
+                    {i === 2 && phase !== "handled" && <PortalLink className="mt-2" />}
                   </div>
                 </li>
               );
@@ -172,7 +167,7 @@ export function BvhLoginSection({ initialStatus }: { initialStatus: BvhLoginStat
         {/* Aktion bzw. Status */}
         <div className="order-1 lg:order-2">
           {phase === "none" && (
-            <div className="space-y-3 rounded-xl border border-border bg-background p-5">
+            <div className="space-y-3 rounded-2xl border border-border bg-background p-5">
               <p className="text-sm font-semibold text-foreground">Noch kein Zugang?</p>
               <Button className="w-full" onClick={() => setOpen(true)}>
                 Zugang beantragen
@@ -180,35 +175,35 @@ export function BvhLoginSection({ initialStatus }: { initialStatus: BvhLoginStat
             </div>
           )}
 
-          {phase === "requested" && (
-            <div className="space-y-3 rounded-xl border border-primary/25 bg-brand-tint/60 p-5" role="status">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-card text-primary">
-                <Hourglass className="size-4" aria-hidden />
-              </span>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">{day ? `Beantragt am ${day}` : "Beantragt"}</p>
-                <p className="text-sm text-muted-foreground">Der Vorstand schaltet deinen Zugang frei.</p>
-              </div>
-            </div>
-          )}
-
-          {phase === "handled" && (
-            <div className="space-y-4 rounded-xl border border-primary/25 bg-brand-tint/60 p-5" role="status">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <CircleCheck className="size-4" aria-hidden />
-              </span>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-foreground">Erledigt</p>
-                <p className="text-sm text-muted-foreground">
-                  Dein Zugang ist beim BVH eingerichtet{day ? ` (beantragt am ${day})` : ""}.
-                </p>
-              </div>
-              <Button asChild className="w-full">
-                <a href={BVH_LOGIN_URL} target="_blank" rel="noopener noreferrer">
-                  Zum BVH-Portal
-                  <ExternalLink aria-hidden />
-                </a>
-              </Button>
+          {phase !== "none" && (
+            <div role="status">
+              {phase === "requested" ? (
+                // Ohne lesbares Datum (alreadyOpen) bleibt die Datumszeile weg.
+                <StatusCard
+                  status="open"
+                  title="Zugang beantragt"
+                  date={requestedAt}
+                  next="Der Vorstand schaltet deinen Zugang frei."
+                  className={STATUS_IN_COLUMN}
+                />
+              ) : (
+                <StatusCard
+                  status="done"
+                  title="Zugang eingerichtet"
+                  date={requestedAt}
+                  dateLabel="Beantragt am"
+                  next="Melde dich im BVH-Portal an."
+                  className={STATUS_IN_COLUMN}
+                  action={
+                    <Button asChild className="w-full">
+                      <a href={BVH_LOGIN_URL} target="_blank" rel="noopener noreferrer">
+                        Zum BVH-Portal
+                        <ExternalLink aria-hidden />
+                      </a>
+                    </Button>
+                  }
+                />
+              )}
             </div>
           )}
         </div>

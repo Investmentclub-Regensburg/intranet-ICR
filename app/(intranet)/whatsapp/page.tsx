@@ -40,7 +40,6 @@ export default async function WhatsAppPage() {
       <AreaHeader
         title="Verein"
         tabs={VEREIN_TABS}
-        activeKey="whatsapp"
         layoutId="tabs-verein"
         ariaLabel="Bereiche des Vereins"
       />
