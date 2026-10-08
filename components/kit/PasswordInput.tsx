@@ -11,14 +11,14 @@ import { cn } from "@/lib/utils";
  * setCustomValidity …), Formularlogik bleibt also unverändert; nur `type` wechselt
  * zwischen password und text.
  *
- * Rechts bleibt Platz (2.25rem) für Icons von Passwort-Managern (Bitwarden,
- * Vaultwarden u. a.), die sich an den rechten Feldrand legen; unser Knopf sitzt
- * links davon, liegt darüber (z-10) und nimmt den Fokus nicht aus dem Feld.
+ * Das Auge sitzt am rechten Rand (Wunsch Hannes, auch wenn Passwort-Manager-Icons
+ * dort landen können), liegt darüber (z-10) und nimmt den Fokus nicht aus dem Feld.
+ * Platzhalter: Punkte als Füller.
  */
 export const PasswordInput = React.forwardRef<
   HTMLInputElement,
   Omit<React.ComponentProps<"input">, "type">
->(({ className, ...props }, forwardedRef) => {
+>(({ className, placeholder = "••••••••", ...props }, forwardedRef) => {
   const [visible, setVisible] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -47,7 +47,8 @@ export const PasswordInput = React.forwardRef<
       <Input
         ref={setRefs}
         type={visible ? "text" : "password"}
-        className={cn("pr-[4.75rem]", className)}
+        className={cn("pr-12", className)}
+        placeholder={placeholder}
         {...props}
       />
       <button
@@ -58,7 +59,7 @@ export const PasswordInput = React.forwardRef<
         aria-label={visible ? "Passwort verbergen" : "Passwort anzeigen"}
         aria-pressed={visible}
         title={visible ? "Passwort verbergen" : "Passwort anzeigen"}
-        className="absolute top-1/2 right-9 z-10 flex size-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xs text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        className="absolute top-1/2 right-1 z-10 flex size-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xs text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/40"
       >
         {visible ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
       </button>
