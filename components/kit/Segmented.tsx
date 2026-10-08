@@ -68,7 +68,8 @@ export function Segmented<K extends string>({
             {active && (
               <motion.span
                 layoutId={layoutId}
-                className="bg-brand-gradient absolute inset-0 rounded-[2px] shadow-brand"
+                // Gewählt: einfarbig Primär-Rot (Verlauf nur für Navi, Tab, Fortschritt).
+                className="absolute inset-0 rounded-[2px] bg-primary shadow-brand"
                 transition={{ type: "spring", stiffness: 500, damping: 40 }}
               />
             )}
