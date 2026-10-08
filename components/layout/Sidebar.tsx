@@ -59,7 +59,7 @@ const ALL_ROLES = ["member", "admin", "board", "alumni"];
 // Unterseiten tragen oben eine TabBar; der Navi-Eintrag ist auf allen ihren Pfaden
 // aktiv. URLs bleiben unverändert.
 //   Veranstaltungen = /events (Liste) + /calendar (Kalender) + /events/[id]
-//   Verein          = /board-members (Vorstand) + /members + /whatsapp
+//   Verein          = /whatsapp (öffnet zuerst, Hannes) + /members (+ /members/satzung) + /board-members
 //   Verwaltung      = /admin* + /insights (Insights-Tab nur board, regelt die TabBar)
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -77,10 +77,10 @@ const NAV_GROUPS: NavGroup[] = [
       { name: "Vorteile", href: "/magazines", icon: Gift, allowedRoles: ALL_ROLES },
       {
         name: "Verein",
-        href: "/board-members",
+        href: "/whatsapp",
         icon: Users,
         iconKey: "/members",
-        match: ["/members", "/whatsapp"],
+        match: ["/members", "/board-members"],
         allowedRoles: ALL_ROLES,
       },
     ],
