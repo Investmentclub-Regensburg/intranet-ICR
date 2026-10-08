@@ -2,7 +2,7 @@
 
 import { revalidatePath, unstable_cache, updateTag } from "next/cache";
 import { getCachedSupabase } from "@/utils/supabase/cached-auth";
-import { requireRole, requireUser } from "@/utils/supabase/guards";
+import { requireRole, requireUser, type Role } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isSafeId } from "@/lib/validation";
 import {
@@ -52,10 +52,25 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const IMAGE_PATH_RE = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|gif|webp)$/;
 
-async function requireAdmin(): Promise<{ userId: string } | { error: string }> {
+async function requireAdmin(): Promise<{ userId: string; role: Role } | { error: string }> {
   const auth = await requireRole(["admin", "board"]);
   if (!auth.ok) return { error: auth.error };
-  return { userId: auth.user.id };
+  return { userId: auth.user.id, role: auth.role };
+}
+
+/** Abstand zwischen zwei Rundmails an alle Mitglieder zum selben Event. */
+const ANNOUNCEMENT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+/** Prüft Ziel und Berechtigung einer Event-Mail (vor dem Anlegen bzw. Versenden). */
+function checkAnnouncementTarget(target: AnnouncementTarget | null | undefined, role: Role): string {
+  if (!target) return "";
+  if (target.mode !== "all" && target.mode !== "custom") return "Ungültige Empfängerauswahl.";
+  if (target.mode === "custom") {
+    // Mails an frei eingegebene Adressen nur durch den Vorstand.
+    if (role !== "board") return "Mails an einzelne Adressen darf nur der Vorstand verschicken.";
+    return normalizeCustomEmails(target.emails).error;
+  }
+  return "";
 }
 
 function invalidateEvents() {
@@ -329,10 +344,8 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
     if (!imageUrl) return fail("Ungültiges Bild.");
   }
 
-  if (input.announce?.mode === "custom") {
-    const check = normalizeCustomEmails(input.announce.emails);
-    if (check.error) return fail(check.error);
-  }
+  const targetError = checkAnnouncementTarget(input.announce, auth.role);
+  if (targetError) return fail(targetError);
 
   const supabase = await getCachedSupabase();
   const { data: row, error } = await supabase
@@ -451,6 +464,9 @@ export async function sendEventAnnouncement(
   const auth = await requireAdmin();
   if ("error" in auth) return { count: 0, error: auth.error };
   if (!isSafeId(eventId)) return { count: 0, error: "Event nicht gefunden." };
+  if (!target) return { count: 0, error: "Ungültige Empfängerauswahl." };
+  const targetError = checkAnnouncementTarget(target, auth.role);
+  if (targetError) return { count: 0, error: targetError };
   const result = await enqueueAnnouncement(eventId, target, auth.userId);
   revalidatePath(`/admin/events/${eventId}`);
   return result;
@@ -487,7 +503,9 @@ async function resolveRecipients(target: AnnouncementTarget): Promise<{ emails: 
 
   const emails = new Set<string>();
   for (const p of data ?? []) {
-    if (String(p["Status"] ?? "").trim().toLowerCase() === "cancelled") continue;
+    const status = String(p["Status"] ?? "").trim().toLowerCase();
+    // Keine Ausgetretenen und keine offenen Mitgliedsanträge.
+    if (status === "cancelled" || status === "applicant") continue;
     const email = String(p["E-Mail"] ?? "").trim().toLowerCase();
     if (isValidEmail(email)) emails.add(email);
   }
@@ -506,6 +524,28 @@ async function enqueueAnnouncement(
     .eq("id", eventId)
     .maybeSingle();
   if (evError || !row) return { count: 0, error: "Event nicht gefunden." };
+
+  // Rundmail an alle höchstens einmal pro Event und 24 Stunden.
+  if (target.mode === "all") {
+    const since = new Date(Date.now() - ANNOUNCEMENT_COOLDOWN_MS).toISOString();
+    const { count: recent, error: recentError } = await admin
+      .from("notification_events")
+      .select("id", { count: "exact", head: true })
+      .eq("type", "event_announcement")
+      .eq("payload->>event_id", eventId)
+      .eq("payload->>mode", "all")
+      .gte("created_at", since);
+    if (recentError) {
+      console.error("enqueueAnnouncement (Limit):", recentError);
+      return { count: 0, error: "Mailversand konnte nicht gestartet werden." };
+    }
+    if ((recent ?? 0) > 0) {
+      return {
+        count: 0,
+        error: "Für dieses Event ging in den letzten 24 Stunden bereits eine Mail an alle Mitglieder raus.",
+      };
+    }
+  }
 
   const { emails, error } = await resolveRecipients(target);
   if (error) return { count: 0, error };
