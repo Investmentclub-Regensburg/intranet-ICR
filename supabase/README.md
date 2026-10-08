@@ -40,7 +40,8 @@ Edge Function: `functions/notify-board/index.ts`
    `NOTIFY_TO_EMAIL` und setzt `sent_at` bzw. `last_error`/`attempts`.
 4. Wird ein Alumni-Antrag entschieden (`alumni_requests.status` → `approved`/`rejected`, egal ob über
    die Admin-Seite oder indirekt über das Rollen-Dropdown), entsteht ein Event `alumni_decided`, das
-   an das Mitglied selbst geht (`payload.recipient`, Reply-To = Vorstandsadresse).
+   an das Mitglied selbst geht (Adresse aus `profiles."E-Mail"` zu `payload.user_id`, ersatzweise die
+   Adresse des Auth-Kontos; Reply-To = Vorstandsadresse).
    Migration: `migrations/20260921090000_alumni_decision_mail.sql`.
 
 Fehlt ein Vault-Secret, bleibt das Event mit `sent_at = null` in der Outbox liegen; es geht nichts verloren.
