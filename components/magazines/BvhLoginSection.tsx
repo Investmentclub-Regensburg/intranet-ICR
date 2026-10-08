@@ -105,7 +105,8 @@ export function BvhLoginSection({ initialStatus }: { initialStatus: BvhLoginStat
             Zeitschriften über den BVH
           </h2>
           <p className="max-w-xl text-[0.9375rem] text-muted-foreground">
-            Über die Mitgliedschaft des ICR im Bundesverband der Börsenvereine (BVH) bekommst du Zugriff auf Zeitschriften und Journale.
+            Über die Mitgliedschaft des ICR im Bundesverband der Börsenvereine an deutschen Hochschulen (BVH)
+            bekommst du Zugriff auf Zeitschriften und Journale.
           </p>
           <ul className="flex flex-wrap gap-2 pt-1" aria-label="Zeitschriften">
             {MAGAZINES.map((m) => (
