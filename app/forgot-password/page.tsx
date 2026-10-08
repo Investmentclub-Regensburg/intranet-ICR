@@ -1,33 +1,27 @@
 import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ArrowLeft } from "lucide-react";
+import { AuthFrame, StageHeading } from "@/components/auth/AuthFrame";
 import { ForgotPasswordForm } from "./forgot-password-form";
 
 export default function ForgotPasswordPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Passwort vergessen</CardTitle>
-          <CardDescription>
-            Gib deine E-Mail ein. Wir schicken dir einen Link zum Zurücksetzen
-            des Passworts.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ForgotPasswordForm />
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            <Link href="/login" className="font-medium text-primary hover:underline">
-              Zurück zum Login
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthFrame stage={<StageHeading eyebrow="Mitglieder-Intranet" title="Passwort vergessen" />}>
+      <div className="space-y-6">
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Gib deine E-Mail ein. Wir schicken dir einen Link zum Zurücksetzen
+          des Passworts.
+        </p>
+        <ForgotPasswordForm />
+        <div className="border-t border-border pt-6 text-sm">
+          <Link
+            href="/login"
+            className="group inline-flex items-center gap-1.5 font-semibold text-primary transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3.5 transition-transform duration-300 group-hover:-translate-x-0.5" aria-hidden />
+            Zurück zum Login
+          </Link>
+        </div>
+      </div>
+    </AuthFrame>
   );
 }

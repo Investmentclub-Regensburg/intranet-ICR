@@ -1,12 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ArrowLeft } from "lucide-react";
+import { AuthFrame, StageHeading } from "@/components/auth/AuthFrame";
 import { createClient } from "@/utils/supabase/server";
 import { ResetPasswordForm } from "./reset-password-form";
 
@@ -21,24 +16,23 @@ export default async function ResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Neues Passwort vergeben</CardTitle>
-          <CardDescription>
-            Gib dein neues Passwort ein und bestätige es. Danach wirst du zum
-            Dashboard weitergeleitet.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ResetPasswordForm />
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            <Link href="/login" className="font-medium text-primary hover:underline">
-              Zurück zum Login
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthFrame stage={<StageHeading eyebrow="Mitglieder-Intranet" title="Neues Passwort vergeben" />}>
+      <div className="space-y-6">
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Gib dein neues Passwort ein und bestätige es. Danach wirst du zum
+          Dashboard weitergeleitet.
+        </p>
+        <ResetPasswordForm />
+        <div className="border-t border-border pt-6 text-sm">
+          <Link
+            href="/login"
+            className="group inline-flex items-center gap-1.5 font-semibold text-primary transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3.5 transition-transform duration-300 group-hover:-translate-x-0.5" aria-hidden />
+            Zurück zum Login
+          </Link>
+        </div>
+      </div>
+    </AuthFrame>
   );
 }

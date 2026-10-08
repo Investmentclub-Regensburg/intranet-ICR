@@ -84,7 +84,7 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="iban">IBAN *</Label>
+        <Label htmlFor="iban">IBAN</Label>
         <Input
           ref={ibanRef}
           id="iban"
@@ -95,7 +95,7 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
           value={iban}
           onChange={handleIbanChange}
           onBlur={handleIbanBlur}
-          className={ibanError ? "border-destructive" : ""}
+          className={ibanError ? "h-11 border-destructive" : "h-11"}
           aria-invalid={!!ibanError}
           aria-describedby={ibanError ? "iban-error" : bankName ? "iban-bank" : undefined}
         />
@@ -114,7 +114,7 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
         )}
       </div>
       <div className="space-y-2">
-        <Label htmlFor="bic">BIC *</Label>
+        <Label htmlFor="bic">BIC</Label>
         <Input
           ref={bicRef}
           id="bic"
@@ -125,7 +125,7 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
           value={bic}
           onChange={handleBicChange}
           onBlur={handleBicBlur}
-          className={bicError ? "border-destructive" : ""}
+          className={bicError ? "h-11 border-destructive" : "h-11"}
           aria-invalid={!!bicError}
           aria-describedby={bicError ? "bic-error" : undefined}
         />

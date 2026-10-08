@@ -20,7 +20,9 @@ export function ForgotPasswordForm() {
     return (
       <div className="space-y-4">
         <div className="flex flex-col items-center gap-2 text-center">
-          <CheckCircle2 className="size-8 text-emerald-600" aria-hidden="true" />
+          <span className="flex size-12 items-center justify-center rounded-full bg-accent text-primary">
+            <CheckCircle2 className="size-6" aria-hidden="true" />
+          </span>
           <p className="font-medium text-foreground">E-Mail zum Zurücksetzen gesendet</p>
           <p className="text-sm text-muted-foreground">
             Falls ein Konto mit dieser E-Mail existiert, findest du in Kürze eine
@@ -34,7 +36,7 @@ export function ForgotPasswordForm() {
               {state.error}
             </p>
           )}
-          <Button type="submit" variant="outline" className="w-full">
+          <Button type="submit" variant="outline" size="lg" className="w-full">
             E-Mail erneut senden
           </Button>
         </form>
@@ -53,6 +55,7 @@ export function ForgotPasswordForm() {
           placeholder="name@beispiel.de"
           required
           autoComplete="email"
+          className="h-11"
         />
       </div>
       {state.error && (
@@ -60,7 +63,7 @@ export function ForgotPasswordForm() {
           {state.error}
         </p>
       )}
-      <Button type="submit" className="w-full">
+      <Button type="submit" size="lg" className="w-full">
         Reset-Link senden
       </Button>
     </form>

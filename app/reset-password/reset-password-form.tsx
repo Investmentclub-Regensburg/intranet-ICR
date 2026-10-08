@@ -46,6 +46,7 @@ export function ResetPasswordForm() {
           minLength={6}
           autoComplete="new-password"
           placeholder="Mind. 6 Zeichen"
+          className="h-11"
           onChange={(e) =>
             checkMatch(e.target.value, confirmRef.current?.value ?? "")
           }
@@ -62,7 +63,7 @@ export function ResetPasswordForm() {
           minLength={6}
           autoComplete="new-password"
           placeholder="Passwort wiederholen"
-          className={passwordMismatch ? "border-destructive" : ""}
+          className={passwordMismatch ? "h-11 border-destructive" : "h-11"}
           aria-invalid={passwordMismatch}
           aria-describedby={passwordMismatch ? "confirm-error" : undefined}
           onChange={(e) => {
@@ -83,7 +84,7 @@ export function ResetPasswordForm() {
           {state.error}
         </p>
       )}
-      <Button type="submit" className="w-full">
+      <Button type="submit" size="lg" className="w-full">
         Neues Passwort speichern
       </Button>
     </form>
