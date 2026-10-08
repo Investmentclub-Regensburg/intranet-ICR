@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
+import { requireRole } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
+import { isUuid } from "@/lib/validation";
 
 export type AlumniRequestDecision = "approved" | "rejected";
 
@@ -19,21 +20,12 @@ export type AlumniRequestRow = {
   handledAt: string | null;
 };
 
-function adminClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-}
-
 /** Alle Alumni-Anträge, neueste zuerst (Admin/Vorstand). */
 export async function getAlumniRequests(): Promise<AlumniRequestRow[]> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return [];
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") return [];
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return [];
 
-  const { data, error } = await adminClient()
+  const { data, error } = await createServiceClient()
     .from("alumni_requests")
     .select("id, user_id, profile_id, vorname, nachname, email, status, created_at, handled_at")
     .order("created_at", { ascending: false });
@@ -64,16 +56,16 @@ export async function decideAlumniRequest(
   requestId: string,
   decision: AlumniRequestDecision
 ): Promise<{ error: string }> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return { error: "Nicht eingeloggt." };
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "board") return { error: "Nur Vorstand (board) darf Alumni-Anträge entscheiden." };
+  const auth = await requireRole(["board"], "Nur Vorstand (board) darf Alumni-Anträge entscheiden.");
+  if (!auth.ok) return { error: auth.error };
+  const user = auth.user;
 
+  if (!isUuid(requestId)) return { error: "Antrag nicht gefunden." };
   if (decision !== "approved" && decision !== "rejected") {
     return { error: "Ungültige Entscheidung." };
   }
 
-  const admin = adminClient();
+  const admin = createServiceClient();
 
   const { data: request, error: loadError } = await admin
     .from("alumni_requests")
@@ -81,7 +73,10 @@ export async function decideAlumniRequest(
     .eq("id", requestId)
     .maybeSingle();
 
-  if (loadError) return { error: loadError.message };
+  if (loadError) {
+    console.error("decideAlumniRequest (laden):", loadError);
+    return { error: "Antrag konnte nicht geladen werden." };
+  }
   if (!request) return { error: "Antrag nicht gefunden." };
 
   const raw = request as Record<string, unknown>;
@@ -99,7 +94,10 @@ export async function decideAlumniRequest(
     update = profileId ? update.eq("id", profileId) : update.eq("user_id", userId);
 
     const { error: roleError } = await update;
-    if (roleError) return { error: `Rolle konnte nicht gesetzt werden: ${roleError.message}` };
+    if (roleError) {
+      console.error("decideAlumniRequest (Rolle):", roleError);
+      return { error: "Rolle konnte nicht gesetzt werden." };
+    }
   }
 
   // Der DB-Trigger schließt offene Anträge bei Rollenwechsel bereits – hier zusätzlich
@@ -113,7 +111,10 @@ export async function decideAlumniRequest(
     })
     .eq("id", requestId);
 
-  if (updateError) return { error: updateError.message };
+  if (updateError) {
+    console.error("decideAlumniRequest (Antrag):", updateError);
+    return { error: "Entscheidung konnte nicht gespeichert werden." };
+  }
 
   revalidatePath("/admin/alumni-requests");
   revalidatePath("/admin/members");

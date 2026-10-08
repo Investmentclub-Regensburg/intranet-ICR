@@ -1,7 +1,7 @@
 "use server";
 
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { requireUser } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
 
 export type MemberRow = {
   name: string;
@@ -9,15 +9,12 @@ export type MemberRow = {
 };
 
 export async function searchMembers(query: string): Promise<MemberRow[]> {
-  const { user } = await getCachedAuth();
-  if (!user) return [];
+  const auth = await requireUser();
+  if (!auth.ok) return [];
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
-  const q = (query || "").trim().slice(0, 100);
+  const q = (typeof query === "string" ? query : "").trim().slice(0, 100);
   if (!q) return [];
 
   // Eingabe für den PostgREST-`or`-Filter absichern: Backslash und Quote escapen
@@ -46,13 +43,10 @@ export async function searchMembers(query: string): Promise<MemberRow[]> {
 }
 
 export async function getAllMembers(): Promise<MemberRow[]> {
-  const { user } = await getCachedAuth();
-  if (!user) return [];
+  const auth = await requireUser();
+  if (!auth.ok) return [];
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { data, error } = await admin
     .from("profiles")

@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
+import { requireRole } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
+import { isUuid } from "@/lib/validation";
 import {
   BVH_MITGLIEDER_CSV_HEADER,
   formatBirthdayIso,
@@ -72,7 +73,10 @@ export async function requestBvhLogin(): Promise<RequestBvhResult> {
     email,
   });
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("requestBvhLogin:", error);
+    return { ok: false, error: "Anfrage konnte nicht gespeichert werden." };
+  }
   revalidatePath("/admin/bvh-login");
   revalidatePath("/magazines");
   return { ok: true };
@@ -89,15 +93,10 @@ export type BvhLoginRequestRow = {
 
 /** Liste aller BVH-Anfragen (nur Admin/Vorstand). */
 export async function getBvhLoginRequests(): Promise<BvhLoginRequestRow[]> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return [];
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") return [];
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return [];
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { data, error } = await admin
     .from("bvh_login_requests")
@@ -118,22 +117,21 @@ export async function getBvhLoginRequests(): Promise<BvhLoginRequestRow[]> {
 
 /** Anfrage als „akzeptiert“ markieren (Button ausgrauen; Freischaltung erfolgt manuell auf BVH-Seite). */
 export async function markBvhRequestHandled(id: string): Promise<{ error?: string }> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return { error: "Nicht eingeloggt." };
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") return { error: "Keine Berechtigung." };
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return { error: auth.error };
+  if (!isUuid(id)) return { error: "Anfrage nicht gefunden." };
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { error } = await admin
     .from("bvh_login_requests")
     .update({ handled: true })
     .eq("id", id);
 
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("markBvhRequestHandled:", error);
+    return { error: "Anfrage konnte nicht aktualisiert werden." };
+  }
   revalidatePath("/admin/bvh-login");
   return {};
 }
@@ -146,17 +144,10 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
   csv: string | null;
   error: string;
 }> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return { csv: null, error: "Nicht eingeloggt." };
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") {
-    return { csv: null, error: "Keine Berechtigung." };
-  }
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return { csv: null, error: auth.error };
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { data: reqs, error: reqErr } = await admin
     .from("bvh_login_requests")
@@ -164,7 +155,10 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     .eq("handled", false)
     .order("created_at", { ascending: true });
 
-  if (reqErr) return { csv: null, error: reqErr.message };
+  if (reqErr) {
+    console.error("buildBvhUnhandledRequestsCsv (Anfragen):", reqErr);
+    return { csv: null, error: "Anfragen konnten nicht geladen werden." };
+  }
   if (!reqs?.length) {
     return {
       csv: `${BVH_MITGLIEDER_CSV_HEADER}\n`,
@@ -188,7 +182,10 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
         'user_id, Vorname, Nachname, "E-Mail", Handynummer, Geburtsdatum, Anrede, "Straße", Hausnummer, PLZ, Ort, Rolle'
       )
       .in("user_id", userIds);
-    if (profErr) return { csv: null, error: profErr.message };
+    if (profErr) {
+      console.error("buildBvhUnhandledRequestsCsv (Profile):", profErr);
+      return { csv: null, error: "Profile konnten nicht geladen werden." };
+    }
     profiles = (profData ?? []) as Record<string, unknown>[];
   }
 

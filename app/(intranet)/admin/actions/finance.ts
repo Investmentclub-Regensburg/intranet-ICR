@@ -1,7 +1,7 @@
 "use server";
 
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
+import { requireRole } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
 import { sanitizeForSEPA } from "@/lib/sepa";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 
@@ -56,20 +56,20 @@ export async function getFinanceExportData(
   semester: Semester,
   year: number
 ): Promise<FinanceExportResult> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) {
-    throw new Error("Nicht eingeloggt.");
+  const auth = await requireRole(["admin", "board"], "Keine Berechtigung für den Finanzexport.");
+  if (!auth.ok) {
+    throw new Error(auth.error);
   }
 
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") {
-    throw new Error("Keine Berechtigung für den Finanzexport.");
+  const maxYear = new Date().getFullYear() + 1;
+  if (semester !== "SoSe" && semester !== "WiSe") {
+    throw new Error("Ungültiges Semester.");
+  }
+  if (!Number.isInteger(year) || year < 2000 || year > maxYear) {
+    throw new Error("Ungültiges Jahr.");
   }
 
-  const supabase = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabase = createServiceClient();
   const periodStart = getPeriodStart(semester, year);
 
   const { data: profiles, error } = await supabase

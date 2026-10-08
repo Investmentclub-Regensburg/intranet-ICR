@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath, unstable_cache, updateTag } from "next/cache";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
+import { getCachedSupabase } from "@/utils/supabase/cached-auth";
+import { requireRole, requireUser } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
+import { isSafeId } from "@/lib/validation";
 import {
   EVENT_IMAGE_BUCKET,
   MAX_CUSTOM_RECIPIENTS,
@@ -50,20 +52,10 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const IMAGE_PATH_RE = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|gif|webp)$/;
 
-function serviceClient() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
-}
-
 async function requireAdmin(): Promise<{ userId: string } | { error: string }> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return { error: "Nicht eingeloggt." };
-  const role = String(profile?.["Rolle"] ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") return { error: "Keine Berechtigung." };
-  return { userId: user.id };
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return { error: auth.error };
+  return { userId: auth.user.id };
 }
 
 function invalidateEvents() {
@@ -93,7 +85,7 @@ function toEventCore(e: Record<string, unknown>): EventCore {
 
 const fetchEvents = unstable_cache(
   async (): Promise<EventListItem[]> => {
-    const admin = serviceClient();
+    const admin = createServiceClient();
     const [{ data: events, error }, { data: regs }] = await Promise.all([
       admin
         .from("events")
@@ -129,19 +121,21 @@ const fetchEvents = unstable_cache(
 
 /** Alle Events, aufsteigend nach Beginn. Nur serverseitig verwenden (enthält User-IDs der Anmeldungen). */
 export async function getEvents(): Promise<EventListItem[]> {
-  const { user } = await getCachedAuth();
-  if (!user) return [];
+  const auth = await requireUser();
+  if (!auth.ok) return [];
   return fetchEvents();
 }
 
 export async function getEvent(eventId: string): Promise<EventListItem | null> {
+  if (!isSafeId(eventId)) return null;
   const events = await getEvents();
   return events.find((e) => e.id === eventId) ?? null;
 }
 
 export async function getMyEvents(): Promise<MyEventsResult> {
-  const { user } = await getCachedAuth();
-  if (!user) return { upcoming: [], attended: [] };
+  const auth = await requireUser();
+  if (!auth.ok) return { upcoming: [], attended: [] };
+  const user = auth.user;
 
   const now = Date.now();
   const mine = (await fetchEvents()).filter((e) => e.registered_user_ids.includes(user.id));
@@ -170,11 +164,12 @@ export async function getEventWithParticipants(eventId: string): Promise<{
 } | null> {
   const auth = await requireAdmin();
   if ("error" in auth) return null;
+  if (!isSafeId(eventId)) return null;
 
   const event = await getEvent(eventId);
   if (!event) return null;
 
-  const admin = serviceClient();
+  const admin = createServiceClient();
   const [{ data: regs }, { data: notifications }] = await Promise.all([
     admin
       .from("event_registrations")
@@ -363,6 +358,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
 export async function updateEvent(eventId: string, input: UpdateEventInput): Promise<{ error: string }> {
   const auth = await requireAdmin();
   if ("error" in auth) return { error: auth.error };
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
 
   const parsed = parseEventFields(input);
   if (!parsed.row) return { error: parsed.error };
@@ -401,6 +397,7 @@ export async function updateEvent(eventId: string, input: UpdateEventInput): Pro
 export async function deleteEvent(eventId: string): Promise<{ error: string }> {
   const auth = await requireAdmin();
   if ("error" in auth) return { error: auth.error };
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
 
   const supabase = await getCachedSupabase();
   const { data: deleted, error } = await supabase
@@ -422,8 +419,10 @@ export async function toggleRegistration(
   eventId: string,
   isRegistered: boolean
 ): Promise<{ error: string }> {
-  const { user } = await getCachedAuth();
-  if (!user) return { error: "Nicht eingeloggt." };
+  const auth = await requireUser();
+  if (!auth.ok) return { error: auth.error };
+  const user = auth.user;
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
 
   const supabase = await getCachedSupabase();
   if (isRegistered) {
@@ -451,6 +450,7 @@ export async function sendEventAnnouncement(
 ): Promise<{ count: number; error: string }> {
   const auth = await requireAdmin();
   if ("error" in auth) return { count: 0, error: auth.error };
+  if (!isSafeId(eventId)) return { count: 0, error: "Event nicht gefunden." };
   const result = await enqueueAnnouncement(eventId, target, auth.userId);
   revalidatePath(`/admin/events/${eventId}`);
   return result;
@@ -478,7 +478,7 @@ async function resolveRecipients(target: AnnouncementTarget): Promise<{ emails: 
   if (target.mode === "custom") return normalizeCustomEmails(target.emails);
 
   // Alle Mitglieder außer Alumni und Ausgetretenen (Status cancelled).
-  const { data, error } = await serviceClient()
+  const { data, error } = await createServiceClient()
     .from("profiles")
     .select('"E-Mail", "Status"')
     .in("Rolle", ["member", "admin", "board"])
@@ -499,7 +499,7 @@ async function enqueueAnnouncement(
   target: AnnouncementTarget,
   requestedBy: string
 ): Promise<{ count: number; error: string }> {
-  const admin = serviceClient();
+  const admin = createServiceClient();
   const { data: row, error: evError } = await admin
     .from("events")
     .select("id, title, description, event_date, event_time, end_time, location, organizer, image_url, requires_registration")
