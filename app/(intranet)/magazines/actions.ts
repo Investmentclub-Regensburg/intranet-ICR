@@ -66,6 +66,20 @@ export async function requestBvhLogin(): Promise<RequestBvhResult> {
 
   if (!email) return { ok: false, error: "E-Mail im Profil fehlt." };
 
+  // Höchstens eine offene Anfrage pro Konto (verhindert Massenanfragen).
+  const { count: openCount, error: openError } = await createServiceClient()
+    .from("bvh_login_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("handled", false);
+  if (openError) {
+    console.error("requestBvhLogin (offene Anfragen):", openError);
+    return { ok: false, error: "Anfrage konnte nicht gespeichert werden." };
+  }
+  if ((openCount ?? 0) > 0) {
+    return { ok: false, error: "Du hast bereits eine offene Anfrage." };
+  }
+
   const { error } = await supabase.from("bvh_login_requests").insert({
     user_id: user.id,
     vorname,
@@ -100,19 +114,33 @@ export async function getBvhLoginRequests(): Promise<BvhLoginRequestRow[]> {
 
   const { data, error } = await admin
     .from("bvh_login_requests")
-    .select("id, vorname, nachname, email, handled, created_at")
+    .select("id, user_id, vorname, nachname, email, handled, created_at")
     .order("created_at", { ascending: false });
 
   if (error) return [];
 
-  return (data ?? []).map((r) => ({
-    id: String(r.id),
-    vorname: String(r.vorname ?? ""),
-    nachname: String(r.nachname ?? ""),
-    email: String(r.email ?? ""),
-    handled: Boolean(r.handled),
-    created_at: String(r.created_at ?? ""),
-  }));
+  // Angezeigt werden die Profildaten des anfragenden Kontos, nicht die im Antrag gespeicherten Felder.
+  const userIds = [...new Set((data ?? []).map((r) => String(r.user_id ?? "")).filter(isUuid))];
+  const byUserId = new Map<string, Record<string, unknown>>();
+  if (userIds.length > 0) {
+    const { data: profs } = await admin
+      .from("profiles")
+      .select('user_id, Vorname, Nachname, "E-Mail"')
+      .in("user_id", userIds);
+    for (const p of profs ?? []) byUserId.set(String(p.user_id ?? ""), p as Record<string, unknown>);
+  }
+
+  return (data ?? []).map((r) => {
+    const p = byUserId.get(String(r.user_id ?? ""));
+    return {
+      id: String(r.id),
+      vorname: String((p ? p.Vorname : r.vorname) ?? ""),
+      nachname: String((p ? p.Nachname : r.nachname) ?? ""),
+      email: String((p ? p["E-Mail"] : r.email) ?? ""),
+      handled: Boolean(r.handled),
+      created_at: String(r.created_at ?? ""),
+    };
+  });
 }
 
 /** Anfrage als „akzeptiert“ markieren (Button ausgrauen; Freischaltung erfolgt manuell auf BVH-Seite). */
@@ -151,7 +179,7 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
 
   const { data: reqs, error: reqErr } = await admin
     .from("bvh_login_requests")
-    .select("user_id, vorname, nachname, email")
+    .select("user_id")
     .eq("handled", false)
     .order("created_at", { ascending: true });
 
@@ -196,22 +224,18 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
   }
 
   const lines: string[] = [BVH_MITGLIEDER_CSV_HEADER];
+  const seen = new Set<string>();
 
-  for (const r of reqs as {
-    user_id?: string;
-    vorname?: string;
-    nachname?: string;
-    email?: string;
-  }[]) {
+  for (const r of reqs as { user_id?: string }[]) {
     const uid = r.user_id ?? "";
     const prof = uid ? byUserId.get(uid) : undefined;
+    // Nur Daten aus dem Profil des anfragenden Kontos exportieren; je Konto eine Zeile.
+    if (!prof || seen.has(uid)) continue;
+    seen.add(uid);
 
-    const email =
-      String(
-        prof?.["E-Mail"] ?? prof?.["e-mail"] ?? r.email ?? ""
-      ).trim();
-    const firstName = String(prof?.Vorname ?? prof?.vorname ?? r.vorname ?? "").trim();
-    const lastName = String(prof?.Nachname ?? prof?.nachname ?? r.nachname ?? "").trim();
+    const email = String(prof["E-Mail"] ?? prof["e-mail"] ?? "").trim();
+    const firstName = String(prof.Vorname ?? prof.vorname ?? "").trim();
+    const lastName = String(prof.Nachname ?? prof.nachname ?? "").trim();
     const phone = String(prof?.Handynummer ?? prof?.handynummer ?? "").trim();
     const birthday = formatBirthdayIso(prof?.Geburtsdatum ?? prof?.geburtsdatum);
     const gender = genderFromAnrede(
