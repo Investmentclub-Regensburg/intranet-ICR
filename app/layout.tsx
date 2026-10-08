@@ -1,6 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 // Hausschrift Inter (wie die Website), self-hosted über npm: keine Verbindung
@@ -32,8 +30,6 @@ export default function RootLayout({
           {children}
           <Toaster richColors position="bottom-right" />
         </ThemeProvider>
-        <Analytics />
-        <SpeedInsights />
       </body>
     </html>
   );
