@@ -378,3 +378,69 @@
     animation: fade-only 0.15s linear both;
   }
 }
+
+/* ---------- Einfliegen wie auf der Website (data-reveal="heading") ----------
+   Überschriften der Auth-Seiten: Zeilen steigen nacheinander mit etwas Weg und
+   leichter Unschärfe auf, die Eyebrow gleitet von links herein. Reine CSS-
+   Animation beim Laden (Endzustand sichtbar, auch ohne JS). Verzögerung je
+   Element über --fly-delay. Schritt-Überschriften im Wizard dezenter. */
+@keyframes fly-rise {
+  from {
+    opacity: 0;
+    transform: translateY(36px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes fly-rise-soft {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes fly-slide {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fly-rise {
+  animation: fly-rise 1.05s var(--ease-out) both;
+  animation-delay: var(--fly-delay, 0s);
+}
+
+.fly-slide {
+  animation: fly-slide 0.9s var(--ease-out) both;
+  animation-delay: var(--fly-delay, 0s);
+}
+
+/* Startet bei jedem Schrittwechsel neu (Schritt wechselt von display:none). */
+.wizard-step > h2 {
+  animation: fly-rise-soft 0.7s var(--ease-out) 0.06s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fly-rise,
+  .fly-slide,
+  .wizard-step > h2 {
+    animation: fade-only 0.3s linear both;
+    animation-delay: 0s;
+  }
+}

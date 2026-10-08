@@ -352,7 +352,8 @@ export function PickTile({
     <label
       className={cn(
         "group relative flex cursor-pointer items-center gap-3 rounded-xl border border-input bg-card px-4 py-3.5 transition-[border-color,background-color,box-shadow] duration-200",
-        "hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:shadow-soft",
+        // Gewählt: einfarbig im Primär-Rot wie der Weiter-Button, Schrift weiß (Hannes 2026-10-08).
+        "hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-primary has-[:checked]:shadow-brand",
         "has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/40",
         className,
       )}
@@ -367,19 +368,21 @@ export function PickTile({
         className="peer sr-only"
       />
       {Icon && (
-        <span className="group-has-[:checked]:bg-brand-gradient flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-has-[:checked]:text-white">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-has-[:checked]:bg-white/15 group-has-[:checked]:text-white">
           <Icon className="size-4" aria-hidden />
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-foreground">{label}</span>
-        {hint && <span className="block text-xs text-muted-foreground">{hint}</span>}
+        <span className="block text-sm font-semibold text-foreground transition-colors group-has-[:checked]:text-white">{label}</span>
+        {hint && (
+          <span className="block text-xs text-muted-foreground transition-colors group-has-[:checked]:text-white/80">{hint}</span>
+        )}
       </span>
       <span
         aria-hidden
-        className="group-has-[:checked]:bg-brand-gradient flex size-5 shrink-0 items-center justify-center rounded-full border border-input transition-colors group-has-[:checked]:border-transparent"
+        className="flex size-5 shrink-0 items-center justify-center rounded-full border border-input transition-colors group-has-[:checked]:border-white group-has-[:checked]:bg-white"
       >
-        <Check className="size-3 text-white opacity-0 transition-opacity group-has-[:checked]:opacity-100" />
+        <Check className="size-3 text-primary opacity-0 transition-opacity group-has-[:checked]:opacity-100" />
       </span>
     </label>
   );

@@ -9,6 +9,7 @@ import {
   CircleCheck,
   ClipboardCheck,
   GraduationCap,
+  Info,
   KeyRound,
   Landmark,
   Mail,
@@ -26,7 +27,7 @@ import {
 } from "./actions";
 import { countryCodes } from "@/lib/country-codes";
 import { IbanBicFields } from "./iban-bic-fields";
-import { AuthFrame, StageHeading } from "@/components/auth/AuthFrame";
+import { AuthFrame, StageHeading, flyDelay } from "@/components/auth/AuthFrame";
 import {
   PickTile,
   WizardNav,
@@ -283,7 +284,9 @@ export function RegisterForm() {
       <StageHeading eyebrow="Mitgliedsantrag" title="Jetzt Mitglied werden" />
       {!state.confirmationMessage && (
         <>
-          <WizardProgress tone="onBrand" count={wizard.count} index={wizard.index} label={currentStep.label} />
+          <div className="fly-rise" style={flyDelay(0.42)}>
+            <WizardProgress tone="onBrand" count={wizard.count} index={wizard.index} label={currentStep.label} />
+          </div>
           {rows.length > 0 && (
             <WizardSummary
               tone="onBrand"
@@ -630,7 +633,7 @@ export function RegisterForm() {
                 </Field>
               </div>
               <fieldset className="space-y-2">
-                <legend className="mb-2 text-sm font-medium">Hochschulart</legend>
+                <legend className="mb-2 text-sm font-medium">Uni oder Hochschule</legend>
                 <div className="grid gap-2">
                   {HOCHSCHULEN.map((h) => (
                     <PickTile
@@ -658,6 +661,14 @@ export function RegisterForm() {
 
         {/* 6 Bankverbindung + SEPA */}
         <WizardStep {...stepProps("bank")} title="Bankverbindung für den Beitrag">
+          <div className="flex gap-3 rounded-xl border border-border bg-muted/60 p-4 text-sm leading-relaxed text-ink-soft">
+            <Info className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+            <p>
+              Dein erstes Semester ist kostenlos, dafür wird nichts eingezogen. Ab dem zweiten
+              Semester buchen wir 15&nbsp;€ je Semester per SEPA-Lastschrift ab, halbjährlich im
+              Voraus zum 01.04. und 01.10.
+            </p>
+          </div>
           <IbanBicFields initialIban={v.iban} initialBic={v.bic} />
           <PickTile
             type="checkbox"

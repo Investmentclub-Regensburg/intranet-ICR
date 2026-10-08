@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Aurora } from "@/components/brand/Aurora";
 import { IcrLogo } from "@/components/brand/IcrLogo";
 import { cn } from "@/lib/utils";
@@ -50,15 +50,42 @@ export function AuthFrame({
   );
 }
 
-/** Überschrift auf der Markenfläche: Eyebrow + große, enge Headline (Website heading-page). */
-export function StageHeading({ eyebrow, title, children }: { eyebrow?: string; title: ReactNode; children?: ReactNode }) {
+/** Verzögerung für die Einflug-Animation (globals.css .fly-rise/.fly-slide). */
+export function flyDelay(seconds: number): CSSProperties {
+  return { "--fly-delay": `${seconds}s` } as CSSProperties;
+}
+
+/**
+ * Überschrift auf der Markenfläche: Eyebrow + große, enge Headline (Website
+ * heading-page). Fliegt ein wie auf der Website: Eyebrow gleitet von links, die
+ * Zeilen (`title` als Array = eine Zeile je Eintrag) steigen nacheinander auf.
+ */
+export function StageHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow?: string;
+  title: string | string[];
+  children?: ReactNode;
+}) {
+  const lines = Array.isArray(title) ? title : [title];
+  const start = eyebrow ? 0.14 : 0;
   return (
     <div className="space-y-4">
-      {eyebrow && <p className="eyebrow eyebrow-light">{eyebrow}</p>}
+      {eyebrow && <p className="eyebrow eyebrow-light fly-slide">{eyebrow}</p>}
       <h1 className="text-[clamp(2.1rem,8vw,2.75rem)] leading-[0.98] font-bold tracking-[-0.04em] text-white lg:text-[3.5rem] xl:text-[4.25rem]">
-        {title}
+        {lines.map((line, i) => (
+          <span key={line} className="fly-rise block" style={flyDelay(start + i * 0.14)}>
+            {line}
+          </span>
+        ))}
       </h1>
-      {children}
+      {children && (
+        <div className="fly-rise" style={flyDelay(start + lines.length * 0.14)}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
