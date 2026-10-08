@@ -6,17 +6,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
-  BookOpen,
-  Calendar,
+  CircleUserRound,
+  Gift,
   LayoutDashboard,
-  LineChart,
   Menu,
-  MessageCircle,
   PartyPopper,
   Settings,
   X,
   Users,
-  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import { LogoutButton } from "@/app/dashboard/logout-button";
@@ -38,49 +35,76 @@ type NavItem = {
   name: string;
   href: string;
   icon: LucideIcon;
+  /** Animiertes Icon aus SidebarNavIcon (Schlüssel = alter Pfad), Standard: href. */
+  iconKey?: string;
+  /** Weitere Pfade (Präfix), auf denen der Eintrag aktiv ist (Bereiche mit TabBar). */
+  match?: string[];
   allowedRoles: string[];
 };
 
 type NavGroup = {
   key: string;
-  /** Abschnittsüberschrift; ohne = erste Gruppe. */
+  /** Abschnittsüberschrift (optional). */
   label?: string;
+  /** Mit Trennlinie vom Abschnitt darüber abgesetzt. */
+  separated?: boolean;
   items: NavItem[];
 };
 
 const ALL_ROLES = ["member", "admin", "board", "alumni"];
 
-// Gleiche Einträge und Rollen wie bisher, neu: „Übersicht“ (/dashboard) oben.
-// Gruppiert nach Alltag, Verein und Verwaltung.
+// Struktur UX-Umbau (Hannes 2026-10-08, ux-umbau-brief.md): sechs Bereiche für alle,
+// darunter abgesetzt die Verwaltung (nur admin/board wie bisher). Bereiche mit
+// Unterseiten tragen oben eine TabBar; der Navi-Eintrag ist auf allen ihren Pfaden
+// aktiv. URLs bleiben unverändert.
+//   Veranstaltungen = /events (Liste) + /calendar (Kalender) + /events/[id]
+//   Verein          = /board-members (Vorstand) + /members + /whatsapp
+//   Verwaltung      = /admin* + /insights (Insights-Tab nur board, regelt die TabBar)
 const NAV_GROUPS: NavGroup[] = [
   {
     key: "main",
     items: [
       { name: "Übersicht", href: "/dashboard", icon: LayoutDashboard, allowedRoles: ALL_ROLES },
-      { name: "News", href: "/news", icon: Bell, allowedRoles: ALL_ROLES },
-      { name: "Events", href: "/events", icon: PartyPopper, allowedRoles: ALL_ROLES },
-      { name: "Kalender", href: "/calendar", icon: Calendar, allowedRoles: ALL_ROLES },
-      { name: "Zeitschriften", href: "/magazines", icon: BookOpen, allowedRoles: ALL_ROLES },
-    ],
-  },
-  {
-    key: "verein",
-    label: "Verein",
-    items: [
-      { name: "Mitglieder", href: "/members", icon: Users, allowedRoles: ALL_ROLES },
-      { name: "Vorstand", href: "/board-members", icon: UsersRound, allowedRoles: ALL_ROLES },
-      { name: "WhatsApp-Gruppe", href: "/whatsapp", icon: MessageCircle, allowedRoles: ALL_ROLES },
+      {
+        name: "Veranstaltungen",
+        href: "/events",
+        icon: PartyPopper,
+        match: ["/calendar"],
+        allowedRoles: ALL_ROLES,
+      },
+      { name: "Schwarzes Brett", href: "/news", icon: Bell, allowedRoles: ALL_ROLES },
+      { name: "Vorteile", href: "/magazines", icon: Gift, allowedRoles: ALL_ROLES },
+      {
+        name: "Verein",
+        href: "/board-members",
+        icon: Users,
+        iconKey: "/members",
+        match: ["/members", "/whatsapp"],
+        allowedRoles: ALL_ROLES,
+      },
+      { name: "Mein Profil", href: "/profile", icon: CircleUserRound, allowedRoles: ALL_ROLES },
     ],
   },
   {
     key: "verwaltung",
-    label: "Verwaltung",
+    separated: true,
     items: [
-      { name: "Admin-Bereich", href: "/admin", icon: Settings, allowedRoles: ["admin", "board"] },
-      { name: "Insights", href: "/insights", icon: LineChart, allowedRoles: ["board"] },
+      {
+        name: "Verwaltung",
+        href: "/admin",
+        icon: Settings,
+        match: ["/insights"],
+        allowedRoles: ["admin", "board"],
+      },
     ],
   },
 ];
+
+function isActivePath(pathname: string, item: NavItem): boolean {
+  return [item.href, ...(item.match ?? [])].some(
+    (p) => pathname === p || pathname.startsWith(p + "/"),
+  );
+}
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -139,12 +163,17 @@ export function Sidebar({ profile }: { profile: Profile }) {
       ) {
         return;
       }
-      lastCheckAtRef.current = now;
-
       const unread = await checkUnreadNews(lastReadRef.current);
-      if (!cancelled) setHasUnread(unread);
+      // Zeitstempel erst nach gültiger Antwort setzen: Ein abgebrochener Lauf (z. B.
+      // doppelter Effekt im Strict Mode, schneller Seitenwechsel) blockierte sonst den
+      // nächsten Abruf für 60 s, und die Pille „Neu“ erschien nie.
+      if (cancelled) return;
+      lastCheckAtRef.current = now;
+      setHasUnread(unread);
     }
-    check();
+    // Abgebrochene Anfragen (Seite verlassen, Netz weg) sind kein Fehler: Hinweis bleibt
+    // wie er ist. Firefox meldete sonst „NetworkError“ als unbehandelte Ablehnung.
+    check().catch(() => {});
     return () => { cancelled = true; };
   }, [pathname, router]);
 
@@ -169,7 +198,6 @@ export function Sidebar({ profile }: { profile: Profile }) {
   })).filter((group) => group.items.length > 0);
   const initials = getInitials(profile.vorname, profile.nachname);
   const roleLabel = ROLE_LABELS[profile.rolle] ?? profile.rolle;
-  const profileActive = pathname === "/profile" || pathname.startsWith("/profile/");
 
   // Laufende Nummer je Eintrag über alle Gruppen (Staffelung im mobilen Menü).
   const groupOffsets = groups.map((_, gi) =>
@@ -178,9 +206,12 @@ export function Sidebar({ profile }: { profile: Profile }) {
 
   const renderNav = (idPrefix: string, onNavigate?: () => void) => {
     return (
-      <nav aria-label="Intranet Navigation" className="space-y-5">
+      <nav aria-label="Intranet Navigation" className="space-y-4">
         {groups.map((group, gi) => (
-          <div key={group.key}>
+          <div
+            key={group.key}
+            className={cn(group.separated && "border-t border-sidebar-border pt-4")}
+          >
             {group.label && (
               <p className="mb-1.5 px-3 text-[0.6875rem] font-semibold tracking-[0.16em] text-sidebar-muted uppercase">
                 {group.label}
@@ -188,7 +219,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
             )}
             <ul className="space-y-0.5">
               {group.items.map((item, ii) => {
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                const active = isActivePath(pathname, item);
                 const showUnread = item.href === "/news" && hasUnread && !active;
                 const i = groupOffsets[gi] + ii;
 
@@ -233,7 +264,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
                         )}
                         <span className="relative">
                           <SidebarNavIcon
-                            href={item.href}
+                            href={item.iconKey ?? item.href}
                             icon={item.icon}
                             active={active}
                             isRowHovered={hoveredHref === item.href}
@@ -250,8 +281,10 @@ export function Sidebar({ profile }: { profile: Profile }) {
                           {item.name}
                         </span>
                         {showUnread && (
-                          <span className="relative ml-auto rounded-full bg-brand-tint px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-primary uppercase">
+                          // Ungelesene Beiträge am Schwarzen Brett: kleine Pille statt Punkt.
+                          <span className="relative ml-auto rounded-full bg-primary px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-primary-foreground uppercase">
                             Neu
+                            <span className="sr-only"> (ungelesene Beiträge)</span>
                           </span>
                         )}
                       </motion.div>
@@ -269,14 +302,12 @@ export function Sidebar({ profile }: { profile: Profile }) {
   const renderFooter = (onNavigate?: () => void) => (
     <div className="space-y-3 border-t border-sidebar-border pt-4">
       <div className="flex items-center gap-1">
+        {/* Nutzerzeile → Mein Profil (die Markierung trägt der Navi-Eintrag). */}
         <Link
           href="/profile"
           onClick={onNavigate}
-          aria-current={profileActive ? "page" : undefined}
-          className={cn(
-            "group flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-            profileActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
-          )}
+          title="Mein Profil"
+          className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 transition-colors outline-none hover:bg-sidebar-accent/60 focus-visible:ring-[3px] focus-visible:ring-ring/40"
         >
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground transition-transform duration-300 group-hover:scale-105">
             {initials}
