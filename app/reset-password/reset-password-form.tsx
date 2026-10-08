@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import { resetPasswordAction, type ResetPasswordState } from "./actions";
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth-messages";
 
 const initialState: ResetPasswordState = {
   error: "",
@@ -42,13 +43,17 @@ export function ResetPasswordForm() {
           id="newPassword"
           name="newPassword"
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           autoComplete="new-password"
           className="h-11"
+          aria-describedby="new-password-hint"
           onChange={(e) =>
             checkMatch(e.target.value, confirmRef.current?.value ?? "")
           }
         />
+        <p id="new-password-hint" className="text-xs text-muted-foreground">
+          Mindestens {MIN_PASSWORD_LENGTH} Zeichen.
+        </p>
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">Passwort bestätigen</Label>
@@ -57,7 +62,7 @@ export function ResetPasswordForm() {
           id="confirmPassword"
           name="confirmPassword"
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           autoComplete="new-password"
           className={passwordMismatch ? "h-11 border-destructive" : "h-11"}
           aria-invalid={passwordMismatch}

@@ -1,5 +1,7 @@
 "use client";
 
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth-messages";
+
 import { useActionState, useState, useRef, useCallback, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -519,7 +521,8 @@ export function RegisterForm() {
               name="password"
               required
               autoComplete="new-password"
-              minLength={6}
+              minLength={MIN_PASSWORD_LENGTH}
+              aria-describedby="password-hint"
               className={FIELD_CLASS}
               value={password}
               onChange={(e) => {
@@ -527,6 +530,9 @@ export function RegisterForm() {
                 checkPasswordMatch(e.target.value, passwordRepeat);
               }}
             />
+            <p id="password-hint" className="text-xs text-muted-foreground">
+              Mindestens {MIN_PASSWORD_LENGTH} Zeichen.
+            </p>
           </Field>
           <Field id="passwordRepeat" label="Passwort wiederholen">
             <PasswordInput
