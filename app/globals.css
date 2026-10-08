@@ -4,41 +4,78 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+  ICR Design-System (übernommen von der Website investmentclubregensburg.com,
+  clients/kunde-investmentclub-regensburg/src/styles/global.css).
+  Eine Schrift (Inter Variable, self-hosted über @fontsource-variable/inter,
+  importiert in app/layout.tsx), eine Markenfarbe: das Logo-Rot #a30101.
+  Dazu Schwarz, Weiß und warme Grautöne, Bordeaux #3e0307 als Grundton
+  dunkler Bühnen (Aurora) und als Basis des dunklen Modus.
+  Bedienelemente (Buttons, Felder) eckig, Karten und Bilder rund.
+  Kein Punktmuster, keine Körnung.
+*/
+
+/* Marken-Konstanten: gleich in Hell und Dunkel (Logo, Aurora, Verlauf). */
+@theme {
+  --color-brand: #a30101;
+  --color-brand-hover: #870101;
+  --color-brand-soft: #b23838;
+  --color-brand-tint: #f7ecec;
+  --color-bordeaux: #3e0307;
+  --color-night: #170103;
+  --color-ink: #111111;
+  --color-ink-soft: #424242;
+  --color-ink-mute: #6b6b6b;
+  --color-line: #e7e4e4;
+
+  --shadow-soft: 0 4px 24px -10px rgba(17, 17, 17, 0.12);
+  --shadow-card: 0 18px 48px -22px rgba(62, 3, 7, 0.28);
+  --shadow-brand: 0 10px 24px -12px rgba(163, 1, 1, 0.65);
+
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-gentle: cubic-bezier(0.45, 0.05, 0.25, 1);
+}
+
 @theme inline {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  /* ICR Rot #a10102 – direkt im Theme für Buttons/Links */
-  --color-primary: #a10102;
-  --color-primary-foreground: #ffffff;
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Radius 0.5rem → rounded-2xl = 1rem wie die Karten der Website.
+     rounded-xs = 3px: eckige Buttons und Felder (Website .btn). */
+  --radius-xs: 3px;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -48,89 +85,228 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-/* ICR Vereinsfarbe: Primärfarbe (tiefes Blau) – hier anpassbar */
+/* Hell: Website-Palette (bg #f9f9f9, ink #111, line #e7e4e4, Logo-Rot). */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #a10102; /* ICR Rot */
+  --radius: 0.5rem;
+  --background: #f9f9f9;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #a30101;
   --primary-foreground: #ffffff;
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --secondary: #f4f1f1;
+  --secondary-foreground: #111111;
+  --muted: #f4f1f1;
+  --muted-foreground: #6b6b6b;
+  --accent: #f7ecec;
+  --accent-foreground: #111111;
+  --destructive: #b42318;
+  --border: #e7e4e4;
+  --input: #dcd7d7;
+  --ring: #a30101;
+  --chart-1: #a30101;
+  --chart-2: #3e0307;
+  --chart-3: #b23838;
+  --chart-4: #6b6b6b;
+  --chart-5: #e0b4b4;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #111111;
+  --sidebar-muted: #6b6b6b;
+  --sidebar-primary: #a30101;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f7ecec;
+  --sidebar-accent-foreground: #a30101;
+  --sidebar-border: #e7e4e4;
+  --sidebar-ring: #a30101;
 }
 
+/* Dunkel: Night/Bordeaux als Grund statt neutralem Grau. Das Rot ist für
+   Text und Flächen aufgehellt (#dc3a3a: ca. 4,5:1 zu Weiß und zum Grund). */
 .dark {
-  --background: oklch(0.1 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.155 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.155 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: #a10102; /* ICR Rot (Dark Mode) */
+  --background: #140305;
+  --foreground: #f5ecec;
+  --card: #1f080b;
+  --card-foreground: #f5ecec;
+  --popover: #240a0d;
+  --popover-foreground: #f5ecec;
+  --primary: #dc3a3a;
   --primary-foreground: #ffffff;
-  --secondary: oklch(0.22 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.2 0 0);
-  --muted-foreground: oklch(0.72 0 0);
-  --accent: oklch(0.22 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.12 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: #a10102;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.2 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --secondary: #2a0e11;
+  --secondary-foreground: #f5ecec;
+  --muted: #2a0e11;
+  --muted-foreground: #b9a2a4;
+  --accent: #3e0307;
+  --accent-foreground: #ffffff;
+  --destructive: #ff6467;
+  --border: rgb(255 255 255 / 0.09);
+  --input: rgb(255 255 255 / 0.14);
+  --ring: #dc3a3a;
+  --chart-1: #dc3a3a;
+  --chart-2: #f2a7a7;
+  --chart-3: #8f1d22;
+  --chart-4: #b9a2a4;
+  --chart-5: #6e2a2f;
+  --sidebar: #100204;
+  --sidebar-foreground: #f5ecec;
+  --sidebar-muted: #b9a2a4;
+  --sidebar-primary: #dc3a3a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #2a0a0e;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: #dc3a3a;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
+  html {
+    interpolate-size: allow-keywords;
+  }
+
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background-color: var(--color-brand);
+    color: white;
   }
 }
 
+@layer components {
+  /* Eyebrow: kurzer roter Strich + Kapitälchen-Zeile (Website). */
+  .eyebrow {
+    @apply inline-flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-primary uppercase;
+  }
+
+  .eyebrow::before {
+    content: "";
+    @apply h-px w-8 bg-current;
+  }
+
+  .eyebrow-light {
+    @apply text-white/75;
+  }
+}
+
+/* Markenverlauf als Linie: Bordeaux → Logo-Rot → helles Rot. Sparsam. */
+.bg-brand-gradient {
+  background: linear-gradient(90deg, var(--color-bordeaux) 0%, var(--color-brand) 55%, var(--color-brand-soft) 100%);
+}
+
+/* ---------- Aurora (Signatur der Website, ohne Korn) ----------
+   Bordeaux-Grund, driftende Rot-Nebel, Vignette. Komponente:
+   components/brand/Aurora.tsx. Muss in einem `relative isolate
+   overflow-hidden`-Container liegen. */
+.aurora-base {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(130% 110% at 62% 30%, #4a040a 0%, #2a0206 46%, #130102 100%);
+  background-color: var(--color-night);
+}
+
+.aurora-blobs {
+  position: absolute;
+  inset: -12%;
+  filter: blur(48px);
+}
+
+.aurora-blob {
+  position: absolute;
+  width: 72vw;
+  height: 72vw;
+  max-width: 1100px;
+  max-height: 1100px;
+  border-radius: 50%;
+}
+
+.aurora-blob-1 {
+  top: -22%;
+  left: -14%;
+  background: radial-gradient(circle at center, rgb(122 6 14 / 0.85) 0%, transparent 62%);
+  animation: aurora-drift-1 27s ease-in-out infinite alternate;
+}
+
+.aurora-blob-2 {
+  right: -14%;
+  bottom: -26%;
+  background: radial-gradient(circle at center, rgb(92 4 12 / 0.9) 0%, transparent 60%);
+  animation: aurora-drift-2 33s ease-in-out infinite alternate;
+}
+
+.aurora-blob-3 {
+  top: 30%;
+  left: 52%;
+  width: 52vw;
+  height: 52vw;
+  max-width: 780px;
+  max-height: 780px;
+  background: radial-gradient(circle at center, rgb(163 1 1 / 0.6) 0%, transparent 66%);
+  animation: aurora-drift-3 24s ease-in-out infinite alternate;
+}
+
+.aurora-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(125% 105% at 50% 38%, transparent 44%, rgb(10 0 1 / 0.6) 100%);
+}
+
+@keyframes aurora-drift-1 {
+  to {
+    transform: translate3d(8%, 6%, 0) scale(1.12);
+  }
+}
+
+@keyframes aurora-drift-2 {
+  from {
+    transform: scale(1.06);
+  }
+  to {
+    transform: translate3d(-7%, -5%, 0) scale(1);
+  }
+}
+
+@keyframes aurora-drift-3 {
+  from {
+    transform: translate3d(-5%, 2%, 0) scale(0.94);
+  }
+  to {
+    transform: translate3d(6%, -6%, 0) scale(1.16);
+  }
+}
+
+@media (max-width: 767px) {
+  .aurora-blobs {
+    filter: blur(32px);
+  }
+}
+
+/* ---------- Seitenwechsel im Intranet ---------- */
 @keyframes page-fade-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -138,32 +314,65 @@
   }
 }
 
-/* Fade-in bei jeder Intranet-Seite für elegante Navigation */
 .intranet-page-fade-in {
-  animation: page-fade-in 0.2s ease-out both;
+  animation: page-fade-in 0.35s var(--ease-out) both;
 }
 
-/* Gestaffelte, subtile Animation für Abschnitts-Elemente einer Seite */
+/* Gestaffelt: die ersten Abschnitte einer Seite kommen nacheinander. */
 .intranet-page-fade-in > :first-child > * {
   opacity: 0;
   transform: translateY(10px);
-  animation: page-fade-in 0.32s ease-out forwards;
+  animation: page-fade-in 0.5s var(--ease-out) forwards;
 }
 
 .intranet-page-fade-in > :first-child > *:nth-child(1) {
   animation-delay: 0.03s;
 }
 .intranet-page-fade-in > :first-child > *:nth-child(2) {
-  animation-delay: 0.08s;
+  animation-delay: 0.09s;
 }
 .intranet-page-fade-in > :first-child > *:nth-child(3) {
-  animation-delay: 0.13s;
+  animation-delay: 0.15s;
 }
 .intranet-page-fade-in > :first-child > *:nth-child(4) {
-  animation-delay: 0.18s;
+  animation-delay: 0.21s;
 }
-.intranet-page-fade-in > :first-child > *:nth-child(5) {
-  animation-delay: 0.23s;
+.intranet-page-fade-in > :first-child > *:nth-child(n + 5) {
+  animation-delay: 0.27s;
+}
+
+/* ---------- Wizard: Schritt gleitet je nach Laufrichtung herein ----------
+   Alle Schritte bleiben im DOM (Formularfelder behalten Wert und werden
+   mitgesendet), sichtbar ist nur der aktive. Die Animation startet, sobald
+   ein Schritt von display:none auf sichtbar wechselt. */
+@keyframes wizard-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wizard-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wizard-step[data-dir="forward"] {
+  animation: wizard-in-forward 0.32s var(--ease-out) both;
+}
+
+.wizard-step[data-dir="back"] {
+  animation: wizard-in-back 0.32s var(--ease-out) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -172,5 +381,22 @@
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  .aurora-blob {
+    animation: none !important;
+  }
+
+  .wizard-step[data-dir] {
+    animation: fade-only 0.15s linear both;
+  }
+}
+
+@keyframes fade-only {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
