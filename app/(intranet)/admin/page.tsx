@@ -33,11 +33,11 @@ export default async function AdminTasksPage() {
         <CounterTile
           icon="user-plus"
           value={applications.length}
-          label="Mitgliedsanträge offen"
+          label="Mitgliedsanträge"
           href="#mitgliedsantraege"
         />
-        <CounterTile icon="graduation-cap" value={openAlumni} label="Alumni-Anträge offen" href="/admin/alumni-requests" />
-        <CounterTile icon="key-round" value={openBvh} label="BVH-Anfragen offen" href="/admin/bvh-login" />
+        <CounterTile icon="graduation-cap" value={openAlumni} label="Alumni-Anträge" href="/admin/alumni-requests" />
+        <CounterTile icon="key-round" value={openBvh} label="BVH-Anfragen" href="/admin/bvh-login" />
         <CounterTile
           icon="calendar-days"
           value={upcoming}

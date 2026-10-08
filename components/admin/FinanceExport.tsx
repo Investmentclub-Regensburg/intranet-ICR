@@ -444,7 +444,8 @@ export function FinanceExport() {
                 <dd
                   className={cn(
                     "text-3xl leading-none font-bold tracking-[-0.04em] tabular-nums",
-                    item.key ? "text-primary" : "text-foreground",
+                    // Zahlen immer schwarz (Hannes 2026-10-08), die Hauptkachel hebt nur die Fläche hervor.
+                    "text-foreground",
                   )}
                 >
                   {item.value}
