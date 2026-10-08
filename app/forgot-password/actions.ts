@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { createClient } from "@/utils/supabase/server";
 import { authErrorMessage } from "@/lib/auth-messages";
+import { getSiteOrigin } from "@/lib/site-url";
 
 export type ForgotPasswordState = {
   error: string;
@@ -20,7 +21,7 @@ export async function forgotPasswordAction(
   }
 
   const supabase = await createClient();
-  const origin = (await headers()).get("origin") ?? "http://localhost:3000";
+  const origin = getSiteOrigin((await headers()).get("origin"));
   const redirectTo = `${origin}/auth/callback?next=/reset-password`;
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
