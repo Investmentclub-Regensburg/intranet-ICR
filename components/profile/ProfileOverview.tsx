@@ -1,4 +1,5 @@
 import { BadgeCheck, CalendarDays, Hourglass, UserRound, type LucideIcon } from "lucide-react";
+import { Stagger } from "@/components/kit/Reveal";
 
 export type ProfileOverviewData = {
   vorname: string;
@@ -37,23 +38,19 @@ export function ProfileOverview({ data }: { data: ProfileOverviewData }) {
         </div>
       </div>
 
-      <dl className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        {tiles.map(({ Icon, label, value }, i) => (
-          <div
-            key={label}
-            style={{ animationDelay: `${80 + i * 60}ms` }}
-            className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both rounded-2xl border border-border bg-card p-4 duration-500 motion-reduce:animate-none sm:p-5"
-          >
+      <Stagger as="dl" delay={0.08} className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        {tiles.map(({ Icon, label, value }) => (
+          <div key={label} className="rounded-2xl border border-border bg-card p-4 sm:p-5">
             <dt className="flex items-center gap-2 text-xs text-muted-foreground">
               <Icon className="size-4 text-primary" aria-hidden />
               {label}
             </dt>
             <dd className="mt-2 text-lg leading-tight font-bold tracking-[-0.02em] text-foreground sm:text-xl">
-              {value ?? <span className="font-normal text-muted-foreground">Nicht hinterlegt</span>}
+              {value ?? <span className="font-normal text-muted-foreground">Nicht angegeben</span>}
             </dd>
           </div>
         ))}
-      </dl>
+      </Stagger>
     </div>
   );
 }

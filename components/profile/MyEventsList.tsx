@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarCheck2, ChevronRight, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tile } from "@/components/kit/Tile";
+import { Tile, TileGrid } from "@/components/kit/Tile";
+import { staggerProps } from "@/components/kit/Reveal";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { eventPath } from "@/lib/events";
 import { UnregisterEventButton } from "./UnregisterEventButton";
@@ -42,30 +43,25 @@ export function MyEventsList({ upcoming, past }: { upcoming: MyEventView[]; past
             }
           />
         ) : (
-          <div className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {upcoming.map((event, i) => (
-              <div
+          <TileGrid delay={0.05}>
+            {upcoming.map((event) => (
+              <Tile
                 key={event.id}
-                style={{ animationDelay: `${60 + i * 60}ms` }}
-                className="animate-in fade-in slide-in-from-bottom-2 fill-mode-both grid duration-500 motion-reduce:animate-none"
+                Icon={CalendarCheck2}
+                title={event.title}
+                meta={event.when}
+                onOpen={() => router.push(eventPath(event.id))}
+                actions={<UnregisterEventButton eventId={event.id} eventTitle={event.title} />}
               >
-                <Tile
-                  Icon={CalendarCheck2}
-                  title={event.title}
-                  meta={event.when}
-                  onOpen={() => router.push(eventPath(event.id))}
-                  actions={<UnregisterEventButton eventId={event.id} eventTitle={event.title} />}
-                >
-                  {event.location && (
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="size-3.5 shrink-0" aria-hidden />
-                      <span className="truncate">{event.location}</span>
-                    </span>
-                  )}
-                </Tile>
-              </div>
+                {event.location && (
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="size-3.5 shrink-0" aria-hidden />
+                    <span className="truncate">{event.location}</span>
+                  </span>
+                )}
+              </Tile>
             ))}
-          </div>
+          </TileGrid>
         )}
       </section>
 
@@ -74,7 +70,10 @@ export function MyEventsList({ upcoming, past }: { upcoming: MyEventView[]; past
           <h2 id="my-events-past" className="text-sm font-semibold text-muted-foreground">
             Vergangen
           </h2>
-          <ul className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card/60">
+          <ul
+            {...staggerProps(0.12)}
+            className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card/60"
+          >
             {past.map((event) => (
               <li key={event.id}>
                 <Link

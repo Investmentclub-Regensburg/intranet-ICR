@@ -64,8 +64,8 @@ export default async function ProfilePage({
       alumniStatus === "pending" || alumniStatus === "approved" || alumniStatus === "rejected"
         ? alumniStatus
         : "none",
-    requestedAt: formatDate((alumniRow as { created_at?: string } | null)?.created_at),
-    decidedAt: formatDate((alumniRow as { handled_at?: string | null } | null)?.handled_at),
+    requestedAt: (alumniRow as { created_at?: string } | null)?.created_at ?? null,
+    decidedAt: (alumniRow as { handled_at?: string | null } | null)?.handled_at ?? null,
   };
 
   const roleLabel = ROLE_LABELS[p.rolle] ?? p.rolle;
@@ -120,7 +120,8 @@ export default async function ProfilePage({
               rolle={p.rolle}
               isCancelled={p.status === "cancelled"}
               statusLabel={statusLabel}
-              since={memberSince}
+              statusVariant={p.status === "" || p.status === "active" || p.status === "alumni" ? "done" : "open"}
+              since={p.datumAntrag}
               alumni={alumni}
               feeStop={paysFee ? nextFeeStop() : null}
             />

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleCheck, CircleX, Clock, GraduationCap, type LucideIcon } from "lucide-react";
+import { GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -16,105 +16,81 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { StatusCard } from "@/components/kit/StatusCard";
 import { requestAlumniStatus, type AlumniRequestStatus } from "@/app/(intranet)/profile/actions";
 
 export type AlumniInfo = {
   status: AlumniRequestStatus;
-  /** fertig formatiert (dd.mm.yyyy) oder null */
+  /** ISO-Zeitpunkte aus alumni_requests (created_at, handled_at) oder null */
   requestedAt: string | null;
   decidedAt: string | null;
 };
 
-type Phase = "none" | "pending" | "approved" | "rejected";
-
 /**
- * Status-Kachel Alumni: zeigt, wo der Antrag steht (beantragt am …, entschieden am …),
- * und bietet das Beantragen mit Bestätigung an. Logik wie bisher (requestAlumniStatus,
- * Freigabe durch den Vorstand setzt die Rolle auf alumni).
+ * Alumni-Status als Status-Kachel: beantragt am …, freigeschaltet bzw. abgelehnt am …
+ * Beantragen mit Bestätigung. Logik wie bisher (requestAlumniStatus; die Freigabe durch
+ * den Vorstand setzt die Rolle auf alumni).
  */
 export function AlumniStatusCard({ rolle, info }: { rolle: string; info: AlumniInfo }) {
-  const phase: Phase =
-    rolle === "alumni"
-      ? "approved"
-      : info.status === "pending" || info.status === "rejected"
-        ? info.status
-        : "none";
-
-  const steps: { Icon: LucideIcon; label: string; date: string | null; done: boolean }[] = [];
-  if (phase !== "none" && info.requestedAt) {
-    steps.push({ Icon: CircleCheck, label: "Beantragt", date: info.requestedAt, done: true });
+  if (rolle === "alumni") {
+    return (
+      <StatusCard
+        status="done"
+        Icon={GraduationCap}
+        title="Alumni-Status"
+        statusLabel="Freigeschaltet"
+        date={info.status === "approved" ? info.decidedAt : null}
+        dateLabel="Freigeschaltet am"
+        className="h-full"
+      />
+    );
   }
-  if (phase === "pending") {
-    steps.push({ Icon: Clock, label: "Entscheidung des Vorstands", date: "offen", done: false });
-  } else if (phase === "approved") {
-    steps.push({
-      Icon: CircleCheck,
-      label: "Freigeschaltet",
-      date: info.status === "approved" ? info.decidedAt : null,
-      done: true,
-    });
-  } else if (phase === "rejected") {
-    steps.push({ Icon: CircleX, label: "Abgelehnt", date: info.decidedAt, done: false });
+
+  if (info.status === "pending") {
+    return (
+      <StatusCard
+        status="open"
+        title="Alumni-Status"
+        statusLabel="Beantragt"
+        date={info.requestedAt}
+        next="Der Vorstand prüft deinen Antrag."
+        className="h-full"
+      />
+    );
+  }
+
+  if (info.status === "rejected") {
+    return (
+      <StatusCard
+        status="rejected"
+        title="Alumni-Status"
+        statusLabel="Abgelehnt"
+        date={info.decidedAt}
+        action={<RequestButton again />}
+        className="h-full"
+      />
+    );
   }
 
   return (
-    <section
-      aria-labelledby="alumni-title"
-      className="flex h-full flex-col gap-5 rounded-2xl border border-border bg-card p-5 sm:p-6"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <h2 id="alumni-title" className="flex items-center gap-3 text-base font-bold tracking-[-0.02em]">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-brand-tint text-primary">
-            <GraduationCap className="size-[1.125rem]" aria-hidden />
-          </span>
-          Alumni-Status
-        </h2>
-        <StatusPill phase={phase} />
-      </div>
-
-      {steps.length > 0 ? (
-        <ol className="space-y-3">
-          {steps.map(({ Icon, label, date, done }) => (
-            <li key={label} className="flex items-center gap-3 text-sm">
-              <Icon
-                className={cn("size-[1.125rem] shrink-0", done ? "text-primary" : "text-muted-foreground")}
-                aria-hidden
-              />
-              <span className={cn("font-medium", done ? "text-foreground" : "text-muted-foreground")}>{label}</span>
-              {date && <span className="ml-auto text-muted-foreground tabular-nums">{date}</span>}
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="text-sm text-muted-foreground">Studium abgeschlossen? Dann wechsle zu den Alumni.</p>
-      )}
-
-      {(phase === "none" || phase === "rejected") && (
-        <div className="mt-auto">
-          <RequestButton again={phase === "rejected"} />
+    <section className="flex h-full flex-col gap-4 rounded-2xl border border-border bg-card p-5 sm:flex-row sm:items-center sm:gap-5 sm:p-6">
+      <div className="flex min-w-0 flex-1 items-start gap-4">
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-primary">
+          <GraduationCap className="size-5" aria-hidden />
+        </span>
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-base leading-snug font-bold tracking-[-0.02em]">Alumni-Status</h2>
+          <p className="text-sm text-muted-foreground">Studium abgeschlossen? Dann wechsle zu den Alumni.</p>
         </div>
-      )}
+      </div>
+      <div className="shrink-0">
+        <RequestButton />
+      </div>
     </section>
   );
 }
 
-function StatusPill({ phase }: { phase: Phase }) {
-  if (phase === "none") return null;
-  const map = {
-    pending: { label: "In Prüfung", cls: "bg-secondary text-foreground" },
-    approved: { label: "Freigeschaltet", cls: "bg-brand-tint text-primary" },
-    rejected: { label: "Abgelehnt", cls: "bg-secondary text-muted-foreground" },
-  } as const;
-  const { label, cls } = map[phase];
-  return (
-    <span className={cn("shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap", cls)}>
-      {label}
-    </span>
-  );
-}
-
-function RequestButton({ again }: { again: boolean }) {
+function RequestButton({ again = false }: { again?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -145,8 +121,7 @@ function RequestButton({ again }: { again: boolean }) {
     <AlertDialog open={open} onOpenChange={(next) => !loading && setOpen(next)}>
       <AlertDialogTrigger asChild>
         <Button variant={again ? "outline" : "default"} className="w-full sm:w-auto">
-          <GraduationCap aria-hidden />
-          {again ? "Erneut beantragen" : "Alumni-Status beantragen"}
+          {again ? "Erneut beantragen" : "Beantragen"}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>

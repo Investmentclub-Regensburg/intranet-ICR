@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { TabBar } from "@/components/kit/TabBar";
 import { PROFILE_TABS, isProfileTab, type ProfileTabKey } from "@/components/profile/tabs";
 
 /**
  * Tabs für „Mein Profil“. Alle Bereiche werden auf dem Server gerendert und bleiben
- * im DOM (offene Formulare behalten ihren Stand), sichtbar ist nur der aktive. Der Tab
- * steht als ?tab=… in der Adresse, damit man direkt dorthin verlinken kann (die Route
- * /profile bleibt dieselbe).
+ * im DOM (offene Formulare behalten ihren Stand), sichtbar ist nur der aktive; er
+ * blendet beim Wechsel neu ein (data-reveal, Kacheln darin staffeln sich erneut).
+ * Der Tab steht als ?tab=… in der Adresse, damit man direkt dorthin verlinken kann
+ * (die Route /profile bleibt dieselbe).
  */
 export function ProfileTabs({
   initialTab,
@@ -18,13 +19,6 @@ export function ProfileTabs({
   panels: Record<ProfileTabKey, ReactNode>;
 }) {
   const [active, setActive] = useState<ProfileTabKey>(initialTab);
-  const barRef = useRef<HTMLDivElement>(null);
-
-  // Mobil ist die Leiste scrollbar: aktiven Tab ins Bild holen.
-  useEffect(() => {
-    const el = barRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [active]);
 
   function select(key: string) {
     if (!isProfileTab(key) || key === active) return;
@@ -37,15 +31,13 @@ export function ProfileTabs({
 
   return (
     <>
-      <div ref={barRef}>
-        <TabBar
-          ariaLabel="Mein Profil"
-          layoutId="profile-tabs"
-          items={PROFILE_TABS.map((t) => ({ key: t.key, label: t.label }))}
-          activeKey={active}
-          onSelect={select}
-        />
-      </div>
+      <TabBar
+        ariaLabel="Mein Profil"
+        layoutId="profile-tabs"
+        items={PROFILE_TABS.map((t) => ({ key: t.key, label: t.label }))}
+        activeKey={active}
+        onSelect={select}
+      />
       <div>
         {PROFILE_TABS.map((t) => (
           <div
@@ -53,7 +45,8 @@ export function ProfileTabs({
             role="tabpanel"
             aria-label={t.label}
             hidden={t.key !== active}
-            className="animate-in fade-in slide-in-from-bottom-1 duration-300 motion-reduce:animate-none"
+            data-reveal="fade"
+            style={{ "--reveal-delay": "0s" } as CSSProperties}
           >
             {panels[t.key]}
           </div>
