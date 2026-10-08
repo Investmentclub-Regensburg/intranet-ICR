@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import {
   registerAction,
@@ -40,7 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 
 // Mitgliedsantrag als Wizard (Muster Tenant-Dashboard): pro Schritt eine Frage, jede
-// Antwort landet als Zeile in der Zusammenfassung auf der Aurora-Bühne, ein Klick darauf
+// Antwort landet als Zeile in der Zusammenfassung auf der roten Markenfläche, ein Klick darauf
 // springt zurück. Felder, Namen, Werte, Prüfungen und Server Action sind dieselben wie im
 // bisherigen einseitigen Formular: Alle Schritte bleiben im Formular (nur ausgeblendet)
 // und werden zusammen an registerAction gesendet.
@@ -93,7 +94,7 @@ const HOCHSCHULEN = [
 
 const FIELD_CLASS = "h-11";
 const SELECT_CLASS =
-  "flex h-11 rounded-xs border border-input bg-card px-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 dark:bg-input/30";
+  "flex h-11 rounded-xs border border-input bg-card px-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15";
 
 function Field({ id, label, className, children }: { id: string; label: string; className?: string; children: ReactNode }) {
   return (
@@ -282,10 +283,10 @@ export function RegisterForm() {
       <StageHeading eyebrow="Mitgliedsantrag" title="Jetzt Mitglied werden" />
       {!state.confirmationMessage && (
         <>
-          <WizardProgress tone="onDark" count={wizard.count} index={wizard.index} label={currentStep.label} />
+          <WizardProgress tone="onBrand" count={wizard.count} index={wizard.index} label={currentStep.label} />
           {rows.length > 0 && (
             <WizardSummary
-              tone="onDark"
+              tone="onBrand"
               rows={rows}
               activeKey={step}
               onSelect={wizard.goTo}
@@ -301,7 +302,7 @@ export function RegisterForm() {
     return (
       <AuthFrame stage={stage} width="wide">
         <div className="space-y-5" role="status">
-          <span className="flex size-12 items-center justify-center rounded-full bg-accent text-primary">
+          <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint text-primary">
             <CircleCheck className="size-6" aria-hidden />
           </span>
           <h2 className="text-2xl font-bold tracking-[-0.03em]">Registrierung eingegangen</h2>
@@ -510,10 +511,9 @@ export function RegisterForm() {
         {/* 4 Passwort */}
         <WizardStep {...stepProps("password")} title="Wähle dein Passwort">
           <Field id="password" label="Passwort">
-            <Input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               required
               autoComplete="new-password"
               minLength={6}
@@ -526,11 +526,10 @@ export function RegisterForm() {
             />
           </Field>
           <Field id="passwordRepeat" label="Passwort wiederholen">
-            <Input
+            <PasswordInput
               ref={passwordRepeatRef}
               id="passwordRepeat"
               name="passwordRepeat"
-              type="password"
               required
               autoComplete="new-password"
               value={passwordRepeat}

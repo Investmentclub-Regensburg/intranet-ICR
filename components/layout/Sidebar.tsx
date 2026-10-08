@@ -23,7 +23,6 @@ import { LogoutButton } from "@/app/dashboard/logout-button";
 import { checkUnreadNews, markNewsAsRead } from "@/app/(intranet)/news/actions";
 import { SidebarNavIcon } from "@/components/layout/SidebarNavIcon";
 import { navItemVariants } from "@/components/layout/nav-icon-motion";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { IcrLogo, IcrWordmark } from "@/components/brand/IcrLogo";
 import { IconButton } from "@/components/kit/IconButton";
 import { cn } from "@/lib/utils";
@@ -224,10 +223,11 @@ export function Sidebar({ profile }: { profile: Profile }) {
                         )}
                       >
                         {active && (
-                          // Aktive Fläche gleitet zwischen den Einträgen (layoutId, Muster TabBar).
+                          // Aktive Fläche im Markenverlauf gleitet zwischen den Einträgen
+                          // (layoutId, Muster TabBar). Verlauf nur für Markierungen.
                           <motion.span
                             layoutId={`${idPrefix}-nav-active`}
-                            className="absolute inset-0 rounded-lg bg-sidebar-accent"
+                            className="bg-brand-gradient absolute inset-0 rounded-lg shadow-brand"
                             transition={{ type: "spring", stiffness: 500, damping: 42 }}
                           />
                         )}
@@ -243,14 +243,14 @@ export function Sidebar({ profile }: { profile: Profile }) {
                           className={cn(
                             "relative truncate",
                             active
-                              ? "font-semibold text-sidebar-accent-foreground"
+                              ? "font-semibold text-white"
                               : "font-medium text-sidebar-muted group-hover:text-sidebar-foreground",
                           )}
                         >
                           {item.name}
                         </span>
                         {showUnread && (
-                          <span className="relative ml-auto rounded-full bg-primary px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-primary-foreground uppercase">
+                          <span className="relative ml-auto rounded-full bg-brand-tint px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-primary uppercase">
                             Neu
                           </span>
                         )}
@@ -266,9 +266,8 @@ export function Sidebar({ profile }: { profile: Profile }) {
     );
   };
 
-  const renderFooter = (idPrefix: string, onNavigate?: () => void) => (
+  const renderFooter = (onNavigate?: () => void) => (
     <div className="space-y-3 border-t border-sidebar-border pt-4">
-      <ThemeToggle layoutId={`${idPrefix}-theme`} iconOnly />
       <div className="flex items-center gap-1">
         <Link
           href="/profile"
@@ -306,13 +305,13 @@ export function Sidebar({ profile }: { profile: Profile }) {
           <IcrWordmark logoClassName="transition-[rotate,scale] duration-700 ease-out group-hover:-rotate-6 group-hover:scale-[1.06]" />
         </Link>
         <div className="flex-1 overflow-y-auto px-3 pb-4">{renderNav("desktop")}</div>
-        <div className="px-3 pb-4">{renderFooter("desktop")}</div>
+        <div className="px-3 pb-4">{renderFooter()}</div>
       </aside>
 
       {/* Mobile Topbar: Glas-Weiß wie der Website-Header. */}
       <header className="sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b border-sidebar-border bg-background/80 px-4 backdrop-blur-xl md:hidden">
         <Link href="/dashboard" className="flex items-center gap-2.5" aria-label="Intranet-Übersicht">
-          <IcrLogo className="h-8 w-auto text-brand dark:text-primary" />
+          <IcrLogo className="h-8 w-auto text-brand" />
           <span className="text-sm font-semibold tracking-[-0.01em]">Intranet</span>
         </Link>
         <IconButton
@@ -336,7 +335,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25 }}
               onClick={() => setIsOpen(false)}
-              className="absolute inset-0 bg-night/40 backdrop-blur-md"
+              className="absolute inset-0 bg-ink/20 backdrop-blur-md"
             />
             <motion.aside
               role="dialog"
@@ -362,7 +361,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
                 {renderNav("mobile", () => setIsOpen(false))}
               </div>
               <div className="px-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                {renderFooter("mobile", () => setIsOpen(false))}
+                {renderFooter(() => setIsOpen(false))}
               </div>
             </motion.aside>
           </div>

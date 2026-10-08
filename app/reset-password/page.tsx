@@ -16,7 +16,7 @@ export default async function ResetPasswordPage() {
   }
 
   return (
-    <AuthFrame stage={<StageHeading eyebrow="Mitglieder-Intranet" title="Neues Passwort vergeben" />}>
+    <AuthFrame stage={<StageHeading title="Neues Passwort vergeben" />}>
       <div className="space-y-6">
         <p className="text-sm leading-relaxed text-muted-foreground">
           Gib dein neues Passwort ein und bestätige es. Danach wirst du zum

@@ -40,7 +40,7 @@ export function IcrWordmark({
 }) {
   return (
     <span className={cn("flex items-center gap-3", className)}>
-      <IcrLogo className={cn("h-9 w-auto shrink-0 text-brand dark:text-primary", logoClassName)} />
+      <IcrLogo className={cn("h-9 w-auto shrink-0 text-brand", logoClassName)} />
       <span className="min-w-0 leading-[1.15]">
         <span className="block text-[0.8125rem] font-semibold tracking-[-0.01em]">
           Investment Club Regensburg

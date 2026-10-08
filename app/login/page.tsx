@@ -13,7 +13,7 @@ export default async function LoginPage({
 
   return (
     <AuthFrame
-      stage={<StageHeading eyebrow="Mitglieder-Intranet" title={<>Willkommen im ICR&nbsp;Intranet</>} />}
+      stage={<StageHeading title="Willkommen im ICR-Intranet" />}
     >
       <div className="space-y-8">
         <h2 className="text-2xl font-bold tracking-[-0.03em]">Anmelden</h2>

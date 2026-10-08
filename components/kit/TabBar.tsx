@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 // Zentrierte Tab-Leiste, ersetzt die Seitenüberschrift (Muster Tenant-Dashboard,
-// _components/tab-bar.tsx). Der Unterstrich in Markenrot gleitet per layoutId
+// _components/tab-bar.tsx). Der Unterstrich im Markenverlauf gleitet per layoutId
 // zum aktiven Tab (wie die Navi-Unterstreichung der Website).
 // Zwei Modi: Routen-Tabs (href → Link, als <nav>) oder Zustands-Tabs (onSelect,
 // role=tablist). Mobil horizontal scrollbar.
@@ -68,7 +68,7 @@ export function TabBar({
             {active && (
               <motion.span
                 layoutId={layoutId}
-                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
+                className="bg-brand-gradient absolute inset-x-0 -bottom-px h-0.5"
                 transition={{ type: "spring", stiffness: 500, damping: 40 }}
               />
             )}

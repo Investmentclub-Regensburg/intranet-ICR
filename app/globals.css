@@ -9,13 +9,15 @@
   clients/kunde-investmentclub-regensburg/src/styles/global.css).
   Eine Schrift (Inter Variable, self-hosted über @fontsource-variable/inter,
   importiert in app/layout.tsx), eine Markenfarbe: das Logo-Rot #a30101.
-  Dazu Schwarz, Weiß und warme Grautöne, Bordeaux #3e0307 als Grundton
-  dunkler Bühnen (Aurora) und als Basis des dunklen Modus.
+  Immer hell wie die Website (kein Dunkelmodus, Entscheidung Hannes
+  2026-10-08): weiße/hellgraue Flächen, Text in Ink-Tönen, Rot nur als Akzent.
+  Der Markenverlauf (.bg-brand-gradient) markiert ausschließlich Ausgewähltes:
+  aktiver Navi-Punkt, aktiver Tab, Wizard-Fortschritt, gewählte Kacheln.
   Bedienelemente (Buttons, Felder) eckig, Karten und Bilder rund.
-  Kein Punktmuster, keine Körnung.
+  Kein Punktmuster, keine Körnung, keine dunklen Flächen.
 */
 
-/* Marken-Konstanten: gleich in Hell und Dunkel (Logo, Aurora, Verlauf). */
+/* Marken-Konstanten (Logo, Verlauf, Auth-Seiten). */
 @theme {
   --color-brand: #a30101;
   --color-brand-hover: #870101;
@@ -85,7 +87,8 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-/* Hell: Website-Palette (bg #f9f9f9, ink #111, line #e7e4e4, Logo-Rot). */
+/* Website-Palette: bg #f9f9f9, surface #fff, ink #111, line #e7e4e4, Logo-Rot.
+   Hover-Flächen neutral grau (accent), Rosé nur hinter Icons (brand-tint). */
 :root {
   --radius: 0.5rem;
   --background: #f9f9f9;
@@ -96,11 +99,11 @@
   --popover-foreground: #111111;
   --primary: #a30101;
   --primary-foreground: #ffffff;
-  --secondary: #f4f1f1;
+  --secondary: #f4f2f2;
   --secondary-foreground: #111111;
-  --muted: #f4f1f1;
+  --muted: #f4f2f2;
   --muted-foreground: #6b6b6b;
-  --accent: #f7ecec;
+  --accent: #f3f1f1;
   --accent-foreground: #111111;
   --destructive: #b42318;
   --border: #e7e4e4;
@@ -116,47 +119,10 @@
   --sidebar-muted: #6b6b6b;
   --sidebar-primary: #a30101;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f7ecec;
-  --sidebar-accent-foreground: #a30101;
+  --sidebar-accent: #f3f1f1;
+  --sidebar-accent-foreground: #111111;
   --sidebar-border: #e7e4e4;
   --sidebar-ring: #a30101;
-}
-
-/* Dunkel: Night/Bordeaux als Grund statt neutralem Grau. Das Rot ist für
-   Text und Flächen aufgehellt (#dc3a3a: ca. 4,5:1 zu Weiß und zum Grund). */
-.dark {
-  --background: #140305;
-  --foreground: #f5ecec;
-  --card: #1f080b;
-  --card-foreground: #f5ecec;
-  --popover: #240a0d;
-  --popover-foreground: #f5ecec;
-  --primary: #dc3a3a;
-  --primary-foreground: #ffffff;
-  --secondary: #2a0e11;
-  --secondary-foreground: #f5ecec;
-  --muted: #2a0e11;
-  --muted-foreground: #b9a2a4;
-  --accent: #3e0307;
-  --accent-foreground: #ffffff;
-  --destructive: #ff6467;
-  --border: rgb(255 255 255 / 0.09);
-  --input: rgb(255 255 255 / 0.14);
-  --ring: #dc3a3a;
-  --chart-1: #dc3a3a;
-  --chart-2: #f2a7a7;
-  --chart-3: #8f1d22;
-  --chart-4: #b9a2a4;
-  --chart-5: #6e2a2f;
-  --sidebar: #100204;
-  --sidebar-foreground: #f5ecec;
-  --sidebar-muted: #b9a2a4;
-  --sidebar-primary: #dc3a3a;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2a0a0e;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: rgb(255 255 255 / 0.08);
-  --sidebar-ring: #dc3a3a;
 }
 
 @layer base {
@@ -166,6 +132,7 @@
 
   html {
     interpolate-size: allow-keywords;
+    color-scheme: light;
   }
 
   body {
@@ -206,100 +173,22 @@
   }
 
   .eyebrow-light {
-    @apply text-white/75;
+    @apply text-white/80;
   }
 }
 
-/* Markenverlauf als Linie: Bordeaux → Logo-Rot → helles Rot. Sparsam. */
-.bg-brand-gradient {
+/* Markenverlauf (Website): Bordeaux → Logo-Rot → helles Rot. Nur für
+   Markierungen auf hellem Grund (aktiv, ausgewählt, Fortschritt). */
+@utility bg-brand-gradient {
   background: linear-gradient(90deg, var(--color-bordeaux) 0%, var(--color-brand) 55%, var(--color-brand-soft) 100%);
 }
 
-/* ---------- Aurora (Signatur der Website, ohne Korn) ----------
-   Bordeaux-Grund, driftende Rot-Nebel, Vignette. Komponente:
-   components/brand/Aurora.tsx. Muss in einem `relative isolate
-   overflow-hidden`-Container liegen. */
-.aurora-base {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(130% 110% at 62% 30%, #4a040a 0%, #2a0206 46%, #130102 100%);
-  background-color: var(--color-night);
-}
-
-.aurora-blobs {
-  position: absolute;
-  inset: -12%;
-  filter: blur(48px);
-}
-
-.aurora-blob {
-  position: absolute;
-  width: 72vw;
-  height: 72vw;
-  max-width: 1100px;
-  max-height: 1100px;
-  border-radius: 50%;
-}
-
-.aurora-blob-1 {
-  top: -22%;
-  left: -14%;
-  background: radial-gradient(circle at center, rgb(122 6 14 / 0.85) 0%, transparent 62%);
-  animation: aurora-drift-1 27s ease-in-out infinite alternate;
-}
-
-.aurora-blob-2 {
-  right: -14%;
-  bottom: -26%;
-  background: radial-gradient(circle at center, rgb(92 4 12 / 0.9) 0%, transparent 60%);
-  animation: aurora-drift-2 33s ease-in-out infinite alternate;
-}
-
-.aurora-blob-3 {
-  top: 30%;
-  left: 52%;
-  width: 52vw;
-  height: 52vw;
-  max-width: 780px;
-  max-height: 780px;
-  background: radial-gradient(circle at center, rgb(163 1 1 / 0.6) 0%, transparent 66%);
-  animation: aurora-drift-3 24s ease-in-out infinite alternate;
-}
-
-.aurora-vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(125% 105% at 50% 38%, transparent 44%, rgb(10 0 1 / 0.6) 100%);
-}
-
-@keyframes aurora-drift-1 {
-  to {
-    transform: translate3d(8%, 6%, 0) scale(1.12);
-  }
-}
-
-@keyframes aurora-drift-2 {
-  from {
-    transform: scale(1.06);
-  }
-  to {
-    transform: translate3d(-7%, -5%, 0) scale(1);
-  }
-}
-
-@keyframes aurora-drift-3 {
-  from {
-    transform: translate3d(-5%, 2%, 0) scale(0.94);
-  }
-  to {
-    transform: translate3d(6%, -6%, 0) scale(1.16);
-  }
-}
-
-@media (max-width: 767px) {
-  .aurora-blobs {
-    filter: blur(32px);
-  }
+/* Rote Markenfläche der Auth-Seiten: klares Logo-Rot, nach rechts oben heller,
+   ohne Schwarz/Bordeaux. */
+@utility bg-brand-stage {
+  background:
+    radial-gradient(120% 90% at 85% 0%, rgb(255 255 255 / 0.1) 0%, transparent 60%),
+    linear-gradient(160deg, var(--color-brand) 0%, var(--color-brand) 45%, var(--color-brand-soft) 100%);
 }
 
 /* ---------- Seitenwechsel im Intranet ---------- */
@@ -375,6 +264,15 @@
   animation: wizard-in-back 0.32s var(--ease-out) both;
 }
 
+@keyframes fade-only {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .intranet-page-fade-in,
   .intranet-page-fade-in > :first-child > * {
@@ -383,20 +281,7 @@
     transform: none !important;
   }
 
-  .aurora-blob {
-    animation: none !important;
-  }
-
   .wizard-step[data-dir] {
     animation: fade-only 0.15s linear both;
-  }
-}
-
-@keyframes fade-only {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
   }
 }

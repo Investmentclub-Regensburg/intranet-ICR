@@ -41,7 +41,7 @@ export function Segmented<K extends string>({
       role={radio ? "radiogroup" : "group"}
       aria-label={ariaLabel}
       className={cn(
-        "flex rounded-xs border border-border bg-muted/60 p-0.5",
+        "flex rounded-xs border border-border bg-card p-0.5",
         fill ? "w-full" : "w-fit",
         className,
       )}
@@ -62,13 +62,13 @@ export function Segmented<K extends string>({
             className={cn(
               "relative flex items-center justify-center gap-1.5 rounded-[2px] px-3 py-1.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
               fill && "flex-1",
-              active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+              active ? "text-white" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {active && (
               <motion.span
                 layoutId={layoutId}
-                className="absolute inset-0 rounded-[2px] bg-card shadow-soft dark:bg-accent"
+                className="bg-brand-gradient absolute inset-0 rounded-[2px] shadow-brand"
                 transition={{ type: "spring", stiffness: 500, damping: 40 }}
               />
             )}

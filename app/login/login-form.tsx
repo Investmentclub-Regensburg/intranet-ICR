@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import { loginAction } from "./actions";
 
@@ -46,10 +47,9 @@ export function LoginForm({ next }: { next?: string }) {
             Passwort vergessen?
           </Link>
         </div>
-        <Input
+        <PasswordInput
           id="password"
           name="password"
-          type="password"
           required
           autoComplete="current-password"
           className="h-11"
