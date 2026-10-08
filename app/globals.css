@@ -30,9 +30,15 @@
   --color-ink-mute: #6b6b6b;
   --color-line: #e7e4e4;
 
+  /* Status (StatusCard/StatusPill): erledigt in ruhigem Grün, sonst nur Marke/Grau. */
+  --color-success: #1e7a46;
+  --color-success-tint: #e8f4ec;
+
   --shadow-soft: 0 4px 24px -10px rgba(17, 17, 17, 0.12);
   --shadow-card: 0 18px 48px -22px rgba(62, 3, 7, 0.28);
   --shadow-brand: 0 10px 24px -12px rgba(163, 1, 1, 0.65);
+  /* Hover-Glow klickbarer Kacheln (.tile-glow): leichter roter Schein. */
+  --shadow-glow: 0 0 0 1px rgba(163, 1, 1, 0.14), 0 16px 36px -16px rgba(163, 1, 1, 0.45), 0 0 28px -8px rgba(178, 56, 56, 0.38);
 
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -284,7 +290,15 @@
   }
 }
 
-/* ---------- Seitenwechsel im Intranet ---------- */
+/* ---------- Seitenwechsel im Intranet ----------
+   IntranetPageTransition hängt bei jedem Pfadwechsel neu ein, die Animationen
+   laufen also auch bei Client-Navigation. Die Abschnitte einer Seite kommen
+   nacheinander; Bausteine mit eigenem Einflug ([data-reveal]: PageHeader,
+   TileGrid, Reveal, Stagger) und die TabBar ([data-tabbar], soll beim
+   Tab-Wechsel stehen bleiben) sind ausgenommen.
+   Wichtig: fill-mode `backwards` statt `both`/`forwards`. Nach dem Ende greift
+   wieder der normale Stil, sonst überschriebe der Endzustand Hover-Anheben
+   und Druck-Effekte (framer-motion setzt transform inline). */
 @keyframes page-fade-in {
   from {
     opacity: 0;
@@ -292,35 +306,27 @@
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
-.intranet-page-fade-in {
-  animation: page-fade-in 0.35s var(--ease-out) both;
+.intranet-page-fade-in > :first-child:not([data-tabbar]) > :not([data-reveal], [data-tabbar], :has(> [data-tabbar])),
+.intranet-page-fade-in > [data-tabbar] ~ * {
+  animation: page-fade-in 0.55s var(--ease-out) backwards;
+  animation-delay: calc(0.12s + var(--page-i, 0) * 0.06s);
 }
 
-/* Gestaffelt: die ersten Abschnitte einer Seite kommen nacheinander. */
-.intranet-page-fade-in > :first-child > * {
-  opacity: 0;
-  transform: translateY(10px);
-  animation: page-fade-in 0.5s var(--ease-out) forwards;
+.intranet-page-fade-in > :first-child > :nth-child(2) {
+  --page-i: 1;
 }
-
-.intranet-page-fade-in > :first-child > *:nth-child(1) {
-  animation-delay: 0.03s;
+.intranet-page-fade-in > :first-child > :nth-child(3) {
+  --page-i: 2;
 }
-.intranet-page-fade-in > :first-child > *:nth-child(2) {
-  animation-delay: 0.09s;
+.intranet-page-fade-in > :first-child > :nth-child(4) {
+  --page-i: 3;
 }
-.intranet-page-fade-in > :first-child > *:nth-child(3) {
-  animation-delay: 0.15s;
-}
-.intranet-page-fade-in > :first-child > *:nth-child(4) {
-  animation-delay: 0.21s;
-}
-.intranet-page-fade-in > :first-child > *:nth-child(n + 5) {
-  animation-delay: 0.27s;
+.intranet-page-fade-in > :first-child > :nth-child(n + 5) {
+  --page-i: 4;
 }
 
 /* ---------- Wizard: Schritt gleitet je nach Laufrichtung herein ----------
@@ -367,11 +373,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .intranet-page-fade-in,
-  .intranet-page-fade-in > :first-child > * {
-    animation: none !important;
-    opacity: 1 !important;
-    transform: none !important;
+  .intranet-page-fade-in > :first-child:not([data-tabbar]) > :not([data-reveal], [data-tabbar], :has(> [data-tabbar])),
+  .intranet-page-fade-in > [data-tabbar] ~ * {
+    animation-name: fade-only;
+    animation-duration: 0.3s;
   }
 
   .wizard-step[data-dir] {
@@ -442,5 +447,204 @@
   .wizard-step > h2 {
     animation: fade-only 0.3s linear both;
     animation-delay: 0s;
+  }
+}
+
+/* ---------- Hover-Glow klickbarer Kacheln (.tile-glow) ----------
+   Hannes 2026-10-08: Beim Hover (und bei Tastatur-Fokus) bekommt die Kachel
+   einen Rahmen im dunkelroten Verlauf (Bordeaux → Logo-Rot → helles Rot) und
+   einen leichten roten Schein, sie hebt sich minimal. Schrift und Inhalt
+   bleiben unverändert.
+   Technik: transparenter Rand, zwei Hintergrund-Ebenen (Fläche auf der
+   padding-box, Verlauf auf der border-box). Die drei Verlaufsfarben sind
+   registrierte Properties (@property), so blendet der Rahmen weich von Grau in
+   den Verlauf über (ohne @property-Unterstützung springt er nur um).
+   Funktioniert auch mit overflow-hidden (Bilder in der Kachel).
+
+   Einsatz: Tile, AddTile und ChoiceTiles nutzen das schon. Für eigene Kacheln
+   die Klasse `tile-glow` an das klickbare Element (Link/Button) bzw. die
+   Karte setzen, dazu `rounded-2xl`. Keine eigenen border-color-, shadow-,
+   bg- oder transition-Klassen dazu (überschreiben den Effekt). Andere Fläche:
+   `[--tile-surface:var(--muted)]`. Gilt auch, wenn ein Kind Tastatur-Fokus hat. */
+@property --glow-a {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #e7e4e4;
+}
+
+@property --glow-b {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #e7e4e4;
+}
+
+@property --glow-c {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #e7e4e4;
+}
+
+@layer components {
+  .tile-glow {
+    --tile-surface: var(--card);
+    --glow-a: var(--border);
+    --glow-b: var(--border);
+    --glow-c: var(--border);
+    border-style: solid;
+    border-width: 1px;
+    border-color: transparent !important;
+    background:
+      linear-gradient(var(--tile-surface), var(--tile-surface)) padding-box,
+      linear-gradient(135deg, var(--glow-a) 0%, var(--glow-b) 55%, var(--glow-c) 100%) border-box;
+    box-shadow: 0 1px 2px rgba(17, 17, 17, 0.03);
+    transition:
+      --glow-a 0.45s var(--ease-out),
+      --glow-b 0.45s var(--ease-out),
+      --glow-c 0.45s var(--ease-out),
+      box-shadow 0.45s var(--ease-out),
+      translate 0.45s var(--ease-out),
+      scale 0.2s var(--ease-out);
+  }
+
+  .tile-glow:focus-visible,
+  .tile-glow:has(:focus-visible) {
+    --glow-a: var(--color-bordeaux);
+    --glow-b: var(--color-brand);
+    --glow-c: var(--color-brand-soft);
+    box-shadow: var(--shadow-glow);
+    translate: 0 -2px;
+    outline: none;
+  }
+
+  @media (hover: hover) {
+    .tile-glow:hover {
+      --glow-a: var(--color-bordeaux);
+      --glow-b: var(--color-brand);
+      --glow-c: var(--color-brand-soft);
+      box-shadow: var(--shadow-glow);
+      translate: 0 -2px;
+    }
+  }
+
+  .tile-glow:active {
+    scale: 0.992;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tile-glow,
+    .tile-glow:hover,
+    .tile-glow:focus-visible,
+    .tile-glow:has(:focus-visible),
+    .tile-glow:active {
+      translate: none;
+      scale: none;
+    }
+  }
+}
+
+/* ---------- Einfliegen im Intranet (Reveal, Stagger, PageHeader) ----------
+   Wie die Website ([data-reveal="heading"]), aber beim Einhängen statt beim
+   Scrollen: reine CSS-Animation, läuft ohne JS und bei jeder Client-
+   Navigation neu (IntranetPageTransition hängt die Seite neu ein).
+   - [data-reveal="heading"]: direkte Kinder nacheinander (je 0,1 s), mit Weg
+     und leichter Unschärfe; die .eyebrow gleitet von links herein.
+   - [data-reveal="stagger"]: direkte Kinder (Kacheln, Listenzeilen) gestaffelt
+     (60 ms, ab dem 12. gleichzeitig), Start nach dem Seitenkopf.
+   - [data-reveal="rise"] / ="fade": ein Block, Verzögerung über --reveal-delay.
+   fill-mode backwards: nach dem Ende greift der normale Stil (Hover-Anheben
+   über `translate`, Druck-Effekte über `transform`/`scale` bleiben intakt).
+   Bewegung reduzieren: nur Einblenden, ohne Weg und Unschärfe. */
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--reveal-y, 24px));
+    filter: blur(var(--reveal-blur, 5px));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes reveal-slide {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Reihenfolge über Geschwister statt nth-child, damit sie mit und ohne Eyebrow
+   stimmt: Eyebrow 0 s, erstes weiteres Element 0,08 s, zweites 0,18 s, danach
+   0,26 s. PageHeader legt Eyebrow/Titel/Satz in [data-reveal-part="text"]
+   (gleiche Regeln) und die Aktion in [data-reveal-part="action"]. */
+:is([data-reveal="heading"], [data-reveal-part="text"]) > * {
+  animation: reveal-rise 0.85s var(--ease-out) backwards;
+  animation-delay: calc(var(--reveal-delay, 0s) + 0.08s);
+}
+
+:is([data-reveal="heading"], [data-reveal-part="text"]) > :not(.eyebrow) ~ * {
+  --reveal-y: 16px;
+  animation-delay: calc(var(--reveal-delay, 0s) + 0.18s);
+}
+
+:is([data-reveal="heading"], [data-reveal-part="text"]) > :not(.eyebrow) ~ :not(.eyebrow) ~ * {
+  animation-delay: calc(var(--reveal-delay, 0s) + 0.26s);
+}
+
+:is([data-reveal="heading"], [data-reveal-part="text"]) > .eyebrow {
+  animation-name: reveal-slide;
+  animation-duration: 0.75s;
+  animation-delay: var(--reveal-delay, 0s);
+}
+
+[data-reveal="heading"] > [data-reveal-part="text"] {
+  animation: none;
+}
+
+[data-reveal="heading"] > [data-reveal-part="action"] {
+  --reveal-y: 10px;
+  --reveal-blur: 0px;
+  animation-delay: calc(var(--reveal-delay, 0s) + 0.24s);
+}
+
+[data-reveal="stagger"] > * {
+  --reveal-y: 18px;
+  --reveal-blur: 0px;
+  animation: reveal-rise 0.65s var(--ease-out) backwards;
+  animation-delay: calc(var(--reveal-delay, 0.18s) + var(--reveal-i, 0) * 0.06s);
+}
+[data-reveal="stagger"] > :nth-child(2) { --reveal-i: 1; }
+[data-reveal="stagger"] > :nth-child(3) { --reveal-i: 2; }
+[data-reveal="stagger"] > :nth-child(4) { --reveal-i: 3; }
+[data-reveal="stagger"] > :nth-child(5) { --reveal-i: 4; }
+[data-reveal="stagger"] > :nth-child(6) { --reveal-i: 5; }
+[data-reveal="stagger"] > :nth-child(7) { --reveal-i: 6; }
+[data-reveal="stagger"] > :nth-child(8) { --reveal-i: 7; }
+[data-reveal="stagger"] > :nth-child(9) { --reveal-i: 8; }
+[data-reveal="stagger"] > :nth-child(10) { --reveal-i: 9; }
+[data-reveal="stagger"] > :nth-child(11) { --reveal-i: 10; }
+[data-reveal="stagger"] > :nth-child(n + 12) { --reveal-i: 11; }
+
+[data-reveal="rise"] {
+  animation: reveal-rise 0.8s var(--ease-out) backwards;
+  animation-delay: var(--reveal-delay, 0.12s);
+}
+
+[data-reveal="fade"] {
+  animation: fade-only 0.6s var(--ease-out) backwards;
+  animation-delay: var(--reveal-delay, 0.12s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is([data-reveal="heading"], [data-reveal-part="text"]) > :not([data-reveal-part="text"]),
+  [data-reveal="stagger"] > *,
+  [data-reveal="rise"] {
+    animation-name: fade-only !important;
+    animation-duration: 0.35s !important;
   }
 }

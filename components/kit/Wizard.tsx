@@ -13,6 +13,23 @@
 // Formulare mit Server Action ihre Felder unverändert mitsenden und eigene Feld-
 // Komponenten (z. B. IbanBicFields) ihren Zustand behalten. Prüfen je Schritt über
 // `reportStepValidity`.
+//
+// Bausteine (Beispiel: app/dev/kit/kit-preview.tsx, DemoEventWizard)
+// - useWizard(steps, initial?) → { step, index, count, direction, completed, isFirst,
+//   isLast, goTo(key), back(), complete(key?), advance(key?, ms = 220) }
+//   advance = complete mit kurzer Pause, für Auswahl-Antworten, die selbst weiterspringen.
+// - WizardDialog: Modal (dirty sperrt Klick daneben, Escape fragt nach), mobil Bottom-Sheet.
+// - WizardLayout: Raster im Dialog, links aside (Fortschritt + Zusammenfassung), rechts
+//   der Schritt. Props: aside, children, className?
+// - WizardProgress: Striche im Markenverlauf (count, index, label?, tone?).
+// - WizardStep: ein Schritt mit seiner Frage (stepKey, active, direction, title?).
+// - WizardNav: Zurück-Icon links, Hauptaktion rechts (onBack?, children).
+// - WizardSummary: wachsende Zusammenfassung, Klick springt zurück (rows, activeKey?, onSelect).
+// - PickTile: Auswahl-Kachel als echtes Radio/Checkbox (name, value, checked, onChange,
+//   label, hint?, Icon?).
+// - WizardPreview: Vorschau am Ende (z. B. EventCard), nicht bedienbar. Props: label?,
+//   children, className?
+// - reportStepValidity(form, key) / firstInvalidField(scope): Browser-Prüfung je Schritt.
 
 import { useState, type ChangeEventHandler, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -75,6 +92,11 @@ export function useWizard<K extends string>(steps: readonly WizardStepDef<K>[], 
     else if (after) goTo(after.key);
   };
 
+  /** Wie complete, aber mit kurzer Pause: Die Auswahl ist erst sichtbar gewählt, dann geht es weiter. */
+  const advance = (key: K = step, ms = 220) => {
+    window.setTimeout(() => complete(key), ms);
+  };
+
   return {
     steps,
     step,
@@ -87,6 +109,7 @@ export function useWizard<K extends string>(steps: readonly WizardStepDef<K>[], 
     goTo,
     back,
     complete,
+    advance,
   };
 }
 
@@ -210,6 +233,53 @@ export function WizardStep({
       )}
       {children}
     </section>
+  );
+}
+
+/**
+ * Raster eines Wizards im Dialog: links (ab md) eine schmale, getönte Spalte für
+ * Fortschritt und Zusammenfassung, rechts der Schritt. Mobil steht die Spalte oben.
+ */
+export function WizardLayout({
+  aside,
+  children,
+  className,
+}: {
+  aside: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("grid md:grid-cols-[17rem_minmax(0,1fr)]", className)}>
+      <aside className="space-y-5 border-b border-border bg-muted/50 p-5 md:border-r md:border-b-0">{aside}</aside>
+      <div className="min-w-0 p-5 sm:p-6">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Vorschau am Ende eines Wizards: so sieht es für die Mitglieder aus (z. B. die
+ * EventCard oder ein Beitrag fürs Schwarze Brett). Nicht bedienbar (inert), damit
+ * Links und Knöpfe der Vorschau nichts auslösen.
+ */
+export function WizardPreview({
+  label = "Vorschau",
+  children,
+  className,
+}: {
+  label?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <figure className={cn("space-y-2", className)}>
+      <figcaption className="text-[0.6875rem] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
+        {label}
+      </figcaption>
+      <div inert className="rounded-2xl border border-dashed border-input bg-background p-3 select-none sm:p-4">
+        {children}
+      </div>
+    </figure>
   );
 }
 
