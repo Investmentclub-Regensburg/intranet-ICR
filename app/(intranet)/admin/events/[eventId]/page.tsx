@@ -1,95 +1,106 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink, Pencil } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, Loader, MapPin, Pencil } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getAnnouncementRecipientCount, getEventWithParticipants } from "@/app/(intranet)/events/actions";
-import { ShareEventButton } from "@/components/events/ShareEventButton";
+import {
+  getAnnouncementRecipientCount,
+  getEventWithParticipants,
+  type EventAnnouncement,
+} from "@/app/(intranet)/events/actions";
+import { requireUser } from "@/utils/supabase/guards";
+import { IconLink } from "@/components/kit/IconButton";
+import { EmptyState, PageHeader } from "@/components/kit/PageHeader";
+import { RevealHeading } from "@/components/kit/Reveal";
+import { StatusPill } from "@/components/kit/StatusCard";
+import { ShareLinkButton } from "@/components/admin/ShareLinkButton";
 import { DeleteEventButton } from "@/components/admin/DeleteEventButton";
 import { SendAnnouncementDialog } from "@/components/admin/SendAnnouncementDialog";
-import { eventPath, formatEventWhen } from "@/lib/events";
+import { ROLE_LABELS, formatMoment } from "@/components/admin/format";
+import { eventPath, formatEventDate, formatTimeRange, isEventPast } from "@/lib/events";
 
 type Props = {
   params: Promise<{ eventId: string }>;
 };
 
-function formatTimestamp(value: string): string {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Berlin",
-  });
-}
+const MANAGE_HREF = "/admin/events?ansicht=verwalten";
 
 export default async function AdminEventDetailPage({ params }: Props) {
   const { eventId } = await params;
-  const [data, memberCount] = await Promise.all([
+  const [data, memberCount, auth] = await Promise.all([
     getEventWithParticipants(eventId),
     getAnnouncementRecipientCount(),
+    requireUser(),
   ]);
   if (!data) notFound();
 
   const { event, participants, announcements } = data;
+  const time = formatTimeRange(event.event_time, event.end_time);
+  const past = isEventPast(event);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" asChild>
-            <Link href="/admin/events" aria-label="Zurück zu Events">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-semibold">{event.title}</h1>
-            <p className="text-sm text-muted-foreground">
-              {formatEventWhen(event)}
-              {event.location && ` · ${event.location}`}
+    <div className="space-y-10">
+      <RevealHeading as="header" className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <IconLink href={MANAGE_HREF} label="Zurück zur Übersicht" variant="outline" className="mt-1">
+            <ArrowLeft />
+          </IconLink>
+          <div className="min-w-0 space-y-2">
+            <p className="eyebrow">
+              {formatEventDate(event.event_date)}
+              {past && " · vorbei"}
+            </p>
+            <h1 className="text-[1.75rem] leading-[1.05] font-bold tracking-[-0.035em] break-words sm:text-4xl">
+              {event.title}
+            </h1>
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              <span>{time || "Ganztägig"}</span>
+              {event.location && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="size-3.5" aria-hidden />
+                  {event.location}
+                </span>
+              )}
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link href={eventPath(event.id)}>
-              <ExternalLink className="h-4 w-4" />
-              Ansehen
-            </Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`/admin/events/${event.id}/edit`}>
-              <Pencil className="h-4 w-4" />
-              Bearbeiten
-            </Link>
-          </Button>
-          <ShareEventButton eventId={event.id} title={event.title} label />
-          <SendAnnouncementDialog eventId={event.id} eventTitle={event.title} memberCount={memberCount} />
-          <DeleteEventButton eventId={event.id} title={event.title} redirectTo="/admin/events" label />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <IconLink href={eventPath(event.id)} label="So sehen Mitglieder die Veranstaltung" variant="outline">
+            <Eye />
+          </IconLink>
+          <IconLink href={`/admin/events/${event.id}/edit`} label="Bearbeiten" variant="outline">
+            <Pencil />
+          </IconLink>
+          <ShareLinkButton eventId={event.id} title={event.title} variant="outline" />
+          <SendAnnouncementDialog
+            eventId={event.id}
+            eventTitle={event.title}
+            memberCount={memberCount}
+            canCustom={auth.ok && auth.role === "board"}
+          />
+          <DeleteEventButton eventId={event.id} title={event.title} redirectTo={MANAGE_HREF} variant="outline" />
         </div>
-      </div>
+      </RevealHeading>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Teilnehmer</CardTitle>
-          <CardDescription>
-            {event.requires_registration
-              ? `${participants.length} ${participants.length === 1 ? "Person angemeldet" : "Personen angemeldet"}`
-              : "Für dieses Event ist keine Anmeldung aktiviert."}
-          </CardDescription>
-        </CardHeader>
-        {event.requires_registration && (
-          <CardContent>
-            {participants.length === 0 ? (
-              <p className="rounded-lg border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
-                Noch keine Anmeldungen für dieses Event.
-              </p>
-            ) : (
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <section className="min-w-0 space-y-4" aria-labelledby="teilnehmer">
+          <PageHeader
+            as="h2"
+            title={
+              <span id="teilnehmer">
+                Teilnehmer
+                {event.requires_registration && (
+                  <span className="ml-2 text-base font-semibold text-muted-foreground tabular-nums">
+                    {participants.length}
+                  </span>
+                )}
+              </span>
+            }
+          />
+          {!event.requires_registration ? (
+            <EmptyState title="Ohne Anmeldung." hint="Für diese Veranstaltung melden sich Mitglieder nicht an." />
+          ) : participants.length === 0 ? (
+            <EmptyState title="Noch keine Anmeldungen." />
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-border bg-card">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -102,57 +113,74 @@ export default async function AdminEventDetailPage({ params }: Props) {
                 <TableBody>
                   {participants.map((p) => (
                     <TableRow key={p.user_id}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium whitespace-nowrap">
                         {[p.vorname, p.nachname].filter(Boolean).join(" ") || "—"}
                       </TableCell>
-                      <TableCell>{p.studiengang || "—"}</TableCell>
-                      <TableCell>{p.rolle || "—"}</TableCell>
-                      <TableCell>{p.registered_at ? formatTimestamp(p.registered_at) : "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{p.studiengang || "—"}</TableCell>
+                      <TableCell>{ROLE_LABELS[p.rolle.toLowerCase()] ?? (p.rolle || "—")}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
+                        {p.registered_at ? formatMoment(p.registered_at) : "—"}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            )}
-          </CardContent>
-        )}
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Mailversand</CardTitle>
-          <CardDescription>Ankündigungen zu diesem Event (neueste zuerst).</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {announcements.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Noch keine Mail verschickt.</p>
-          ) : (
-            <ul className="divide-y rounded-lg border text-sm">
-              {announcements.map((a) => (
-                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-                  <div>
-                    <p>
-                      {formatTimestamp(a.created_at)} · {a.mode === "all" ? "Alle Mitglieder" : "Einzelne Adressen"} ·{" "}
-                      {a.recipient_count} Empfänger
-                    </p>
-                    {a.last_error && <p className="text-xs text-destructive">{a.last_error}</p>}
-                  </div>
-                  {a.sent_at ? (
-                    <Badge variant="secondary">Versendet</Badge>
-                  ) : a.last_error ? (
-                    <Badge variant="destructive">
-                      Fehler ({a.sent_count}/{a.recipient_count})
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">
-                      Läuft ({a.sent_count}/{a.recipient_count})
-                    </Badge>
-                  )}
-                </li>
-              ))}
-            </ul>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </section>
+
+        <section className="space-y-4" aria-labelledby="mailversand">
+          <PageHeader as="h2" title={<span id="mailversand">Mailversand</span>} />
+          {announcements.length === 0 ? (
+            <EmptyState title="Noch keine Mail verschickt." />
+          ) : (
+            <MailTimeline items={announcements} />
+          )}
+        </section>
+      </div>
     </div>
+  );
+}
+
+/** Mailversand als Zeitleiste, neueste oben. Markierung je Eintrag als Icon (keine Punkte). */
+function MailTimeline({ items }: { items: EventAnnouncement[] }) {
+  return (
+    <ol className="relative space-y-5 before:absolute before:top-2 before:bottom-2 before:left-[0.9375rem] before:w-px before:bg-border">
+      {items.map((a) => {
+        const state = a.sent_at ? "sent" : a.last_error ? "error" : "running";
+        const Icon = state === "sent" ? CheckCircle2 : state === "error" ? AlertTriangle : Loader;
+        return (
+          <li key={a.id} className="relative flex gap-3">
+            <span
+              className={
+                state === "error"
+                  ? "relative z-10 flex size-8 shrink-0 items-center justify-center rounded-lg border border-destructive/30 bg-card text-destructive"
+                  : "relative z-10 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-primary"
+              }
+            >
+              <Icon className="size-4" aria-hidden />
+            </span>
+            <div className="min-w-0 space-y-1 pt-0.5">
+              <p className="text-xs text-muted-foreground tabular-nums">{formatMoment(a.created_at)}</p>
+              <p className="text-sm font-semibold">
+                {a.mode === "all" ? "Alle Mitglieder" : "Einzelne Adressen"} · {a.recipient_count} Empfänger
+              </p>
+              {state === "sent" ? (
+                <StatusPill status="done">Versendet</StatusPill>
+              ) : state === "error" ? (
+                <StatusPill status="rejected">
+                  Fehler ({a.sent_count}/{a.recipient_count})
+                </StatusPill>
+              ) : (
+                <StatusPill status="open">
+                  Läuft ({a.sent_count}/{a.recipient_count})
+                </StatusPill>
+              )}
+              {a.last_error && <p className="text-xs break-words text-destructive">{a.last_error}</p>}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

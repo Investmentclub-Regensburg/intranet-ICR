@@ -1,20 +1,16 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { EmptyState } from "@/components/kit/PageHeader";
 import { AdminMembersTable } from "./AdminMembersTable";
+import { FilterChips } from "./bits";
+import { statusGroup } from "./format";
 import type { AdminMemberRow } from "@/app/(intranet)/admin/members/actions";
 
-const ROLE_FILTER_OPTIONS = [
-  { value: "all", label: "Alle Rollen/Status" },
-  { value: "member", label: "Mitglied" },
-  { value: "admin", label: "Admin" },
-  { value: "board", label: "Vorstand" },
-  { value: "alumni", label: "Alumni" },
-  { value: "cancelled", label: "Ausgetreten" },
-];
+type RoleKey = "all" | "member" | "admin" | "board" | "alumni";
+type StatusKey = "all" | "active" | "applicant" | "cancelled";
 
 type Props = {
   members: AdminMemberRow[];
@@ -23,76 +19,96 @@ type Props = {
 
 export function AdminMembersWithSearch({ members, canEditRole }: Props) {
   const [query, setQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState("all");
+  const [role, setRole] = useState<RoleKey>("all");
+  const [status, setStatus] = useState<StatusKey>("all");
+
+  const count = (pred: (m: AdminMemberRow) => boolean) => members.filter(pred).length;
+
+  const roleOptions = useMemo(
+    () =>
+      (
+        [
+          ["all", "Alle"],
+          ["member", "Mitglied"],
+          ["admin", "Admin"],
+          ["board", "Vorstand"],
+          ["alumni", "Alumni"],
+        ] as const
+      ).map(([key, label]) => ({
+        key,
+        label,
+        count: key === "all" ? members.length : members.filter((m) => m.rolle === key).length,
+      })),
+    [members],
+  );
+
+  const statusOptions = useMemo(
+    () =>
+      (
+        [
+          ["all", "Alle"],
+          ["active", "Aktiv"],
+          ["applicant", "Antrag offen"],
+          ["cancelled", "Ausgetreten"],
+        ] as const
+      ).map(([key, label]) => ({
+        key,
+        label,
+        count: key === "all" ? members.length : members.filter((m) => statusGroup(m) === key).length,
+      })),
+    [members],
+  );
 
   const filtered = useMemo(() => {
-    let list = members;
     const q = query.trim().toLowerCase();
-    if (q) list = list.filter((m) => m.name.toLowerCase().includes(q));
-    if (roleFilter && roleFilter !== "all") {
-      if (roleFilter === "cancelled") {
-        list = list.filter((m) => m.status === "cancelled");
-      } else {
-        list = list.filter(
-          (m) => m.rolle === roleFilter && m.status !== "cancelled"
-        );
-      }
-    }
-    return list;
-  }, [members, query, roleFilter]);
+    return members.filter(
+      (m) =>
+        (!q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)) &&
+        (role === "all" || m.rolle === role) &&
+        (status === "all" || statusGroup(m) === status),
+    );
+  }, [members, query, role, status]);
 
-  const hasActiveFilters = Boolean(query.trim() || (roleFilter && roleFilter !== "all"));
+  const hasFilters = Boolean(query.trim()) || role !== "all" || status !== "all";
 
   return (
-    <Card>
-      <CardHeader className="space-y-4">
-        <h2 className="text-lg font-medium">Mitgliederliste</h2>
-        {/* Suchleiste und Rollen-Filter in einer Zeile nebeneinander */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <div className="relative flex-1 min-w-0 sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 shrink-0 text-muted-foreground pointer-events-none" />
-            <Input
-              type="search"
-              placeholder="Nach Name suchen …"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="pl-9 w-full"
-              aria-label="Mitglieder nach Name suchen"
-            />
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <label htmlFor="admin-role-filter" className="text-sm text-muted-foreground whitespace-nowrap">
-              Rolle/Status:
-            </label>
-            <select
-              id="admin-role-filter"
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="border-input bg-background text-foreground h-9 rounded-md border px-3 py-1.5 text-sm shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-w-[160px] cursor-pointer"
-            >
-              {ROLE_FILTER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+    <div className="space-y-5">
+      <h1 className="sr-only">Mitglieder</h1>
+      <div className="space-y-4 rounded-2xl border border-border bg-card p-4 sm:p-5">
+        <div className="relative max-w-md">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            placeholder="Name oder E-Mail suchen"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-10 pl-9"
+            aria-label="Mitglieder suchen"
+          />
         </div>
-        <p className="text-sm text-muted-foreground">
-          {!hasActiveFilters
-            ? `${members.length} ${members.length === 1 ? "Eintrag" : "Einträge"}`
-            : `${filtered.length} von ${members.length} Einträgen`}
-        </p>
-      </CardHeader>
-      <CardContent>
-        {filtered.length === 0 ? (
-          <p className="rounded-lg border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
-            {hasActiveFilters ? "Keine Mitglieder passen zu den Filtern." : "Keine Mitglieder gefunden."}
-          </p>
-        ) : (
-          <AdminMembersTable members={filtered} canEditRole={canEditRole} />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-8">
+          <FilterChips label="Rolle" options={roleOptions} value={role} onChange={setRole} />
+          <FilterChips label="Status" options={statusOptions} value={status} onChange={setStatus} />
+        </div>
+      </div>
+
+      <p className="text-sm text-muted-foreground" aria-live="polite">
+        {hasFilters ? `${filtered.length} von ${members.length} Einträgen` : `${members.length} Einträge`}
+        {count((m) => m.status === "applicant") > 0 && status !== "applicant" && (
+          <> · {count((m) => m.status === "applicant")} mit offenem Antrag</>
         )}
-      </CardContent>
-    </Card>
+      </p>
+
+      {filtered.length === 0 ? (
+        <EmptyState title={hasFilters ? "Niemand passt zu den Filtern." : "Keine Mitglieder gefunden."} />
+      ) : (
+        <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          <AdminMembersTable members={filtered} canEditRole={canEditRole} />
+        </div>
+      )}
+    </div>
   );
 }
