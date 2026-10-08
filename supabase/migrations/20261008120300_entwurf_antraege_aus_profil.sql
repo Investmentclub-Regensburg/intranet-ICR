@@ -3,6 +3,9 @@
 -- Geprüft gegen den Schema-Export vom 2026-10-08: Spalten von alumni_requests und
 -- bvh_login_requests sowie der Trigger alumni_requests_decided stimmen. Offen bleibt die
 -- Duplikat-Abfrage unten (braucht die Daten); bei Duplikaten bricht der Unique-Index ab.
+-- Ergänzt: SELECT-Policy auf die eigenen BVH-Anfragen. Sie fehlt in Produktion (anders als bei
+-- alumni_requests), deshalb liefert getBvhLoginStatusForCurrentUser() für Mitglieder und Alumni
+-- nie eine Zeile und /magazines zeigt den Anfragestatus nicht an.
 --
 -- Alumni- und BVH-Anfragen: Stammdaten immer aus dem Profil des anfragenden Kontos
 --
@@ -153,3 +156,11 @@ create trigger bvh_login_requests_fill_from_profile
 create unique index if not exists bvh_login_requests_one_open_per_user
   on public.bvh_login_requests (user_id)
   where not handled;
+
+-- Eigene Anfragen lesen (Statusanzeige „angefragt“ / „Login per E-Mail versendet“ auf /magazines).
+drop policy if exists "Users can read own bvh requests" on public.bvh_login_requests;
+create policy "Users can read own bvh requests"
+  on public.bvh_login_requests
+  for select
+  to authenticated
+  using (auth.uid() = user_id);
