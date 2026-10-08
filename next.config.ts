@@ -68,6 +68,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Nur Vorschau (feat/vorschau): Dev-Server auch über das Tailnet nutzbar (Handy/zweiter PC),
+  // sonst lädt Next.js im Dev-Modus das JavaScript für fremde Hosts nicht und Knöpfe reagieren nicht.
+  allowedDevOrigins: ["100.78.25.9", "*.tail74a8aa.ts.net"],
   poweredByHeader: false,
   async headers() {
     return [
