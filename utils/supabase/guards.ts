@@ -15,6 +15,12 @@ import { getCachedAuth } from "@/utils/supabase/cached-auth";
 export const ROLES = ["member", "admin", "board", "alumni"] as const;
 export type Role = (typeof ROLES)[number];
 
+/**
+ * Wer Exporte mit Bank- und Adressdaten erstellen darf (SEPA-Export, BVH-CSV).
+ * Bewusst nur der Vorstand; bei Bedarf hier zentral anpassen.
+ */
+export const EXPORT_ROLES: readonly Role[] = ["board"];
+
 export function isRole(value: unknown): value is Role {
   return typeof value === "string" && (ROLES as readonly string[]).includes(value);
 }

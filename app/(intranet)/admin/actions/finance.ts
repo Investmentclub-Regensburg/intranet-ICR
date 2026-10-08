@@ -1,6 +1,6 @@
 "use server";
 
-import { requireRole } from "@/utils/supabase/guards";
+import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { sanitizeForSEPA } from "@/lib/sepa";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
@@ -45,6 +45,18 @@ export type FinanceExportResult = {
   stats: FilterStats;
 };
 
+/** IBAN für die Vorschau kürzen (Ländercode + Prüfziffer … letzte 4 Stellen). */
+function maskIban(iban: string): string {
+  if (iban.length <= 8) return iban ? "••••" : "";
+  return `${iban.slice(0, 4)} •••• ${iban.slice(-4)}`;
+}
+
+/**
+ * "preview": Vorschau im Browser, IBANs gekürzt.
+ * "export": vollständige Daten, nur für den Download der Export-Datei.
+ */
+export type FinanceExportMode = "preview" | "export";
+
 function getPeriodStart(semester: Semester, year: number): Date {
   if (semester === "SoSe") {
     return new Date(year, 2, 15); // 15.03.YYYY (Monat 2, 0-basiert)
@@ -54,12 +66,14 @@ function getPeriodStart(semester: Semester, year: number): Date {
 
 export async function getFinanceExportData(
   semester: Semester,
-  year: number
+  year: number,
+  mode: FinanceExportMode = "preview"
 ): Promise<FinanceExportResult> {
-  const auth = await requireRole(["admin", "board"], "Keine Berechtigung für den Finanzexport.");
+  const auth = await requireRole(EXPORT_ROLES, "Keine Berechtigung für den Finanzexport.");
   if (!auth.ok) {
     throw new Error(auth.error);
   }
+  const showFullIban = mode === "export";
 
   const maxYear = new Date().getFullYear() + 1;
   if (semester !== "SoSe" && semester !== "WiSe") {
@@ -174,7 +188,7 @@ export async function getFinanceExportData(
         id,
         firstName,
         lastName,
-        iban: ibanClean,
+        iban: showFullIban ? ibanClean : maskIban(ibanClean),
         bic: bicClean,
         status,
         joinedAt,
@@ -187,7 +201,7 @@ export async function getFinanceExportData(
         firstName,
         lastName,
         email,
-        iban: ibanClean,
+        iban: showFullIban ? ibanClean : maskIban(ibanClean),
         bic: bicClean,
         status,
       });

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { requireRole } from "@/utils/supabase/guards";
+import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isUuid } from "@/lib/validation";
 import {
@@ -172,7 +172,7 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
   csv: string | null;
   error: string;
 }> {
-  const auth = await requireRole(["admin", "board"]);
+  const auth = await requireRole(EXPORT_ROLES, "Nur der Vorstand darf diesen Export erstellen.");
   if (!auth.ok) return { csv: null, error: auth.error };
 
   const admin = createServiceClient();

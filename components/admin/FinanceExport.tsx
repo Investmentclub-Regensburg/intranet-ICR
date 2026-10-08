@@ -54,6 +54,8 @@ export function FinanceExport() {
   const [stats, setStats] = useState<FilterStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Zeitraum der geladenen Vorschau – der Export nutzt genau diesen Zeitraum.
+  const [loadedPeriod, setLoadedPeriod] = useState<{ semester: Semester; year: number } | null>(null);
 
   const handleLoadPreview = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -65,11 +67,13 @@ export function FinanceExport() {
       setValidMembers(validMembers);
       setInvalidMembers(invalidMembers);
       setStats(newStats);
+      setLoadedPeriod({ semester, year });
     } catch (err) {
       console.error("Fehler beim Laden der Daten:", err);
       setValidMembers([]);
       setInvalidMembers([]);
       setStats(null);
+      setLoadedPeriod(null);
       setError(
         err instanceof Error
           ? err.message
@@ -80,11 +84,36 @@ export function FinanceExport() {
     }
   };
 
-  function handleExportCsv() {
-    if (!validMembers.length) return;
+  /** Vollständige Exportdaten erst beim Download vom Server holen (Vorschau zeigt gekürzte IBANs). */
+  async function loadExportRows(): Promise<{
+    rows: FinanceMemberRow[];
+    period: { semester: Semester; year: number };
+  } | null> {
+    if (!loadedPeriod) return null;
+    setError(null);
+    try {
+      const { validMembers: rows } = await getFinanceExportData(
+        loadedPeriod.semester,
+        loadedPeriod.year,
+        "export"
+      );
+      return rows.length ? { rows, period: loadedPeriod } : null;
+    } catch (err) {
+      console.error("Fehler beim Laden der Exportdaten:", err);
+      setError(
+        err instanceof Error ? err.message : "Es gab einen Fehler beim Laden der Exportdaten."
+      );
+      return null;
+    }
+  }
+
+  async function handleExportCsv() {
+    const data = await loadExportRows();
+    if (!data) return;
+    const { rows } = data;
 
     const header = "Name;IBAN;BIC;Betrag;Mandatsreferenz";
-    const lines = validMembers.map((row) => {
+    const lines = rows.map((row) => {
       const name = `${row.firstName} ${row.lastName}`.trim();
       const amount = row.amount.toFixed(2).replace(".", ",");
       const mandateId = buildNumericIdentifier(row.id, 35);
@@ -106,17 +135,19 @@ export function FinanceExport() {
     URL.revokeObjectURL(url);
   }
 
-  function handleExportSepaXml() {
-    if (!validMembers.length) return;
+  async function handleExportSepaXml() {
+    const data = await loadExportRows();
+    if (!data) return;
+    const { rows, period } = data;
 
     const today = new Date().toISOString().slice(0, 10);
-    const periodLabel = getPeriodLabel(semester, year);
+    const periodLabel = getPeriodLabel(period.semester, period.year);
     const periodToken = buildSepaIdentifier(periodLabel, 10) || "PERIODE";
     const messageId =
       buildSepaIdentifier(`ICRBEITRAG${periodToken}${today.replace(/-/g, "")}`) ||
       "ICRBEITRAG";
 
-    const totalAmount = validMembers
+    const totalAmount = rows
       .reduce((sum, row) => sum + row.amount, 0)
       .toFixed(2);
 
@@ -125,7 +156,7 @@ export function FinanceExport() {
     const creditorBic = "BYLADEM1RBG";
     const creditorId = "DE58ZZZ00001948916";
 
-    const txInfos = validMembers
+    const txInfos = rows
       .map((row, idx) => {
         const nameRaw = `${row.firstName} ${row.lastName}`.trim();
         const name = sanitizeNameForBank(nameRaw) || "MITGLIED";
@@ -181,7 +212,7 @@ export function FinanceExport() {
     <GrpHdr>
       <MsgId>${escapeXml(messageId)}</MsgId>
       <CreDtTm>${today}T00:00:00</CreDtTm>
-      <NbOfTxs>${validMembers.length}</NbOfTxs>
+      <NbOfTxs>${rows.length}</NbOfTxs>
       <CtrlSum>${totalAmount}</CtrlSum>
       <InitgPty>
         <Nm>${escapeXml(creditorName)}</Nm>
@@ -190,7 +221,7 @@ export function FinanceExport() {
     <PmtInf>
       <PmtInfId>${escapeXml(messageId)}</PmtInfId>
       <PmtMtd>DD</PmtMtd>
-      <NbOfTxs>${validMembers.length}</NbOfTxs>
+      <NbOfTxs>${rows.length}</NbOfTxs>
       <CtrlSum>${totalAmount}</CtrlSum>
       <PmtTpInf>
         <SvcLvl>
