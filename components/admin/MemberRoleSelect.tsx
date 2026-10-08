@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -40,9 +40,13 @@ export function MemberRoleSelect({ member }: Props) {
   const router = useRouter();
   const { id, status, rolle } = member;
 
-  useEffect(() => {
+  // Auswahl an neue Server-Daten angleichen (State während des Renderns anpassen statt im Effect).
+  const propsKey = `${id}|${status}|${rolle}`;
+  const [syncedKey, setSyncedKey] = useState(propsKey);
+  if (syncedKey !== propsKey) {
+    setSyncedKey(propsKey);
     setValue(selectValueForStatus(status, rolle));
-  }, [id, status, rolle]);
+  }
 
   async function handleChange(newRole: string) {
     setLoading(true);

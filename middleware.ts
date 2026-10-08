@@ -25,6 +25,10 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
+  // Header, die @supabase/ssr beim Setzen von Auth-Cookies mitliefert (Cache-Control: private, no-store …).
+  // Antworten mit Session-Cookies dürfen von keinem CDN/Proxy zwischengespeichert werden.
+  let authCacheHeaders: Record<string, string> = {};
+
   // 2. Baue den Supabase Client für die Middleware
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,7 +38,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, headers) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
@@ -44,6 +48,10 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );
+          authCacheHeaders = { ...authCacheHeaders, ...headers };
+          for (const [key, value] of Object.entries(authCacheHeaders)) {
+            supabaseResponse.headers.set(key, value);
+          }
         },
       },
     }
@@ -58,6 +66,9 @@ export async function middleware(request: NextRequest) {
     const response = NextResponse.redirect(new URL(to, request.url));
     for (const cookie of supabaseResponse.cookies.getAll()) {
       response.cookies.set(cookie);
+    }
+    for (const [key, value] of Object.entries(authCacheHeaders)) {
+      response.headers.set(key, value);
     }
     return response;
   };
