@@ -8,6 +8,11 @@
 --     mehrfach verknüpfte Konten und ein Unique-Index. Der Index beschleunigt außerdem jede
 --     RLS-Prüfung user_id = auth.uid() (auch in is_admin_or_board() und den Policies anderer
 --     Tabellen); die App liest das eigene Profil per maybeSingle() und verlässt sich auf Eindeutigkeit.
+--   * Produktion ist heute strenger als der erste Entwurf: kein Lesen fremder Zeilen, kein UPDATE
+--     über die API. Deshalb sind "Vorstand und Admin lesen alle" und das UPDATE auf eigene
+--     Adressspalten jetzt nur noch auskommentierte Optionen. Die App braucht beides nicht (fremde
+--     Zeilen und Profiländerungen laufen per Service Role mit Prüfung). Ein UPDATE-Recht über die
+--     API würde die serverseitige Validierung der Adressfelder umgehen (CSV-Export).
 --
 -- Zeilen- und Spaltenrechte für public.profiles festschreiben
 --
@@ -16,14 +21,13 @@
 --   * Mitglieder (authenticated) lesen nur die eigene Zeile (user_id = auth.uid()).
 --     Wichtig: unabhängig vom Status – Login und Middleware lesen den eigenen Status,
 --     um gekündigte Konten abzuweisen.
---   * Mitglieder dürfen in der eigenen Zeile nur unkritische Spalten ändern (Adresse, Telefon,
---     letzter_news_aufruf) – nie "Rolle", "Status", "Datum_Kündigung", "E-Mail", user_id, IBAN/BIC.
---     Die App schreibt Profiländerungen derzeit ausschließlich per Service Role (mit Prüfung);
---     die UPDATE-Rechte unten sind deshalb optional und können auch ganz entfallen.
---   * Vorstand (board) und Admin lesen alle Zeilen. Änderungen an fremden Zeilen (Rollen,
---     Status) laufen weiter über die Server Actions mit Service Role – Spaltenrechte gelten pro
---     Datenbank-Rolle, nicht pro Policy; ein UPDATE-Recht auf "Rolle" für authenticated
---     würde auch für die eigene Zeile jedes Mitglieds gelten.
+--   * Kein UPDATE über die API. Die App schreibt Profiländerungen ausschließlich per Service Role
+--     (mit Prüfung). Optional (auskommentiert): UPDATE nur auf unkritische Spalten der eigenen
+--     Zeile – nie "Rolle", "Status", "Datum_Kündigung", "E-Mail", user_id, IBAN/BIC. Spaltenrechte
+--     gelten pro Datenbank-Rolle, nicht pro Policy; ein UPDATE-Recht auf "Rolle" für authenticated
+--     würde für die eigene Zeile jedes Mitglieds gelten.
+--   * Fremde Zeilen liest nur die Service Role (Server Actions mit Rollenprüfung). Optional
+--     (auskommentiert): Vorstand liest alle Zeilen über die API.
 --   * INSERT/DELETE nur über Trigger (security definer) und Service Role.
 --
 -- Vor der Ausführung:
@@ -91,9 +95,10 @@ revoke all on public.profiles from authenticated;
 
 grant select on public.profiles to authenticated;
 
--- Optional: nur falls Mitglieder ihre Adresse künftig ohne Service Role ändern sollen.
-grant update ("Straße", "Hausnummer", "PLZ", "Ort", "Handynummer", "letzter_news_aufruf")
-  on public.profiles to authenticated;
+-- Optional (nicht empfohlen): nur falls Mitglieder ihre Adresse künftig ohne Service Role ändern
+-- sollen. Umgeht die serverseitige Validierung; dann zusätzlich die UPDATE-Policy unten aktivieren.
+-- grant update ("Straße", "Hausnummer", "PLZ", "Ort", "Handynummer", "letzter_news_aufruf")
+--   on public.profiles to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- user_id eindeutig (ein Konto = höchstens ein Profil)
@@ -126,17 +131,19 @@ create policy "profiles: eigene Zeile lesen"
   to authenticated
   using (user_id = (select auth.uid()));
 
-create policy "profiles: Vorstand und Admin lesen alle"
-  on public.profiles
-  for select
-  to authenticated
-  using ((select public.current_profile_role()) in ('admin', 'board'));
-  -- Strengere Variante (empfohlen, da die App fremde Zeilen nur per Service Role liest):
-  -- using ((select public.current_profile_role()) = 'board');
+-- Optional (nicht empfohlen): Lesen aller Profile inkl. IBAN über die API. Heute in Produktion
+-- nicht möglich, von der App nicht gebraucht; ein gekapertes Admin-Konto käme sonst per API an
+-- alle Bankdaten, obwohl die Exporte nur dem Vorstand offenstehen.
+-- create policy "profiles: Vorstand liest alle"
+--   on public.profiles
+--   for select
+--   to authenticated
+--   using ((select public.current_profile_role()) = 'board');
 
-create policy "profiles: eigene Zeile ändern (nur freigegebene Spalten)"
-  on public.profiles
-  for update
-  to authenticated
-  using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()));
+-- Optional (nicht empfohlen), nur zusammen mit dem Spaltenrecht oben:
+-- create policy "profiles: eigene Zeile ändern (nur freigegebene Spalten)"
+--   on public.profiles
+--   for update
+--   to authenticated
+--   using (user_id = (select auth.uid()))
+--   with check (user_id = (select auth.uid()));
