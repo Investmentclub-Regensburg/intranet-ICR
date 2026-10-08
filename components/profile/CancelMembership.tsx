@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DoorOpen } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -15,8 +16,22 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { cancelMembership } from "@/app/(intranet)/profile/actions";
+import { ReadField } from "@/components/profile/ReadField";
+import type { FeeStop } from "@/components/profile/profile-format";
 
-export function CancelMembership() {
+/**
+ * Mitgliedschaft beenden: ruhige, neutrale Kachel (kein Alarm-Rot) mit dem, was eine
+ * Kündigung heute bedeutet, und Bestätigungs-Modal. Logik wie bisher (cancelMembership:
+ * Status gekündigt, Kündigungsdatum heute, Abmeldung, Weiterleitung zum Login).
+ * `feeStop` kommt aus denselben Stichtagen wie der Finanzexport; null = kein Beitrag
+ * (Alumni).
+ */
+export function CancelMembership({ statusLabel, since, feeStop }: {
+  statusLabel: string;
+  since: string | null;
+  feeStop: FeeStop | null;
+}) {
+  const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleConfirm() {
@@ -27,6 +42,7 @@ export function CancelMembership() {
         toast.success("Austritt im System vermerkt.");
       } else {
         toast.error(result.error || "Ein Fehler ist aufgetreten.");
+        setLoading(false);
       }
     } catch (err) {
       const maybeDigest =
@@ -41,47 +57,69 @@ export function CancelMembership() {
       // Das ist hier kein Fehlerfall und soll keinen Toast auslösen.
       if (!maybeDigest.startsWith("NEXT_REDIRECT")) {
         toast.error("Ein unerwarteter Fehler ist aufgetreten.");
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
     }
   }
 
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button className="w-full bg-primary text-white hover:bg-primary/90 sm:w-auto">
-          Aus dem Verein austreten
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            Willst du den ICR wirklich verlassen?
-          </AlertDialogTitle>
-          <AlertDialogDescription className="space-y-2">
-            <span className="block">
-              Deine Mitgliedschaft wird beendet und das heutige Datum als
-              Kündigungsdatum hinterlegt. Die Abbuchung der Beiträge stoppt
-              automatisch zum nächstmöglichen Semester-Stichtag.
+    <section
+      aria-labelledby="cancel-title"
+      className="rounded-2xl border border-border bg-secondary/50 p-5 sm:p-6"
+    >
+      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+        <div className="min-w-0 space-y-4">
+          <h2 id="cancel-title" className="flex items-center gap-3 text-base font-bold tracking-[-0.02em]">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-card text-muted-foreground">
+              <DoorOpen className="size-[1.125rem]" aria-hidden />
             </span>
-            <span className="block font-medium text-foreground">
-              Diese Aktion kann im System nur durch den Vorstand rückgängig
-              gemacht werden.
-            </span>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={handleConfirm}
-            disabled={loading}
-            className="bg-primary text-white hover:bg-primary/90"
-          >
-            {loading ? "Wird verarbeitet..." : "Kündigung bestätigen"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+            Mitgliedschaft beenden
+          </h2>
+          <dl className="grid gap-x-10 gap-y-4 sm:grid-cols-2">
+            <ReadField label="Mitgliedschaft" value={statusLabel} hint={since ? `seit ${since}` : undefined} />
+            {feeStop && (
+              <ReadField
+                label="Bei Kündigung heute"
+                value={`Kein Beitrag mehr ab ${feeStop.semester}`}
+                hint={`Stichtag ${feeStop.stichtag}`}
+              />
+            )}
+          </dl>
+        </div>
+
+        <AlertDialog open={open} onOpenChange={(next) => !loading && setOpen(next)}>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" className="w-full shrink-0 md:w-auto">
+              Kündigen
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Mitgliedschaft kündigen?</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-1">
+                  <p>Dein Zugang zum Intranet endet sofort.</p>
+                  {feeStop && <p>Ab {feeStop.semester} wird kein Beitrag mehr eingezogen.</p>}
+                  <p>Rückgängig machen kann das nur der Vorstand.</p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={loading}>Abbrechen</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleConfirm();
+                }}
+                disabled={loading}
+              >
+                {loading ? "Wird verarbeitet…" : "Kündigen"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+    </section>
   );
 }

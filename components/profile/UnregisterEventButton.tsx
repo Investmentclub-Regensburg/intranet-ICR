@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { UserRoundX } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -14,7 +15,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/kit/IconButton";
 import { toggleRegistration } from "@/app/(intranet)/events/actions";
 
 type Props = {
@@ -22,6 +23,7 @@ type Props = {
   eventTitle: string;
 };
 
+/** Abmelden als Icon-Aktion in der Kachel, mit Bestätigung. Logik wie bisher (toggleRegistration). */
 export function UnregisterEventButton({ eventId, eventTitle }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -34,6 +36,7 @@ export function UnregisterEventButton({ eventId, eventTitle }: Props) {
       if (error) toast.error(error);
       else {
         setOpen(false);
+        toast.success("Abgemeldet.");
         router.refresh();
       }
     } finally {
@@ -42,21 +45,21 @@ export function UnregisterEventButton({ eventId, eventTitle }: Props) {
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
+    <AlertDialog open={open} onOpenChange={(next) => !loading && setOpen(next)}>
       <AlertDialogTrigger asChild>
-        <Button variant="secondary" size="sm">
-          Abmelden
-        </Button>
+        <IconButton label="Von Veranstaltung abmelden" variant="danger">
+          <UserRoundX />
+        </IconButton>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Abmeldung</AlertDialogTitle>
+          <AlertDialogTitle>Abmelden?</AlertDialogTitle>
           <AlertDialogDescription>
-            Möchtest du deine Anmeldung für &quot;{eventTitle}&quot; zurückziehen?
+            Deine Anmeldung für „{eventTitle}“ wird zurückgezogen.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+          <AlertDialogCancel disabled={loading}>Abbrechen</AlertDialogCancel>
           <AlertDialogAction
             onClick={(e) => {
               e.preventDefault();
