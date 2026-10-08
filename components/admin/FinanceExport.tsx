@@ -25,7 +25,9 @@ import {
   buildNumericIdentifier,
   escapeXml,
   sanitizeNameForBank,
+  sepaDate,
 } from "@/lib/sepa";
+import { joinCsvRow } from "@/lib/csv";
 
 const MIN_YEAR = 2000;
 
@@ -86,7 +88,8 @@ export function FinanceExport() {
       const name = `${row.firstName} ${row.lastName}`.trim();
       const amount = row.amount.toFixed(2).replace(".", ",");
       const mandateId = buildNumericIdentifier(row.id, 35);
-      return [name, row.iban, row.bic, amount, mandateId].join(";");
+      // Zellen entschärfen (Formel-Injection) und korrekt quoten.
+      return joinCsvRow([name, row.iban, row.bic, amount, mandateId], ";");
     });
     const csv = [header, ...lines].join("\n");
 
@@ -131,7 +134,7 @@ export function FinanceExport() {
           buildNumericIdentifier(row.id, 35) || String(idx + 1).padStart(6, "0");
         const endToEndId =
           buildSepaIdentifier(`${messageId}${idx + 1}`, 35) || `E2E${idx + 1}`;
-        const dtOfSgntr = row.mandateDate ?? today;
+        const dtOfSgntr = escapeXml(sepaDate(row.mandateDate, today));
         const bic = buildSepaIdentifier(row.bic, 11);
         const dbtrAgtXml = bic
           ? `<DbtrAgt>

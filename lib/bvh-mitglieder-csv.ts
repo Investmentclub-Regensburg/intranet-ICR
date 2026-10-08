@@ -1,3 +1,5 @@
+import { escapeCsvCell, joinCsvRow as joinCsvRowWithDelimiter } from "./csv";
+
 /**
  * BVH-Mitglieder-Upload: exakte Kopfzeile laut Template (Spalten nicht ändern).
  * Komma-getrennt, UTF-8.
@@ -5,17 +7,13 @@
 export const BVH_MITGLIEDER_CSV_HEADER =
   "email,firstName,lastName,gender,phone,birthday,country,pcode,place,street,snumber,addition,vorstand,delete";
 
-/** RFC-4180-ähnliches Escaping für CSV-Zellen */
+/** Escaping für CSV-Zellen (RFC 4180 + Schutz vor Formel-Injection), siehe lib/csv.ts */
 export function escapeCsvField(value: string): string {
-  const s = value ?? "";
-  if (/[",\r\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
+  return escapeCsvCell(value, ",");
 }
 
 export function joinCsvRow(fields: string[]): string {
-  return fields.map(escapeCsvField).join(",");
+  return joinCsvRowWithDelimiter(fields, ",");
 }
 
 /** Anrede → BVH gender m/f (Pflichtfeld; Fallback m) */
