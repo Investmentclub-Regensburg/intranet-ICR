@@ -1,5 +1,9 @@
 -- ENTWURF – vor Ausführung gegen Schema-Dump prüfen
 --
+-- Geprüft gegen den Schema-Export vom 2026-10-08: Spalten von alumni_requests und
+-- bvh_login_requests sowie der Trigger alumni_requests_decided stimmen. Offen bleibt die
+-- Duplikat-Abfrage unten (braucht die Daten); bei Duplikaten bricht der Unique-Index ab.
+--
 -- Alumni- und BVH-Anfragen: Stammdaten immer aus dem Profil des anfragenden Kontos
 --
 -- Wirkung:

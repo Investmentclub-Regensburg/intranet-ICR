@@ -1,5 +1,14 @@
 -- ENTWURF – vor Ausführung gegen Schema-Dump prüfen
 --
+-- Geprüft gegen den Schema-Export vom 2026-10-08:
+--   * Auf profiles gibt es heute genau eine Policy: "Users can view own profile"
+--     (SELECT, auth.uid() = user_id). Keine INSERT-/UPDATE-/DELETE-Policy.
+--   * Spaltennamen der UPDATE-Rechte stimmen.
+--   * profiles.user_id hat weder Unique-Constraint noch Index. Ergänzt unten: Vorprüfung auf
+--     mehrfach verknüpfte Konten und ein Unique-Index. Der Index beschleunigt außerdem jede
+--     RLS-Prüfung user_id = auth.uid() (auch in is_admin_or_board() und den Policies anderer
+--     Tabellen); die App liest das eigene Profil per maybeSingle() und verlässt sich auf Eindeutigkeit.
+--
 -- Zeilen- und Spaltenrechte für public.profiles festschreiben
 --
 -- Ziel:
@@ -85,6 +94,28 @@ grant select on public.profiles to authenticated;
 -- Optional: nur falls Mitglieder ihre Adresse künftig ohne Service Role ändern sollen.
 grant update ("Straße", "Hausnummer", "PLZ", "Ort", "Handynummer", "letzter_news_aufruf")
   on public.profiles to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- user_id eindeutig (ein Konto = höchstens ein Profil)
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  n integer;
+begin
+  select count(*) into n
+    from (
+      select user_id
+        from public.profiles
+       where user_id is not null
+       group by user_id
+      having count(*) > 1
+    ) d;
+  if n > 0 then
+    raise exception 'profiles.user_id: % Konten sind mit mehreren Profilen verknüpft – vorher bereinigen: select user_id, count(*) from public.profiles where user_id is not null group by 1 having count(*) > 1', n;
+  end if;
+end $$;
+
+create unique index if not exists profiles_user_id_key on public.profiles (user_id);
 
 -- ---------------------------------------------------------------------------
 -- Policies
