@@ -28,7 +28,8 @@ export function AdminStatTiles({ counts }: { counts: AdminCounts }) {
       value: counts.applicants,
       label: "Mitgliedsanträge",
       meta: "offen",
-      href: "/admin/members",
+      // Freigabe-Liste steht in der Verwaltung unter „Aufgaben“ (feat/ux-verwaltung)
+      href: "/admin#mitgliedsantraege",
       Icon: UserPlus,
       attention: true,
     },
