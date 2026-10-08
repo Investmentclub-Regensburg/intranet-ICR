@@ -1,5 +1,9 @@
 -- ENTWURF – vor Ausführung gegen Schema-Dump prüfen
 --
+-- Geprüft gegen den Schema-Export vom 2026-10-08: profiles."Status" ist text ohne Check-Constraint,
+-- 'applicant' ist zulässig (das ungenutzte Enum public.member_status enthält den Wert ebenfalls).
+-- Die Zählabfrage unten braucht die Daten und bleibt offen.
+--
 -- Neue Registrierungen erst nach Freigabe durch den Vorstand
 --
 -- Voraussetzung: Entwurf 20261008120000_entwurf_profil_verknuepfung_nach_bestaetigung.sql

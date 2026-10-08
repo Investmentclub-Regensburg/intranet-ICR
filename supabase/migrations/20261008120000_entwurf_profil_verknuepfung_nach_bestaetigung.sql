@@ -1,5 +1,13 @@
 -- ENTWURF – vor Ausführung gegen Schema-Dump prüfen
 --
+-- Geprüft gegen den Schema-Export vom 2026-10-08: passt ohne Änderung.
+--   * "Confirm email" ist aktiv.
+--   * Trigger on_auth_user_created (AFTER INSERT auf auth.users) ruft public.handle_new_user() auf.
+--   * profiles."Status" ist text ohne Check-Constraint, "Rolle" ist public.user_role,
+--     Unique-Constraint auf "E-Mail" und created_at sind vorhanden.
+--   * profiles.id hat keinen Default; provision_profile_for_auth_user() setzt ihn (= auth.users.id).
+--   Offen bleibt nur Prüfschritt 4 (Kontrollabfrage, braucht die Daten).
+--
 -- Profil-Verknüpfung erst nach bestätigter E-Mail-Adresse
 --
 -- Bisher (20260513120000_fix_auth_profile_trigger.sql): handle_new_user() verknüpft ein neues
