@@ -48,6 +48,8 @@ import {
   WizardNav,
   WizardProgress,
   WizardStep,
+  WizardLayout,
+  WizardPreview,
   WizardSummary,
   useWizard,
   type WizardRow,
@@ -91,9 +93,6 @@ type StepKey = (typeof STEPS)[number]["key"];
 type MailMode = "" | "none" | "all" | "custom";
 type Created = { id: string; title: string; announced: number; announceError: string };
 
-/** Nach einer Auswahl kurz stehen lassen, dann weiter (Häkchen sichtbar). */
-const AUTO_ADVANCE_MS = 220;
-
 export function EventWizard({
   open,
   onOpenChange,
@@ -122,19 +121,12 @@ export function EventWizard({
   const [created, setCreated] = useState<Created | null>(null);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const advanceTimer = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
       if (imagePreview) URL.revokeObjectURL(imagePreview);
     };
   }, [imagePreview]);
-
-  useEffect(() => {
-    return () => {
-      if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
-    };
-  }, []);
 
   const set = <K extends keyof EventFormState>(key: K, value: EventFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -171,12 +163,10 @@ export function EventWizard({
     wizard.complete(key);
   }
 
+  /** Auswahl-Antworten springen selbst weiter (kurz stehen lassen, dann weiter). */
   function autoNext(key: StepKey) {
-    if (advanceTimer.current) window.clearTimeout(advanceTimer.current);
-    advanceTimer.current = window.setTimeout(() => {
-      setStepError("");
-      wizard.complete(key);
-    }, AUTO_ADVANCE_MS);
+    setStepError("");
+    wizard.advance(key);
   }
 
   function checkStep(key: StepKey): string {
@@ -326,7 +316,13 @@ export function EventWizard({
             : "Niemand",
     });
 
-  const stepProps = (key: StepKey) => ({ stepKey: key, active: wizard.step === key, direction: wizard.direction });
+  const stepProps = (key: StepKey) => ({
+    stepKey: key,
+    active: wizard.step === key,
+    direction: wizard.direction,
+    // Platz für das Schließen-X oben rechts
+    className: "[&>h2]:pr-10",
+  });
   const dateInPast = !!form.eventDate && form.eventDate < todayInBerlin();
   const endNextDay = !!form.endTime && !!form.eventTime && form.endTime < form.eventTime;
   const errorLine = stepError ? (
@@ -347,23 +343,22 @@ export function EventWizard({
         {created ? (
           <CreatedView created={created} onDone={() => onOpenChange(false)} />
         ) : (
-          <form
-            noValidate
-            onSubmit={(e) => e.preventDefault()}
-            className="grid min-h-[30rem] md:grid-cols-[15.5rem_minmax(0,1fr)]"
-          >
-            <aside className="space-y-5 border-b border-border bg-muted/50 p-5 pr-14 md:border-r md:border-b-0 md:pr-5">
-              <p className="eyebrow">Neue Veranstaltung</p>
-              <WizardProgress count={wizard.count} index={wizard.index} label={STEPS[wizard.index].label} />
-              <WizardSummary
-                rows={rows}
-                activeKey={wizard.step}
-                onSelect={goTo}
-                className="-mx-3 hidden md:block"
-              />
-            </aside>
-
-            <div className="min-w-0 p-5 sm:p-7">
+          <form noValidate onSubmit={(e) => e.preventDefault()}>
+            <WizardLayout
+              className="min-h-[30rem]"
+              aside={
+                <>
+                  <p className="eyebrow">Neue Veranstaltung</p>
+                  <WizardProgress count={wizard.count} index={wizard.index} label={STEPS[wizard.index].label} />
+                  <WizardSummary
+                    rows={rows}
+                    activeKey={wizard.step}
+                    onSelect={goTo}
+                    className="-mx-3 hidden md:block"
+                  />
+                </>
+              }
+            >
               <fieldset disabled={isPending} className="min-w-0">
                 <WizardStep {...stepProps("title")} title="Wie heißt die Veranstaltung?">
                   <Input
@@ -657,31 +652,33 @@ export function EventWizard({
                   </WizardNav>
                 </WizardStep>
 
-                <WizardStep {...stepProps("preview")} title="So sehen Mitglieder die Veranstaltung">
-                  <EventCard
-                    preview
-                    event={{
-                      title: form.title.trim(),
-                      description: form.description.trim() || null,
-                      event_date: form.eventDate,
-                      event_time: form.eventTime || null,
-                      end_time: form.endTime || null,
-                      location: form.location.trim() || null,
-                      organizer: form.organizer.trim() || null,
-                      image_url: imagePreview,
-                      requires_registration: form.requiresRegistration,
-                    }}
-                    footer={
-                      form.requiresRegistration && (
-                        <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
-                          <span>0 Personen nehmen teil</span>
-                          <Button size="sm" disabled>
-                            Anmelden
-                          </Button>
-                        </div>
-                      )
-                    }
-                  />
+                <WizardStep {...stepProps("preview")} title="Alles richtig?">
+                  <WizardPreview label="So sehen Mitglieder die Veranstaltung">
+                    <EventCard
+                      preview
+                      event={{
+                        title: form.title.trim(),
+                        description: form.description.trim() || null,
+                        event_date: form.eventDate,
+                        event_time: form.eventTime || null,
+                        end_time: form.endTime || null,
+                        location: form.location.trim() || null,
+                        organizer: form.organizer.trim() || null,
+                        image_url: imagePreview,
+                        requires_registration: form.requiresRegistration,
+                      }}
+                      footer={
+                        form.requiresRegistration && (
+                          <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
+                            <span>0 Personen nehmen teil</span>
+                            <Button size="sm" disabled>
+                              Anmelden
+                            </Button>
+                          </div>
+                        )
+                      }
+                    />
+                  </WizardPreview>
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     {announce ? <Mail className="size-4 text-primary" aria-hidden /> : <MailX className="size-4" aria-hidden />}
                     {announce
@@ -701,7 +698,7 @@ export function EventWizard({
                   </WizardNav>
                 </WizardStep>
               </fieldset>
-            </div>
+            </WizardLayout>
           </form>
         )}
       </WizardDialog>

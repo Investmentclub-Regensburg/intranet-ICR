@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { IconLink } from "@/components/kit/IconButton";
+import { RevealHeading } from "@/components/kit/Reveal";
 import { EventForm } from "@/components/admin/EventForm";
 import { getEvent } from "@/app/(intranet)/events/actions";
 import { formatEventDate } from "@/lib/events";
@@ -16,7 +17,7 @@ export default async function AdminEventEditPage({ params }: Props) {
 
   return (
     <div className="space-y-8">
-      <header className="flex min-w-0 items-start gap-3">
+      <RevealHeading as="header" className="flex min-w-0 items-start gap-3">
         <IconLink href={`/admin/events/${event.id}`} label="Zurück zur Veranstaltung" variant="outline" className="mt-1">
           <ArrowLeft />
         </IconLink>
@@ -26,7 +27,7 @@ export default async function AdminEventEditPage({ params }: Props) {
             {event.title}
           </h1>
         </div>
-      </header>
+      </RevealHeading>
 
       <EventForm
         event={{

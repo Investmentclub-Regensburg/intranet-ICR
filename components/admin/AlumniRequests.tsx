@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, CheckCircle2, GraduationCap, X, XCircle } from "lucide-react";
+import { CalendarDays, Check, GraduationCap, X } from "lucide-react";
 import { toast } from "sonner";
 import { IconButton } from "@/components/kit/IconButton";
 import { EmptyState } from "@/components/kit/PageHeader";
@@ -13,7 +13,8 @@ import {
   type AlumniRequestDecision,
   type AlumniRequestRow,
 } from "@/app/(intranet)/admin/alumni-requests/actions";
-import { ConfirmDialog, StatusPill } from "./bits";
+import { StatusPill } from "@/components/kit/StatusCard";
+import { ConfirmDialog } from "./bits";
 import { formatDay } from "./format";
 
 type Pending = { row: AlumniRequestRow; decision: AlumniRequestDecision } | null;
@@ -102,15 +103,11 @@ export function AlumniRequests({ requests, canDecide }: { requests: AlumniReques
                         : `Entschieden am ${formatDay(r.handledAt ?? r.createdAt)}`}
                     </span>
                     {isOpen ? (
-                      <StatusPill tone="open">Offen</StatusPill>
+                      <StatusPill status="open" />
                     ) : r.status === "approved" ? (
-                      <StatusPill tone="done" Icon={CheckCircle2}>
-                        Freigeschaltet
-                      </StatusPill>
+                      <StatusPill status="done">Freigeschaltet</StatusPill>
                     ) : (
-                      <StatusPill tone="neutral" Icon={XCircle}>
-                        Abgelehnt
-                      </StatusPill>
+                      <StatusPill status="rejected" />
                     )}
                   </span>
                 }

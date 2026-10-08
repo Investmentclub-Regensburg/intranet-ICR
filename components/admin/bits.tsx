@@ -2,9 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { ArrowRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Tile } from "@/components/kit/Tile";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -16,47 +14,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
-// Kleine Bausteine für den Bereich „Verwaltung“ (nur components/admin, das Kit bleibt
-// beim Rahmen). Farben nur über Tokens.
-
-/* ---------------------------------------------------------------------------
- * Status-Pille
- * ------------------------------------------------------------------------- */
-
-export type PillTone = "open" | "done" | "neutral" | "danger";
-
-const PILL: Record<PillTone, string> = {
-  // Offen: Markenrot als Hinweis, dass etwas zu tun ist.
-  open: "border-primary/25 bg-brand-tint text-primary",
-  done: "border-border bg-muted text-foreground",
-  neutral: "border-border bg-card text-muted-foreground",
-  danger: "border-destructive/30 bg-destructive/5 text-destructive",
-};
-
-export function StatusPill({
-  tone,
-  children,
-  Icon,
-  className,
-}: {
-  tone: PillTone;
-  children: ReactNode;
-  Icon?: LucideIcon;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex w-fit shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap",
-        PILL[tone],
-        className,
-      )}
-    >
-      {Icon && <Icon className="size-3" aria-hidden />}
-      {children}
-    </span>
-  );
-}
+// Kleine Bausteine für den Bereich „Verwaltung“, die das Kit nicht hat (Filter-Chips,
+// Schalter, Bestätigung). Farben nur über Tokens.
 
 /* ---------------------------------------------------------------------------
  * Filter-Chips (runde Pillen, gewählt einfarbig Rot wie der Weiter-Button)
@@ -109,76 +68,6 @@ export function FilterChips<K extends string>({
           </motion.button>
         );
       })}
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------------------
- * Große Auswahl-Kachel („Neu anlegen“ vs. „Verwalten“)
- * ------------------------------------------------------------------------- */
-
-export function ChoiceTile({
-  Icon,
-  title,
-  hint,
-  meta,
-  href,
-  onOpen,
-}: {
-  Icon: LucideIcon;
-  title: string;
-  /** Ein Satz, was dahinter passiert. */
-  hint: string;
-  /** Kleine Zeile unten (z. B. Anzahl). */
-  meta?: ReactNode;
-  href?: string;
-  onOpen?: () => void;
-}) {
-  return (
-    <Tile
-      href={href}
-      onOpen={onOpen}
-      Icon={Icon}
-      title={<span className="block text-xl tracking-[-0.03em] sm:text-2xl">{title}</span>}
-      className="min-h-[12rem] p-6 sm:min-h-[14rem] sm:p-7"
-      footer={
-        <span className="flex items-center justify-between gap-3 text-xs font-semibold text-muted-foreground">
-          <span>{meta}</span>
-          <ArrowRight className="size-4 text-primary" aria-hidden />
-        </span>
-      }
-    >
-      {hint}
-    </Tile>
-  );
-}
-
-/* ---------------------------------------------------------------------------
- * Abschnittskopf innerhalb einer Tab-Seite (kleiner als die Seitenüberschrift)
- * ------------------------------------------------------------------------- */
-
-export function SectionHead({
-  title,
-  count,
-  action,
-  id,
-  className,
-}: {
-  title: string;
-  count?: number;
-  action?: ReactNode;
-  id?: string;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex flex-wrap items-end justify-between gap-3", className)}>
-      <h2 id={id} className="flex items-baseline gap-2 text-xl font-bold tracking-[-0.03em] sm:text-2xl">
-        {title}
-        {typeof count === "number" && (
-          <span className="text-base font-semibold text-muted-foreground tabular-nums">{count}</span>
-        )}
-      </h2>
-      {action && <div className="flex flex-wrap items-center gap-2">{action}</div>}
     </div>
   );
 }

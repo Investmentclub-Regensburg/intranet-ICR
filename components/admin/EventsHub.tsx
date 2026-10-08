@@ -8,7 +8,8 @@ import { EmptyState } from "@/components/kit/PageHeader";
 import { Segmented } from "@/components/kit/Segmented";
 import { AddTile, Tile, TileGrid } from "@/components/kit/Tile";
 import { formatEventWhen, type EventCore } from "@/lib/events";
-import { ChoiceTile, StatusPill } from "./bits";
+import { ChoiceTiles } from "@/components/kit/ChoiceTiles";
+import { RevealHeading } from "@/components/kit/Reveal";
 import { DeleteEventButton } from "./DeleteEventButton";
 import { EventWizard } from "./EventWizard";
 import { ShareLinkButton } from "./ShareLinkButton";
@@ -51,26 +52,32 @@ export function EventsHub({ view, upcoming, past, memberCount, canCustomMail, st
       {view === "choose" ? (
         <div className="space-y-6">
           <h1 className="sr-only">Veranstaltungen</h1>
-          <div className="grid gap-4 md:grid-cols-2">
-            <ChoiceTile
-              Icon={CalendarPlus}
-              title="Neue Veranstaltung anlegen"
-              hint="Schritt für Schritt, mit Vorschau und optionaler Rundmail."
-              meta="Dauert etwa zwei Minuten"
-              onOpen={openWizard}
-            />
-            <ChoiceTile
-              Icon={LayoutGrid}
-              title="Veranstaltungen verwalten"
-              hint="Bearbeiten, teilen, Teilnehmer ansehen, Mail nachschicken."
-              meta={`${upcoming.length} kommend · ${past.length} vergangen`}
-              href="/admin/events?ansicht=verwalten"
-            />
-          </div>
+          <ChoiceTiles
+            ariaLabel="Was möchtest du tun?"
+            items={[
+              {
+                key: "neu",
+                Icon: CalendarPlus,
+                title: "Neue Veranstaltung anlegen",
+                text: "Schritt für Schritt, mit Vorschau und optionaler Rundmail.",
+                meta: "Dauert etwa zwei Minuten",
+                onSelect: openWizard,
+                primary: true,
+              },
+              {
+                key: "verwalten",
+                Icon: LayoutGrid,
+                title: "Veranstaltungen verwalten",
+                text: "Bearbeiten, teilen, Teilnehmer ansehen, Mail nachschicken.",
+                meta: `${upcoming.length} kommend · ${past.length} vergangen`,
+                href: "/admin/events?ansicht=verwalten",
+              },
+            ]}
+          />
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <RevealHeading className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <IconLink href="/admin/events" label="Zurück zur Auswahl" variant="outline">
                 <ArrowLeft />
@@ -92,7 +99,7 @@ export function EventsHub({ view, upcoming, past, memberCount, canCustomMail, st
                 <Plus />
               </IconButton>
             </div>
-          </div>
+          </RevealHeading>
 
           {list.length === 0 && range === "past" ? (
             <EmptyState title="Noch keine vergangenen Veranstaltungen." />
@@ -143,13 +150,10 @@ function EventTile({ event, past }: { event: AdminEventTile; past: boolean }) {
         </span>
       }
       footer={
-        event.requires_registration ? (
-          <StatusPill tone={past ? "neutral" : "done"} Icon={Users}>
-            {event.registration_count} angemeldet
-          </StatusPill>
-        ) : (
-          <StatusPill tone="neutral">Ohne Anmeldung</StatusPill>
-        )
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <Users className="size-3.5" aria-hidden />
+          {event.requires_registration ? `${event.registration_count} angemeldet` : "Ohne Anmeldung"}
+        </span>
       }
     >
       {event.location && (

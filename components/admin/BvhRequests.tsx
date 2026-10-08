@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, CheckCircle2, KeyRound } from "lucide-react";
+import { CalendarDays, Check, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { IconButton } from "@/components/kit/IconButton";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { Segmented } from "@/components/kit/Segmented";
 import { Tile, TileGrid } from "@/components/kit/Tile";
 import { markBvhRequestHandled, type BvhLoginRequestRow } from "@/app/(intranet)/magazines/actions";
-import { ConfirmDialog, StatusPill } from "./bits";
+import { StatusPill } from "@/components/kit/StatusCard";
+import { ConfirmDialog } from "./bits";
 import { BvhCsvDownloadButton } from "./BvhCsvDownloadButton";
 import { formatDay } from "./format";
 
@@ -81,11 +82,9 @@ export function BvhRequests({ requests, canExport }: { requests: BvhLoginRequest
                       Angefragt am {formatDay(r.created_at)}
                     </span>
                     {r.handled ? (
-                      <StatusPill tone="done" Icon={CheckCircle2}>
-                        Erledigt
-                      </StatusPill>
+                      <StatusPill status="done" />
                     ) : (
-                      <StatusPill tone="open">Offen</StatusPill>
+                      <StatusPill status="open" />
                     )}
                   </span>
                 }

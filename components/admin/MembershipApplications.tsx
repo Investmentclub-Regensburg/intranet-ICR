@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { CalendarDays, Check, GraduationCap, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { IconButton } from "@/components/kit/IconButton";
-import { EmptyState } from "@/components/kit/PageHeader";
+import { EmptyState, PageHeader } from "@/components/kit/PageHeader";
+import { StatusPill } from "@/components/kit/StatusCard";
 import { Tile, TileGrid } from "@/components/kit/Tile";
-import { ConfirmDialog, SectionHead, StatusPill } from "./bits";
+import { ConfirmDialog } from "./bits";
 import { formatDay } from "./format";
 import {
   decideMembershipApplication,
@@ -39,10 +40,14 @@ export function MembershipApplications({
 
   return (
     <section aria-labelledby="mitgliedsantraege" className="scroll-mt-6 space-y-5">
-      <SectionHead
-        id="mitgliedsantraege"
-        title="Mitgliedsanträge"
-        count={applications.length}
+      <PageHeader
+        as="h2"
+        title={
+          <span id="mitgliedsantraege">
+            Mitgliedsanträge{" "}
+            <span className="text-base font-semibold text-muted-foreground tabular-nums">{applications.length}</span>
+          </span>
+        }
         action={
           !canDecide && applications.length > 0 ? (
             <span className="text-xs text-muted-foreground">Freigeben kann nur der Vorstand.</span>
@@ -93,7 +98,7 @@ export function MembershipApplications({
                       <CalendarDays className="size-3.5" aria-hidden />
                       Beantragt am {formatDay(a.datumAntrag)}
                     </span>
-                    <StatusPill tone="open">Offen</StatusPill>
+                    <StatusPill status="open" />
                   </span>
                 }
               />

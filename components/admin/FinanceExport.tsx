@@ -27,6 +27,7 @@ import { Segmented } from "@/components/kit/Segmented";
 import { Tile } from "@/components/kit/Tile";
 import { WizardNav, WizardProgress, WizardStep, useWizard } from "@/components/kit/Wizard";
 import { cn } from "@/lib/utils";
+import { STATUS_LABELS } from "./format";
 import {
   getFinanceExportData,
   type Semester,
@@ -514,7 +515,7 @@ export function FinanceExport() {
                     <TableCell>{row.lastName}</TableCell>
                     <TableCell className="font-mono text-xs whitespace-nowrap">{row.iban}</TableCell>
                     <TableCell className="font-mono text-xs">{row.bic || "–"}</TableCell>
-                    <TableCell className="capitalize">{row.status || "unbekannt"}</TableCell>
+                    <TableCell>{STATUS_LABELS[row.status] ?? (row.status || "unbekannt")}</TableCell>
                     <TableCell className="tabular-nums">
                       {row.joinedAt ? format(new Date(row.joinedAt), "dd.MM.yyyy") : "–"}
                     </TableCell>

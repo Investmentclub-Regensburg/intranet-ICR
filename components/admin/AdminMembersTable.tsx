@@ -9,7 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MemberRoleSelect } from "./MemberRoleSelect";
-import { StatusPill } from "./bits";
+import { StatusPill } from "@/components/kit/StatusCard";
 import { ROLE_LABELS, statusGroup } from "./format";
 import type { AdminMemberRow } from "@/app/(intranet)/admin/members/actions";
 
@@ -19,9 +19,9 @@ type Props = {
 };
 
 const STATUS_PILL = {
-  active: { tone: "done", label: "Aktiv" },
-  applicant: { tone: "open", label: "Antrag offen" },
-  cancelled: { tone: "neutral", label: "Ausgetreten" },
+  active: { status: "done", label: "Aktiv" },
+  applicant: { status: "open", label: "Antrag offen" },
+  cancelled: { status: "rejected", label: "Ausgetreten" },
 } as const;
 
 export function AdminMembersTable({ members, canEditRole }: Props) {
@@ -47,7 +47,7 @@ export function AdminMembersTable({ members, canEditRole }: Props) {
               <TableCell className="whitespace-nowrap">{member.email || "—"}</TableCell>
               <TableCell className="whitespace-nowrap tabular-nums">{member.handynummer || "—"}</TableCell>
               <TableCell>
-                <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
+                <StatusPill status={pill.status}>{pill.label}</StatusPill>
               </TableCell>
               <TableCell>
                 {canEditRole ? (

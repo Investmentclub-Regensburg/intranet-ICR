@@ -8,11 +8,12 @@ import {
 } from "@/app/(intranet)/events/actions";
 import { requireUser } from "@/utils/supabase/guards";
 import { IconLink } from "@/components/kit/IconButton";
-import { EmptyState } from "@/components/kit/PageHeader";
+import { EmptyState, PageHeader } from "@/components/kit/PageHeader";
+import { RevealHeading } from "@/components/kit/Reveal";
+import { StatusPill } from "@/components/kit/StatusCard";
 import { ShareLinkButton } from "@/components/admin/ShareLinkButton";
 import { DeleteEventButton } from "@/components/admin/DeleteEventButton";
 import { SendAnnouncementDialog } from "@/components/admin/SendAnnouncementDialog";
-import { SectionHead, StatusPill } from "@/components/admin/bits";
 import { ROLE_LABELS, formatMoment } from "@/components/admin/format";
 import { eventPath, formatEventDate, formatTimeRange, isEventPast } from "@/lib/events";
 
@@ -37,7 +38,7 @@ export default async function AdminEventDetailPage({ params }: Props) {
 
   return (
     <div className="space-y-10">
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <RevealHeading as="header" className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <IconLink href={MANAGE_HREF} label="Zurück zur Übersicht" variant="outline" className="mt-1">
             <ArrowLeft />
@@ -77,14 +78,22 @@ export default async function AdminEventDetailPage({ params }: Props) {
           />
           <DeleteEventButton eventId={event.id} title={event.title} redirectTo={MANAGE_HREF} variant="outline" />
         </div>
-      </header>
+      </RevealHeading>
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section className="min-w-0 space-y-4" aria-labelledby="teilnehmer">
-          <SectionHead
-            id="teilnehmer"
-            title="Teilnehmer"
-            count={event.requires_registration ? participants.length : undefined}
+          <PageHeader
+            as="h2"
+            title={
+              <span id="teilnehmer">
+                Teilnehmer
+                {event.requires_registration && (
+                  <span className="ml-2 text-base font-semibold text-muted-foreground tabular-nums">
+                    {participants.length}
+                  </span>
+                )}
+              </span>
+            }
           />
           {!event.requires_registration ? (
             <EmptyState title="Ohne Anmeldung." hint="Für diese Veranstaltung melden sich Mitglieder nicht an." />
@@ -121,7 +130,7 @@ export default async function AdminEventDetailPage({ params }: Props) {
         </section>
 
         <section className="space-y-4" aria-labelledby="mailversand">
-          <SectionHead id="mailversand" title="Mailversand" />
+          <PageHeader as="h2" title={<span id="mailversand">Mailversand</span>} />
           {announcements.length === 0 ? (
             <EmptyState title="Noch keine Mail verschickt." />
           ) : (
@@ -157,13 +166,13 @@ function MailTimeline({ items }: { items: EventAnnouncement[] }) {
                 {a.mode === "all" ? "Alle Mitglieder" : "Einzelne Adressen"} · {a.recipient_count} Empfänger
               </p>
               {state === "sent" ? (
-                <StatusPill tone="done">Versendet</StatusPill>
+                <StatusPill status="done">Versendet</StatusPill>
               ) : state === "error" ? (
-                <StatusPill tone="danger">
+                <StatusPill status="rejected">
                   Fehler ({a.sent_count}/{a.recipient_count})
                 </StatusPill>
               ) : (
-                <StatusPill tone="open">
+                <StatusPill status="open">
                   Läuft ({a.sent_count}/{a.recipient_count})
                 </StatusPill>
               )}

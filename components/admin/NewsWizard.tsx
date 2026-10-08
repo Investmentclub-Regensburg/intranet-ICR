@@ -12,6 +12,8 @@ import {
   WizardDialog,
   WizardNav,
   WizardProgress,
+  WizardLayout,
+  WizardPreview,
   WizardStep,
   WizardSummary,
   useWizard,
@@ -86,7 +88,13 @@ export function NewsWizard({
   if (wizard.completed.includes("content"))
     rows.push({ key: "content", label: "Text", Icon: AlignLeft, value: content.trim() });
 
-  const stepProps = (key: StepKey) => ({ stepKey: key, active: wizard.step === key, direction: wizard.direction });
+  const stepProps = (key: StepKey) => ({
+    stepKey: key,
+    active: wizard.step === key,
+    direction: wizard.direction,
+    // Platz für das Schließen-X oben rechts
+    className: "[&>h2]:pr-10",
+  });
   const errorLine = error ? (
     <p role="alert" className="text-sm font-medium text-destructive">
       {error}
@@ -131,18 +139,17 @@ export function NewsWizard({
           </div>
         </div>
       ) : (
-        <form
-          noValidate
-          onSubmit={(e) => e.preventDefault()}
-          className="grid min-h-[26rem] md:grid-cols-[15.5rem_minmax(0,1fr)]"
-        >
-          <aside className="space-y-5 border-b border-border bg-muted/50 p-5 pr-14 md:border-r md:border-b-0 md:pr-5">
-            <p className="eyebrow">Neue Mitteilung</p>
-            <WizardProgress count={wizard.count} index={wizard.index} label={STEPS[wizard.index].label} />
-            <WizardSummary rows={rows} activeKey={wizard.step} onSelect={goTo} className="-mx-3 hidden md:block" />
-          </aside>
-
-          <div className="min-w-0 p-5 sm:p-7">
+        <form noValidate onSubmit={(e) => e.preventDefault()}>
+          <WizardLayout
+            className="min-h-[26rem]"
+            aside={
+              <>
+                <p className="eyebrow">Neue Mitteilung</p>
+                <WizardProgress count={wizard.count} index={wizard.index} label={STEPS[wizard.index].label} />
+                <WizardSummary rows={rows} activeKey={wizard.step} onSelect={goTo} className="-mx-3 hidden md:block" />
+              </>
+            }
+          >
             <fieldset disabled={isPending} className="min-w-0">
               <WizardStep {...stepProps("title")} title="Worum geht es?">
                 <Input
@@ -191,8 +198,10 @@ export function NewsWizard({
                 </WizardNav>
               </WizardStep>
 
-              <WizardStep {...stepProps("preview")} title="So sehen Mitglieder die Mitteilung">
-                <NewsCard id="vorschau" title={title.trim()} content={content.trim()} author={authorName} date={today} />
+              <WizardStep {...stepProps("preview")} title="Alles richtig?">
+                <WizardPreview label="So sehen Mitglieder die Mitteilung">
+                  <NewsCard id="vorschau" title={title.trim()} content={content.trim()} author={authorName} date={today} />
+                </WizardPreview>
                 {errorLine}
                 <WizardNav onBack={() => goTo("content")}>
                   <Button type="button" size="lg" onClick={publish} disabled={isPending}>
@@ -201,7 +210,7 @@ export function NewsWizard({
                 </WizardNav>
               </WizardStep>
             </fieldset>
-          </div>
+          </WizardLayout>
         </form>
       )}
     </WizardDialog>
