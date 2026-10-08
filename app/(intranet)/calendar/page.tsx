@@ -1,31 +1,23 @@
-import {
-  startOfMonth,
-  endOfMonth,
-  eachDayOfInterval,
-  getDay,
-  format,
-  isSameMonth,
-  isToday,
-  setMonth,
-  setYear,
-} from "date-fns";
-import { de } from "date-fns/locale";
 import Link from "next/link";
-import { getEvents } from "@/app/(intranet)/events/actions";
-import { eventPath, shortTime } from "@/lib/events";
-import { CalendarNav } from "@/components/calendar/CalendarNav";
+import { getCachedAuth } from "@/utils/supabase/cached-auth";
+import { roleOf } from "@/utils/supabase/guards";
+import { getEvents, type EventListItem } from "@/app/(intranet)/events/actions";
+import { eventPath, formatTimeRange, isEventPast, shortTime } from "@/lib/events";
+import { cn } from "@/lib/utils";
+import { AdminShortcut } from "@/components/area/AdminShortcut";
+import { AreaHeader, EVENT_TABS } from "@/components/area/AreaHeader";
+import { EmptyState } from "@/components/kit/PageHeader";
+import { CalendarNav, monthName } from "@/components/calendar/CalendarNav";
+import { eventDateParts, todayInBerlin } from "@/components/events/event-display";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+const MAX_CHIPS = 3;
 
-function getMondayBasedWeekday(date: Date): number {
-  return (getDay(date) + 6) % 7;
-}
-
-function parseMonthYear(searchParams: Record<string, string | string[] | undefined>) {
-  const now = new Date();
-  let year = now.getFullYear();
-  let month = now.getMonth() + 1;
-
+function parseMonthYear(
+  searchParams: Record<string, string | string[] | undefined>,
+  fallback: { year: number; month: number },
+) {
+  let { year, month } = fallback;
   const y = searchParams?.year;
   const m = searchParams?.month;
   if (typeof y === "string") {
@@ -36,9 +28,10 @@ function parseMonthYear(searchParams: Record<string, string | string[] | undefin
     const mNum = parseInt(m, 10);
     if (!Number.isNaN(mNum) && mNum >= 1 && mNum <= 12) month = mNum;
   }
-
   return { year, month };
 }
+
+const pad = (n: number) => String(n).padStart(2, "0");
 
 export default async function CalendarPage({
   searchParams,
@@ -46,113 +39,177 @@ export default async function CalendarPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const { year, month } = parseMonthYear(params);
+  // „Heute“ in Berlin, unabhängig von der Zeitzone des Servers.
+  const todayKey = todayInBerlin();
+  const [ty, tm] = todayKey.split("-").map(Number);
+  const { year, month } = parseMonthYear(params, { year: ty, month: tm });
 
-  const events = await getEvents();
-  const viewDate = setMonth(setYear(new Date(), year), month - 1);
-  const monthStart = startOfMonth(viewDate);
-  const monthEnd = endOfMonth(viewDate);
-  const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
-  const startOffset = getMondayBasedWeekday(monthStart);
-  const totalCells = startOffset + days.length;
-  const trailingEmpty = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  const [{ profile }, events] = await Promise.all([getCachedAuth(), getEvents()]);
+  const role = roleOf(profile as Record<string, unknown> | null);
+  const canManage = role === "admin" || role === "board";
 
-  const eventsByDate = new Map<string, typeof events>();
-  events.forEach((ev) => {
-    const key = ev.event_date;
-    if (!eventsByDate.has(key)) eventsByDate.set(key, []);
-    eventsByDate.get(key)!.push(ev);
-  });
+  // Monat als reine Datumsrechnung (UTC), damit keine Zeitzone Tage verschiebt.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const startOffset = (new Date(Date.UTC(year, month - 1, 1)).getUTCDay() + 6) % 7; // Montag = 0
+  const trailingEmpty = (7 - ((startOffset + daysInMonth) % 7)) % 7;
+  const days = Array.from({ length: daysInMonth }, (_, i) => `${year}-${pad(month)}-${pad(i + 1)}`);
+
+  const eventsByDate = new Map<string, EventListItem[]>();
+  for (const ev of events) {
+    const list = eventsByDate.get(ev.event_date) ?? [];
+    list.push(ev);
+    eventsByDate.set(ev.event_date, list);
+  }
+  const agendaDays = days.filter((d) => eventsByDate.has(d));
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Kalender</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {format(viewDate, "MMMM yyyy", { locale: de })}
-          </p>
-        </div>
-        <CalendarNav year={year} month={month} />
-      </div>
+    <div className="space-y-10">
+      <AreaHeader
+        title="Veranstaltungen"
+        intro="Hier findest du alle Termine zum Hingehen."
+        tabs={EVENT_TABS}
+        activeKey="calendar"
+        layoutId="tabs-veranstaltungen"
+        ariaLabel="Ansicht der Veranstaltungen"
+        action={
+          canManage ? (
+            <AdminShortcut href="/admin/events" label="Neue Veranstaltung" />
+          ) : undefined
+        }
+      />
 
-      <div className="flex justify-center rounded-lg border bg-muted/30 py-3">
-        <p className="text-lg font-semibold text-foreground" aria-live="polite">
-          {format(viewDate, "MMMM yyyy", { locale: de })}
-        </p>
-      </div>
+      <section aria-label={`${monthName(month)} ${year}`} className="space-y-5">
+        <CalendarNav year={year} month={month} currentYear={ty} currentMonth={tm} />
 
-      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="grid grid-cols-7 border-b bg-muted/40 text-sm font-medium">
-          {WEEKDAYS.map((d) => (
-            <div key={d} className="py-3 text-center text-muted-foreground">
-              {d}
-            </div>
-          ))}
-        </div>
-        <div
-          className="grid grid-cols-7 auto-rows-fr"
-          style={{ gridAutoRows: "minmax(88px, auto)" }}
-        >
-          {Array.from({ length: startOffset }, (_, i) => (
-            <div
-              key={`empty-${i}`}
-              className="min-h-[88px] border-b border-r border-border/60 bg-muted/10"
-            />
-          ))}
-          {days.map((day) => {
-            const key = format(day, "yyyy-MM-dd");
-            const dayEvents = eventsByDate.get(key) ?? [];
-            const today = isToday(day);
-            return (
+        {/* Ab md: Monatsraster */}
+        <div className="hidden overflow-hidden rounded-2xl border border-border bg-card md:block">
+          <div className="grid grid-cols-7 border-b border-border">
+            {WEEKDAYS.map((d) => (
               <div
-                key={key}
-                className={`flex min-h-[88px] flex-col border-b border-r border-border/60 p-2 last:border-r-0 ${
-                  today ? "bg-primary/5" : ""
-                }`}
+                key={d}
+                className="py-2.5 text-center text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase"
               >
-                <span
-                  className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm font-medium ${
-                    today
-                      ? "bg-primary text-primary-foreground"
-                      : isSameMonth(day, viewDate)
-                        ? "text-foreground"
-                        : "text-muted-foreground/70"
-                  }`}
+                {d}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 [&>*:nth-child(7n)]:border-r-0 [&>*:nth-last-child(-n+7)]:border-b-0">
+            {Array.from({ length: startOffset }, (_, i) => (
+              <div key={`leer-${i}`} className="min-h-28 border-r border-b border-border bg-muted/40" />
+            ))}
+            {days.map((key) => {
+              const dayEvents = eventsByDate.get(key) ?? [];
+              const isToday = key === todayKey;
+              const isPastDay = key < todayKey;
+              return (
+                <div
+                  key={key}
+                  className={cn(
+                    "flex min-h-28 flex-col gap-1.5 border-r border-b border-border p-2",
+                    isToday && "bg-brand-tint/60",
+                  )}
                 >
-                  {format(day, "d")}
-                </span>
-                <div className="mt-1 flex flex-1 flex-col gap-1 overflow-hidden">
-                  {dayEvents.slice(0, 3).map((ev) => (
+                  <span
+                    className={cn(
+                      "inline-flex size-7 items-center justify-center rounded-full text-sm tabular-nums",
+                      isToday
+                        ? "bg-primary font-bold text-primary-foreground"
+                        : isPastDay
+                          ? "text-muted-foreground"
+                          : "font-medium text-foreground",
+                    )}
+                    aria-label={isToday ? "Heute" : undefined}
+                  >
+                    {Number(key.slice(8))}
+                  </span>
+                  {dayEvents.slice(0, MAX_CHIPS).map((ev) => (
                     <Link
                       key={ev.id}
                       href={eventPath(ev.id)}
                       title={ev.title}
-                      className="truncate rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground shadow-xs transition-opacity hover:opacity-90"
+                      className={cn(
+                        "block rounded-[5px] border-l-2 border-primary bg-brand-tint px-1.5 py-1 text-xs leading-snug text-foreground transition-colors outline-none",
+                        "hover:bg-primary hover:text-primary-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        isEventPast(ev) && "border-primary/40 bg-muted text-muted-foreground",
+                      )}
                     >
                       {ev.event_time && (
-                        <span className="mr-1 opacity-90">{shortTime(ev.event_time)}</span>
+                        <span className="block text-[11px] tabular-nums opacity-75">{shortTime(ev.event_time)}</span>
                       )}
-                      <span className="font-medium">{ev.title}</span>
+                      <span className="line-clamp-2 font-semibold break-words">{ev.title}</span>
                     </Link>
                   ))}
-                  {dayEvents.length > 3 && (
-                    <span className="text-xs text-muted-foreground">
-                      +{dayEvents.length - 3} weitere
-                    </span>
+                  {dayEvents.length > MAX_CHIPS && (
+                    <span className="px-1.5 text-xs text-muted-foreground">+{dayEvents.length - MAX_CHIPS} weitere</span>
                   )}
                 </div>
-              </div>
-            );
-          })}
-          {Array.from({ length: trailingEmpty }, (_, i) => (
-            <div
-              key={`trailing-${i}`}
-              className="min-h-[88px] border-b border-r border-border/60 bg-muted/10 last:border-r-0"
-            />
-          ))}
+              );
+            })}
+            {Array.from({ length: trailingEmpty }, (_, i) => (
+              <div key={`rest-${i}`} className="min-h-28 border-r border-b border-border bg-muted/40" />
+            ))}
+          </div>
         </div>
-      </div>
+        {agendaDays.length === 0 && (
+          <p className="hidden text-center text-sm text-muted-foreground md:block">
+            Keine Veranstaltungen im {monthName(month)}.
+          </p>
+        )}
+
+        {/* Handy: Agenda-Liste der Tage mit Veranstaltungen */}
+        <div className="md:hidden">
+          {agendaDays.length === 0 ? (
+            <EmptyState title={`Keine Veranstaltungen im ${monthName(month)}.`} />
+          ) : (
+            <ol className="space-y-3">
+              {agendaDays.map((key) => {
+                const p = eventDateParts(key);
+                const isToday = key === todayKey;
+                return (
+                  <li key={key} className="flex gap-4 rounded-2xl border border-border bg-card p-4">
+                    <div
+                      className={cn(
+                        "flex w-11 shrink-0 flex-col items-center gap-0.5 rounded-xl py-1.5 leading-none",
+                        isToday ? "bg-primary text-primary-foreground" : "bg-brand-tint text-foreground",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "text-[10px] font-semibold tracking-[0.12em] uppercase",
+                          isToday ? "text-primary-foreground/85" : "text-primary",
+                        )}
+                      >
+                        {p.weekday}
+                      </span>
+                      <span className="text-xl font-bold tracking-[-0.04em] tabular-nums">{p.day}</span>
+                    </div>
+                    <ul className="min-w-0 flex-1 divide-y divide-border">
+                      {(eventsByDate.get(key) ?? []).map((ev) => {
+                        const time = formatTimeRange(ev.event_time, ev.end_time);
+                        return (
+                          <li key={ev.id} className="py-1.5 first:pt-0 last:pb-0">
+                            <Link
+                              href={eventPath(ev.id)}
+                              className="block rounded-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                            >
+                              <span className="block truncate text-sm font-semibold text-foreground">{ev.title}</span>
+                              {(time || ev.location) && (
+                                <span className="block truncate text-xs text-muted-foreground">
+                                  {[time, ev.location].filter(Boolean).join(" · ")}
+                                </span>
+                              )}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

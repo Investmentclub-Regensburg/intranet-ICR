@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { CalendarCheck, CalendarX } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -11,22 +12,39 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { toggleRegistration } from "@/app/(intranet)/events/actions";
 
 type Props = {
   eventId: string;
   eventTitle: string;
-  count: number;
+  /** Datum und Uhrzeit für die Bestätigung, z. B. "Fr., 17. Oktober 2026 · 19:00 Uhr". */
+  when?: string;
   isRegistered: boolean;
-  /** Event ist vorbei – keine Anmeldung mehr möglich. */
-  closed?: boolean;
+  /** Volle Breite (Detailseite). */
+  block?: boolean;
+  size?: "sm" | "default";
+  className?: string;
 };
 
-export function RegistrationButton({ eventId, eventTitle, count, isRegistered, closed }: Props) {
+/**
+ * Anmelden bzw. Abmelden mit Bestätigung. Status und Zähler zeigt die umgebende
+ * Kachel/Seite; hier nur der Knopf und der Dialog. Logik unverändert (toggleRegistration).
+ */
+export function RegistrationButton({
+  eventId,
+  eventTitle,
+  when,
+  isRegistered,
+  block,
+  size = "sm",
+  className,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -40,52 +58,60 @@ export function RegistrationButton({ eventId, eventTitle, count, isRegistered, c
         return;
       }
       setOpen(false);
-      toast.success(isRegistered ? "Abgemeldet." : "Angemeldet.");
+      toast.success(isRegistered ? "Du bist abgemeldet." : "Du bist angemeldet.", {
+        description: eventTitle,
+      });
       router.refresh();
     } finally {
       setLoading(false);
     }
   }
 
+  const MediaIcon = isRegistered ? CalendarX : CalendarCheck;
+
   return (
-    <div className="flex items-center justify-between gap-3 border-t px-3 py-2">
-      <span className="text-xs text-muted-foreground">
-        {count} {count === 1 ? "Person nimmt teil" : "Personen nehmen teil"}
-        {isRegistered && " · du bist dabei"}
-      </span>
-      {closed ? (
-        <span className="text-xs text-muted-foreground">Anmeldung geschlossen</span>
-      ) : (
-        <AlertDialog open={open} onOpenChange={setOpen}>
-          <AlertDialogTrigger asChild>
-            <Button variant={isRegistered ? "secondary" : "default"} size="sm">
-              {isRegistered ? "Abmelden" : "Anmelden"}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{isRegistered ? "Abmeldung" : "Anmeldung"}</AlertDialogTitle>
-              <AlertDialogDescription>
+    <AlertDialog open={open} onOpenChange={(v) => !loading && setOpen(v)}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant={isRegistered ? "outline" : "default"}
+          size={size}
+          className={cn(block && "w-full", className)}
+        >
+          {isRegistered ? "Abmelden" : "Anmelden"}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia className="bg-brand-tint text-primary">
+            <MediaIcon />
+          </AlertDialogMedia>
+          <AlertDialogTitle>{isRegistered ? "Abmelden?" : "Verbindlich anmelden?"}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-1">
+              <p className="font-semibold text-foreground">{eventTitle}</p>
+              {when && <p>{when}</p>}
+              <p className="pt-2">
                 {isRegistered
-                  ? `Möchtest du deine Anmeldung für „${eventTitle}“ zurückziehen?`
-                  : `Möchtest du dich für „${eventTitle}“ verbindlich anmelden?`}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleToggle();
-                }}
-                disabled={loading}
-              >
-                {loading ? "Bitte warten…" : isRegistered ? "Abmelden" : "Anmelden"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      )}
-    </div>
+                  ? "Deine Anmeldung wird zurückgezogen."
+                  : "Der Vorstand sieht dich danach auf der Teilnehmerliste."}
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={loading}>Abbrechen</AlertDialogCancel>
+          <AlertDialogAction
+            variant={isRegistered ? "destructive" : "default"}
+            onClick={(e) => {
+              e.preventDefault();
+              handleToggle();
+            }}
+            disabled={loading}
+          >
+            {loading ? "Bitte warten …" : isRegistered ? "Abmelden" : "Anmelden"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
