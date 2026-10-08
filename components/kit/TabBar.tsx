@@ -118,6 +118,8 @@ export function TabBar({
         const active = t.key === current;
         const inner = (
           <motion.span
+            // whileTap macht das Element sonst selbst fokussierbar (zweiter Tab-Stopp im Tab).
+            tabIndex={-1}
             whileTap={{ scale: 0.96 }}
             className={cn(
               "relative inline-flex items-center gap-2 px-1 pb-3 text-[0.9375rem] font-semibold whitespace-nowrap transition-colors",

@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
-  CircleUserRound,
+  ChevronRight,
   Gift,
   LayoutDashboard,
   Menu,
@@ -20,7 +20,7 @@ import { LogoutButton } from "@/app/dashboard/logout-button";
 import { checkUnreadNews, markNewsAsRead } from "@/app/(intranet)/news/actions";
 import { SidebarNavIcon } from "@/components/layout/SidebarNavIcon";
 import { navItemVariants } from "@/components/layout/nav-icon-motion";
-import { IcrLogo, IcrWordmark } from "@/components/brand/IcrLogo";
+import { IcrLogo } from "@/components/brand/IcrLogo";
 import { IconButton } from "@/components/kit/IconButton";
 import { cn } from "@/lib/utils";
 
@@ -53,12 +53,13 @@ type NavGroup = {
 
 const ALL_ROLES = ["member", "admin", "board", "alumni"];
 
-// Struktur UX-Umbau (Hannes 2026-10-08, ux-umbau-brief.md): sechs Bereiche für alle,
-// darunter abgesetzt die Verwaltung (nur admin/board wie bisher). Bereiche mit
+// Struktur UX-Umbau (Hannes 2026-10-08, ux-umbau-brief.md): fünf Bereiche für alle,
+// darunter abgesetzt die Verwaltung (nur admin/board wie bisher). „Mein Profil“
+// steht nicht in der Liste, sondern ist die Nutzerzeile unten (Hannes). Bereiche mit
 // Unterseiten tragen oben eine TabBar; der Navi-Eintrag ist auf allen ihren Pfaden
 // aktiv. URLs bleiben unverändert.
 //   Veranstaltungen = /events (Liste) + /calendar (Kalender) + /events/[id]
-//   Verein          = /board-members (Vorstand) + /members + /whatsapp
+//   Verein          = /whatsapp (öffnet zuerst, Hannes) + /members (+ /members/satzung) + /board-members
 //   Verwaltung      = /admin* + /insights (Insights-Tab nur board, regelt die TabBar)
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -76,13 +77,12 @@ const NAV_GROUPS: NavGroup[] = [
       { name: "Vorteile", href: "/magazines", icon: Gift, allowedRoles: ALL_ROLES },
       {
         name: "Verein",
-        href: "/board-members",
+        href: "/whatsapp",
         icon: Users,
         iconKey: "/members",
-        match: ["/members", "/whatsapp"],
+        match: ["/members", "/board-members"],
         allowedRoles: ALL_ROLES,
       },
-      { name: "Mein Profil", href: "/profile", icon: CircleUserRound, allowedRoles: ALL_ROLES },
     ],
   },
   {
@@ -99,6 +99,16 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+/** Bildmarke + „Intranet“ (ohne ausgeschriebenen Vereinsnamen, Hannes 2026-10-08). */
+function BrandMark({ logoClassName }: { logoClassName?: string }) {
+  return (
+    <span className="flex items-center gap-2.5">
+      <IcrLogo className={cn("h-9 w-auto shrink-0 text-brand", logoClassName)} />
+      <span className="text-[0.9375rem] font-semibold tracking-[-0.01em] text-sidebar-foreground">Intranet</span>
+    </span>
+  );
+}
 
 function isActivePath(pathname: string, item: NavItem): boolean {
   return [item.href, ...(item.match ?? [])].some(
@@ -198,6 +208,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
   })).filter((group) => group.items.length > 0);
   const initials = getInitials(profile.vorname, profile.nachname);
   const roleLabel = ROLE_LABELS[profile.rolle] ?? profile.rolle;
+  const profileActive = pathname === "/profile" || pathname.startsWith("/profile/");
 
   // Laufende Nummer je Eintrag über alle Gruppen (Staffelung im mobilen Menü).
   const groupOffsets = groups.map((_, gi) =>
@@ -238,6 +249,8 @@ export function Sidebar({ profile }: { profile: Profile }) {
                       className="block rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
                     >
                       <motion.div
+                        // whileTap macht das Element sonst selbst fokussierbar (zweiter Tab-Stopp im Link).
+                        tabIndex={-1}
                         initial="rest"
                         whileHover="hover"
                         whileTap={{ scale: 0.98 }}
@@ -299,25 +312,60 @@ export function Sidebar({ profile }: { profile: Profile }) {
     );
   };
 
-  const renderFooter = (onNavigate?: () => void) => (
-    <div className="space-y-3 border-t border-sidebar-border pt-4">
+  // Nutzerzeile = Zugang zu „Mein Profil“ (kein eigener Navi-Eintrag). Auf /profile
+  // trägt sie die aktive Fläche im Markenverlauf; dieselbe layoutId wie die Navi, die
+  // Fläche gleitet also von der Liste hierher. Hover/Fokus: Fläche + Pfeil nach rechts.
+  const renderFooter = (idPrefix: string, onNavigate?: () => void) => (
+    <div className="border-t border-sidebar-border pt-4">
       <div className="flex items-center gap-1">
-        {/* Nutzerzeile → Mein Profil (die Markierung trägt der Navi-Eintrag). */}
         <Link
           href="/profile"
           onClick={onNavigate}
           title="Mein Profil"
-          className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 transition-colors outline-none hover:bg-sidebar-accent/60 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          aria-current={profileActive ? "page" : undefined}
+          className={cn(
+            "group relative flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-2 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+            !profileActive && "hover:bg-sidebar-accent focus-visible:bg-sidebar-accent",
+          )}
         >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground transition-transform duration-300 group-hover:scale-105">
+          {profileActive && (
+            <motion.span
+              layoutId={`${idPrefix}-nav-active`}
+              className="bg-brand-gradient absolute inset-0 rounded-lg shadow-brand"
+              transition={{ type: "spring", stiffness: 500, damping: 42 }}
+            />
+          )}
+          <span
+            className={cn(
+              "relative flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-transform duration-300 group-hover:scale-105",
+              profileActive ? "bg-white text-primary" : "bg-primary text-primary-foreground",
+            )}
+          >
             {initials}
           </span>
-          <span className="min-w-0 leading-tight">
-            <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+          <span className="relative min-w-0 flex-1 leading-tight">
+            <span className="sr-only">Mein Profil: </span>
+            <span
+              className={cn(
+                "block truncate text-sm font-semibold",
+                profileActive ? "text-white" : "text-sidebar-foreground",
+              )}
+            >
               {profile.vorname} {profile.nachname}
             </span>
-            <span className="block truncate text-xs text-sidebar-muted">{roleLabel}</span>
+            <span className={cn("block truncate text-xs", profileActive ? "text-white/80" : "text-sidebar-muted")}>
+              {roleLabel}
+            </span>
           </span>
+          <ChevronRight
+            aria-hidden
+            className={cn(
+              "relative -ml-1 size-3.5 shrink-0 transition-[translate,color,opacity] duration-300 motion-safe:group-hover:translate-x-0.5 motion-safe:group-focus-visible:translate-x-0.5",
+              profileActive
+                ? "text-white"
+                : "text-sidebar-muted opacity-60 group-hover:text-primary group-hover:opacity-100 group-focus-visible:text-primary group-focus-visible:opacity-100",
+            )}
+          />
         </Link>
         <LogoutButton />
       </div>
@@ -333,17 +381,20 @@ export function Sidebar({ profile }: { profile: Profile }) {
           className="group flex items-center px-5 pt-6 pb-5 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
           aria-label="Investment Club Regensburg, Intranet-Übersicht"
         >
-          <IcrWordmark logoClassName="transition-[rotate,scale] duration-700 ease-out group-hover:-rotate-6 group-hover:scale-[1.06]" />
+          <BrandMark logoClassName="transition-[rotate,scale] duration-700 ease-out group-hover:-rotate-6 group-hover:scale-[1.06]" />
         </Link>
         <div className="flex-1 overflow-y-auto px-3 pb-4">{renderNav("desktop")}</div>
-        <div className="px-3 pb-4">{renderFooter()}</div>
+        <div className="px-3 pb-4">{renderFooter("desktop")}</div>
       </aside>
 
       {/* Mobile Topbar: Glas-Weiß wie der Website-Header. */}
       <header className="sticky top-0 z-40 flex h-16 w-full items-center justify-between border-b border-sidebar-border bg-background/80 px-4 backdrop-blur-xl md:hidden">
-        <Link href="/dashboard" className="flex items-center gap-2.5" aria-label="Intranet-Übersicht">
-          <IcrLogo className="h-8 w-auto text-brand" />
-          <span className="text-sm font-semibold tracking-[-0.01em]">Intranet</span>
+        <Link
+          href="/dashboard"
+          className="rounded-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          aria-label="Investment Club Regensburg, Intranet-Übersicht"
+        >
+          <BrandMark logoClassName="h-8" />
         </Link>
         <IconButton
           label="Navigation öffnen"
@@ -379,7 +430,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
               className="absolute inset-y-0 left-0 flex w-[19rem] max-w-[86vw] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-card"
             >
               <div className="flex items-center justify-between px-5 pt-5 pb-4">
-                <IcrWordmark />
+                <BrandMark />
                 <IconButton
                   label="Navigation schließen"
                   className="-mr-2 size-10 [&_svg]:size-5"
@@ -392,7 +443,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
                 {renderNav("mobile", () => setIsOpen(false))}
               </div>
               <div className="px-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-                {renderFooter(() => setIsOpen(false))}
+                {renderFooter("mobile", () => setIsOpen(false))}
               </div>
             </motion.aside>
           </div>
