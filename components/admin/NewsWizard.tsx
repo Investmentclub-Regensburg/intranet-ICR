@@ -184,7 +184,7 @@ export function NewsWizard({
                   maxLength={MAX_CONTENT}
                   aria-label="Text"
                   placeholder="Deine Nachricht an alle Mitglieder …"
-                  className="flex w-full rounded-xs border border-input bg-card px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm"
+                  className="flex w-full rounded-lg border border-input bg-card px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm"
                 />
                 <p className="text-right text-xs text-muted-foreground tabular-nums">
                   {content.length.toLocaleString("de-DE")} / {MAX_CONTENT.toLocaleString("de-DE")}

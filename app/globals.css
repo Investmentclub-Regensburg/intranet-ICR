@@ -19,7 +19,7 @@
   Der Markenverlauf (.bg-brand-gradient) markiert ausschließlich Ausgewähltes:
   aktiver Tab, Wizard-Fortschritt, gewählte Kacheln. Der aktive Navi-Punkt ist
   dezent grau mit rotem Icon (Feedback 2026-10-09).
-  Bedienelemente (Buttons, Felder) eckig, Karten und Bilder rund.
+  Bedienelemente (Buttons, Felder) rounded-lg (seit 2026-10-09), Karten und Bilder rounded-2xl.
   Kein Punktmuster, keine Körnung.
 */
 
@@ -91,7 +91,7 @@
   --color-edge: var(--edge);
 
   /* Radius 0.5rem → rounded-2xl = 1rem wie die Karten der Website.
-     rounded-xs = 3px: eckige Buttons und Felder (Website .btn). */
+     rounded-xs = 3px: nur noch für kleine Details (Fokusrahmen von Links). */
   --radius-xs: 3px;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

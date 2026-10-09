@@ -31,7 +31,7 @@ type Props = {
 };
 
 const textareaClass =
-  "flex w-full rounded-xs border border-input bg-card px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm";
+  "flex w-full rounded-lg border border-input bg-card px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm";
 
 /** Bearbeiten bleibt ein Formular (wer ändert, sucht ein Feld), mit Live-Vorschau. */
 export function EventForm({ event }: Props) {
@@ -247,7 +247,7 @@ export function EventForm({ event }: Props) {
             hint="Mitglieder melden sich im Intranet an."
           />
           {event.requires_registration && !form.requiresRegistration && (
-            <p className="rounded-xs border border-primary/25 bg-brand-tint px-3 py-2 text-xs">
+            <p className="rounded-lg border border-primary/25 bg-brand-tint px-3 py-2 text-xs">
               Bestehende Anmeldungen bleiben gespeichert, sind für Mitglieder aber nicht mehr sichtbar.
             </p>
           )}

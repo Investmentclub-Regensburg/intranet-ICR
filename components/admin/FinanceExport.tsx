@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { format } from "date-fns";
+import { toast } from "sonner";
 import {
-  AlertTriangle,
   ArrowRight,
   Check,
   ChevronLeft,
@@ -13,26 +12,18 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
 import { IconButton } from "@/components/kit/IconButton";
-import { EmptyState } from "@/components/kit/PageHeader";
 import { Segmented } from "@/components/kit/Segmented";
 import { Tile } from "@/components/kit/Tile";
 import { WizardNav, WizardProgress, WizardStep, useWizard } from "@/components/kit/Wizard";
-import { cn } from "@/lib/utils";
-import { STATUS_LABELS } from "./format";
+import { FinancePreview } from "./FinancePreview";
 import {
   getFinanceExportData,
+  setFinanceOverride,
   type Semester,
   type FinanceMemberRow,
-  type InvalidFinanceMemberRow,
+  type FinanceOverrideAction,
+  type FinancePreviewRow,
   type FilterStats,
   type SepaCreditor,
 } from "@/app/(intranet)/admin/actions/finance";
@@ -45,8 +36,10 @@ import {
 } from "@/lib/sepa";
 import { joinCsvRow } from "@/lib/csv";
 
-// Finanzen als Wizard: Semester → Vorschau → Export. Berechnung (getFinanceExportData) und
-// Exporte (CSV, SEPA-XML pain.008) sind unverändert; nur Ablauf und Darstellung sind neu.
+// Finanzen als Wizard: Semester → Vorschau → Export. Die Vorschau (FinancePreview) zeigt alle
+// Profile nach Kategorie und erlaubt Anpassungen je Semester (finance_export_overrides); der
+// Export (CSV, SEPA-XML pain.008) lädt die Lastschriften danach frisch vom Server und
+// berücksichtigt dieselben Anpassungen.
 
 const MIN_YEAR = 2000;
 
@@ -96,7 +89,9 @@ export function FinanceExport() {
   const maxYear = getMaxYear();
   const wizard = useWizard(STEPS);
   const [validMembers, setValidMembers] = useState<FinanceMemberRow[]>([]);
-  const [invalidMembers, setInvalidMembers] = useState<InvalidFinanceMemberRow[]>([]);
+  const [previewRows, setPreviewRows] = useState<FinancePreviewRow[]>([]);
+  const [overridesAvailable, setOverridesAvailable] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const [stats, setStats] = useState<FilterStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [downloading, setDownloading] = useState<"" | "csv" | "xml">("");
@@ -109,18 +104,18 @@ export function FinanceExport() {
     setIsLoading(true);
     setError(null);
     try {
-      const { validMembers, invalidMembers, stats: newStats } =
-        await getFinanceExportData(semester, year);
-      setValidMembers(validMembers);
-      setInvalidMembers(invalidMembers);
-      setStats(newStats);
+      const result = await getFinanceExportData(semester, year);
+      setValidMembers(result.validMembers);
+      setPreviewRows(result.rows);
+      setOverridesAvailable(result.overridesAvailable);
+      setStats(result.stats);
       setLoadedPeriod({ semester, year });
       setDownloaded([]);
       wizard.complete("semester");
     } catch (err) {
       console.error("Fehler beim Laden der Daten:", err);
       setValidMembers([]);
-      setInvalidMembers([]);
+      setPreviewRows([]);
       setStats(null);
       setLoadedPeriod(null);
       setError(
@@ -132,6 +127,39 @@ export function FinanceExport() {
       setIsLoading(false);
     }
   };
+
+  /** Anpassung speichern und die Vorschau neu berechnen (Zahlen, Listen, Summe). */
+  async function handleOverride(row: FinancePreviewRow, action: FinanceOverrideAction | null) {
+    if (!loadedPeriod || pendingId) return;
+    setPendingId(row.id);
+    try {
+      const { error: saveError } = await setFinanceOverride(loadedPeriod.semester, loadedPeriod.year, row.id, action);
+      if (saveError) {
+        toast.error(saveError);
+        return;
+      }
+      const result = await getFinanceExportData(loadedPeriod.semester, loadedPeriod.year);
+      setValidMembers(result.validMembers);
+      setPreviewRows(result.rows);
+      setStats(result.stats);
+      setDownloaded([]);
+      const name = `${row.firstName} ${row.lastName}`;
+      const label = getPeriodLabel(loadedPeriod.semester, loadedPeriod.year);
+      toast.success(
+        action === "exclude"
+          ? `${name} ist aus dem Einzug ${label} entfernt.`
+          : action === "free_semester"
+            ? `${name} hat im ${label} ein Freisemester.`
+            : action === "include"
+              ? `${name} ist im Einzug ${label} aufgenommen.`
+              : `Anpassung für ${name} zurückgesetzt.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Anpassung konnte nicht gespeichert werden.");
+    } finally {
+      setPendingId(null);
+    }
+  }
 
   /** Download mit Ladezustand und Häkchen danach. */
   async function runDownload(kind: "csv" | "xml") {
@@ -420,112 +448,14 @@ export function FinanceExport() {
 
       <WizardStep {...stepProps("preview")} title={`Vorschau ${periodName(period.semester, period.year)}`}>
         {stats && (
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-            {[
-              { label: "Lastschriften", value: stats.valid, key: true },
-              { label: "Gesamt", value: stats.total },
-              { label: "Ohne IBAN", value: stats.noIban },
-              { label: "Alumni", value: stats.alumni },
-              { label: "Bewerber", value: stats.applicant },
-              { label: "Gekündigt", value: stats.cancelled },
-              { label: "Freisemester", value: stats.freeSemester },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className={cn(
-                  "flex flex-col rounded-2xl border bg-card p-4",
-                  item.key ? "border-primary/30 bg-brand-tint" : "border-border",
-                  item.key && "col-span-2 sm:col-span-1",
-                )}
-              >
-                <dt className="order-2 mt-2 text-[0.6875rem] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                  {item.label}
-                </dt>
-                <dd
-                  className={cn(
-                    "text-3xl leading-none font-bold tracking-[-0.04em] tabular-nums",
-                    // Zahlen immer schwarz (Hannes 2026-10-08), die Hauptkachel hebt nur die Fläche hervor.
-                    "text-foreground",
-                  )}
-                >
-                  {item.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-
-        {invalidMembers.length > 0 && (
-          <div className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-            <p className="flex items-start gap-2 text-sm font-semibold text-destructive">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-              {invalidMembers.length === 1
-                ? "1 Mitglied hat ungültige Bankdaten und ist nicht im Export. Bitte direkt ansprechen."
-                : `${invalidMembers.length} Mitglieder haben ungültige Bankdaten und sind nicht im Export. Bitte direkt ansprechen.`}
-            </p>
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>IBAN</TableHead>
-                    <TableHead>BIC</TableHead>
-                    <TableHead>E-Mail</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {invalidMembers.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="whitespace-nowrap">
-                        {row.firstName} {row.lastName}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs whitespace-nowrap">{row.iban || "—"}</TableCell>
-                      <TableCell className="font-mono text-xs">{row.bic || "—"}</TableCell>
-                      <TableCell className="text-xs">{row.email || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        )}
-
-        {validMembers.length === 0 ? (
-          <EmptyState
-            title="Keine Lastschriften für dieses Semester."
-            hint="Alumni, Freisemester, Kündigungen und fehlende IBANs sind ausgefiltert."
+          <FinancePreview
+            rows={previewRows}
+            stats={stats}
+            editable={overridesAvailable}
+            periodLabel={getPeriodLabel(period.semester, period.year)}
+            pendingId={pendingId}
+            onOverride={handleOverride}
           />
-        ) : (
-          <div className="max-h-[28rem] overflow-auto rounded-2xl border border-border bg-card">
-            <Table>
-              <TableHeader className="sticky top-0 z-10 bg-muted">
-                <TableRow>
-                  <TableHead>Vorname</TableHead>
-                  <TableHead>Nachname</TableHead>
-                  <TableHead>IBAN</TableHead>
-                  <TableHead>BIC</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Eintritt</TableHead>
-                  <TableHead className="text-right">Betrag</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {validMembers.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>{row.firstName}</TableCell>
-                    <TableCell>{row.lastName}</TableCell>
-                    <TableCell className="font-mono text-xs whitespace-nowrap">{row.iban}</TableCell>
-                    <TableCell className="font-mono text-xs">{row.bic || "–"}</TableCell>
-                    <TableCell>{STATUS_LABELS[row.status] ?? (row.status || "unbekannt")}</TableCell>
-                    <TableCell className="tabular-nums">
-                      {row.joinedAt ? format(new Date(row.joinedAt), "dd.MM.yyyy") : "–"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{euro(row.amount)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
         )}
 
         {errorLine}

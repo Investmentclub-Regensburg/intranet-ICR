@@ -4,9 +4,11 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import type { ButtonHTMLAttributes, MouseEventHandler, ReactNode, Ref } from "react";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Icon-Aktion im Stil von components/ui/button.tsx (rund, ohne Glow), nach dem Muster OpIconButton (Tenant-Dashboard, _components/ui.tsx):
-// nur ein lucide-Icon, Bedeutung über aria-label + title, kleiner Druck-Effekt.
+// nur ein lucide-Icon, Bedeutung über aria-label und einen Tooltip beim Überfahren
+// (`hint` für eine längere Erklärung, sonst `label`), kleiner Druck-Effekt.
 // Standard für Bearbeiten (Pencil), Löschen (Trash2), Hinzufügen (Plus) usw.
 // in Kacheln und Zeilen, statt Text-Buttons.
 
@@ -44,6 +46,7 @@ type Rest = Omit<
 
 export function IconButton({
   label,
+  hint,
   variant = "ghost",
   className,
   type = "button",
@@ -55,6 +58,8 @@ export function IconButton({
 }: Rest & {
   /** Pflicht: wird aria-label und Tooltip. */
   label: string;
+  /** Längere Erklärung im Tooltip (z. B. was die Aktion bewirkt); Standard: label. */
+  hint?: string;
   variant?: IconButtonVariant;
   className?: string;
   type?: "button" | "submit";
@@ -64,19 +69,23 @@ export function IconButton({
   ref?: Ref<HTMLButtonElement>;
 }) {
   return (
-    <motion.button
-      {...rest}
-      ref={ref}
-      type={type}
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      whileTap={{ scale: 0.9 }}
-      className={cn(BASE, VARIANTS[variant], className)}
-    >
-      {children}
-    </motion.button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <motion.button
+          {...rest}
+          ref={ref}
+          type={type}
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+          whileTap={{ scale: 0.9 }}
+          className={cn(BASE, VARIANTS[variant], className)}
+        >
+          {children}
+        </motion.button>
+      </TooltipTrigger>
+      <TooltipContent>{hint ?? label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -86,6 +95,7 @@ const MotionLink = motion.create(Link);
 export function IconLink({
   href,
   label,
+  hint,
   variant = "ghost",
   className,
   children,
@@ -93,6 +103,8 @@ export function IconLink({
 }: {
   href: string;
   label: string;
+  /** Längere Erklärung im Tooltip; Standard: label. */
+  hint?: string;
   variant?: IconButtonVariant;
   className?: string;
   children: ReactNode;
@@ -100,15 +112,19 @@ export function IconLink({
   external?: boolean;
 }) {
   return (
-    <MotionLink
-      href={href}
-      aria-label={label}
-      title={label}
-      whileTap={{ scale: 0.9 }}
-      className={cn(BASE, VARIANTS[variant], className)}
-      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-    >
-      {children}
-    </MotionLink>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <MotionLink
+          href={href}
+          aria-label={label}
+          whileTap={{ scale: 0.9 }}
+          className={cn(BASE, VARIANTS[variant], className)}
+          {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+        >
+          {children}
+        </MotionLink>
+      </TooltipTrigger>
+      <TooltipContent>{hint ?? label}</TooltipContent>
+    </Tooltip>
   );
 }

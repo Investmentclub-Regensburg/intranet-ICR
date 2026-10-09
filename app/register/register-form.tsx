@@ -97,7 +97,7 @@ const HOCHSCHULEN = [
 
 const FIELD_CLASS = "h-11";
 const SELECT_CLASS =
-  "flex h-11 rounded-xs border border-input bg-card px-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15";
+  "flex h-11 rounded-lg border border-input bg-card px-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15";
 
 function Field({ id, label, className, children }: { id: string; label: string; className?: string; children: ReactNode }) {
   return (
@@ -716,7 +716,7 @@ export function RegisterForm() {
           </p>
           {state.error && (
             <p
-              className="rounded-xs border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+              className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
               role="alert"
             >
               {state.error}

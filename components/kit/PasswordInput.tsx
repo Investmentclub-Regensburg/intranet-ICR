@@ -59,7 +59,7 @@ export const PasswordInput = React.forwardRef<
         aria-label={visible ? "Passwort verbergen" : "Passwort anzeigen"}
         aria-pressed={visible}
         title={visible ? "Passwort verbergen" : "Passwort anzeigen"}
-        className="absolute top-1/2 right-1 z-10 flex size-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-xs text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        className="absolute top-1/2 right-1 z-10 flex size-10 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/40"
       >
         {visible ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
       </button>

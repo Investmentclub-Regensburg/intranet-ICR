@@ -72,7 +72,7 @@ export default async function WhatsAppPage() {
                   <p className="text-[0.9375rem] text-muted-foreground">Updates und Austausch im Verein.</p>
                 </div>
               </div>
-              <p className="rounded-xs border border-border bg-background px-3 py-2 text-sm break-all text-muted-foreground select-all">
+              <p className="rounded-lg border border-border bg-background px-3 py-2 text-sm break-all text-muted-foreground select-all">
                 {inviteUrl}
               </p>
               <Button asChild size="lg" className="w-full sm:w-auto">

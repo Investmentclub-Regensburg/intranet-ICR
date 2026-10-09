@@ -513,7 +513,7 @@ export function EventWizard({
                     maxLength={5000}
                     aria-label="Beschreibung"
                     placeholder="Wer spricht, was erwartet die Teilnehmenden, was sollten sie mitbringen …"
-                    className="flex w-full rounded-xs border border-input bg-card px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm"
+                    className="flex w-full rounded-lg border border-input bg-card px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm"
                   />
                   <WizardNav onBack={back}>
                     <SkipButton
