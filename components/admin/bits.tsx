@@ -55,8 +55,8 @@ export function FilterChips<K extends string>({
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
               active
-                ? "border-primary bg-primary text-primary-foreground shadow-brand"
-                : "border-input bg-card text-muted-foreground hover:border-primary/35 hover:text-foreground",
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
             {o.label}

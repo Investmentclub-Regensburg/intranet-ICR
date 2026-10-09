@@ -41,7 +41,7 @@ export function Segmented<K extends string>({
       role={radio ? "radiogroup" : "group"}
       aria-label={ariaLabel}
       className={cn(
-        "flex rounded-xs border border-border bg-card p-0.5",
+        "flex rounded-lg border border-border bg-card p-0.5",
         fill ? "w-full" : "w-fit",
         className,
       )}
@@ -60,7 +60,7 @@ export function Segmented<K extends string>({
             onClick={() => onChange(o.key)}
             whileTap={{ scale: 0.95 }}
             className={cn(
-              "relative flex items-center justify-center gap-1.5 rounded-[2px] px-3 py-1.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              "relative flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
               fill && "flex-1",
               active ? "text-white" : "text-muted-foreground hover:text-foreground",
             )}
@@ -69,7 +69,7 @@ export function Segmented<K extends string>({
               <motion.span
                 layoutId={layoutId}
                 // Gewählt: einfarbig Primär-Rot (Verlauf nur für Navi, Tab, Fortschritt).
-                className="absolute inset-0 rounded-[2px] bg-primary shadow-brand"
+                className="absolute inset-0 rounded-md bg-primary shadow-[0_1px_2px_rgb(0_0_0/0.12)]"
                 transition={{ type: "spring", stiffness: 500, damping: 40 }}
               />
             )}

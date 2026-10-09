@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { IconLink } from "@/components/kit/IconButton";
 import { cn } from "@/lib/utils";
@@ -55,10 +56,8 @@ export function CalendarNav({ year, month, currentYear, currentMonth }: Props) {
           href={monthHref(currentYear, currentMonth)}
           aria-current={isCurrent ? "date" : undefined}
           className={cn(
-            "inline-flex h-9 items-center rounded-xs border px-3 text-sm font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-            isCurrent
-              ? "pointer-events-none border-transparent text-muted-foreground"
-              : "border-input bg-card text-foreground hover:border-primary/35 hover:bg-accent",
+            buttonVariants({ variant: isCurrent ? "ghost" : "outline" }),
+            isCurrent && "pointer-events-none text-muted-foreground",
           )}
         >
           Heute

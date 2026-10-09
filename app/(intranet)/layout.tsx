@@ -27,7 +27,7 @@ export default async function IntranetLayout({
         {/* Tastatur: erst der Sprung zum Inhalt, dann die Navigation. */}
         <a
           href="#inhalt"
-          className="sr-only z-[60] rounded-xs bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+          className="sr-only z-[60] rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
         >
           Zum Inhalt springen
         </a>

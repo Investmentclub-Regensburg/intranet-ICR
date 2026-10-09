@@ -1,0 +1,4 @@
+# Geheimnisse: für Cursor-KI (Chat, Agent, Tab, Indexierung) gesperrt.
+# Die Vorlage ohne Werte bleibt lesbar.
+.env*
+!.env.example
