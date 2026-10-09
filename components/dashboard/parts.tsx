@@ -5,9 +5,9 @@ import { cn } from "@/lib/utils";
 
 // Kleine Bausteine der Übersicht. Ohne Hooks, daher in Server- und Client-Komponenten nutzbar.
 
-/** Kachel-Grundlook wie components/kit/Tile (Website-Karten: rund, Rand line, Hover-Schatten). */
+/** Kachel-Grundlook wie components/kit/Tile (rund, Rand line, Hover: dunklerer Rand + neutraler Schatten). */
 export const DASH_TILE =
-  "group relative rounded-2xl border border-border bg-card text-card-foreground transition-[border-color,box-shadow] duration-300 hover:border-primary/30 hover:shadow-card";
+  "group relative rounded-2xl border border-border bg-card text-card-foreground transition-[border-color,box-shadow] duration-300 hover:border-[#d3cdcd] hover:shadow-glow";
 
 export const DASH_FOCUS = "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40";
 

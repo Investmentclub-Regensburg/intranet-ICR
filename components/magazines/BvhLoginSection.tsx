@@ -97,7 +97,7 @@ export function BvhLoginSection({ initialStatus }: { initialStatus: BvhLoginStat
       className="rounded-2xl border border-border bg-card p-5 sm:p-8"
     >
       <div className="flex items-start gap-4">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-primary">
+        <span className="tile-icon size-11 rounded-xl">
           <Newspaper className="size-5" aria-hidden />
         </span>
         <div className="min-w-0 space-y-2">

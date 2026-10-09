@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Download, ExternalLink, FileText } from "lucide-react";
-import { AreaHeader, VEREIN_TABS } from "@/components/area/AreaHeader";
+import { AreaHeader } from "@/components/area/AreaHeader";
+import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
 import { Reveal } from "@/components/kit/Reveal";
 import { Button } from "@/components/ui/button";
 
@@ -17,11 +18,11 @@ const SATZUNG_PDF = "/dokumente/vereinssatzung.pdf";
 export default function SatzungPage() {
   return (
     <div className="space-y-8">
-      <AreaHeader title="Verein" tabs={VEREIN_TABS} layoutId="tabs-verein" ariaLabel="Bereiche des Vereins" />
+      <AreaHeader area="Verein" sections={VEREIN_SECTIONS} />
 
       <Reveal as="section" aria-labelledby="satzung-titel" className="max-w-3xl">
         <div className="flex flex-col gap-6 rounded-2xl border border-border bg-card p-5 sm:flex-row sm:items-center sm:p-8">
-          <span className="flex size-14 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-primary">
+          <span className="tile-icon size-12 rounded-xl">
             <FileText className="size-6" aria-hidden />
           </span>
           <div className="min-w-0 flex-1 space-y-1.5">

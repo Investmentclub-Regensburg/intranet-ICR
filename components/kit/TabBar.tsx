@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
+import { activeTabKey } from "@/components/layout/nav-sections";
 import { cn } from "@/lib/utils";
 
 // Zentrierte Tab-Leiste, ersetzt die Seitenüberschrift (Muster Tenant-Dashboard,
@@ -41,29 +42,7 @@ export type TabItem = {
   count?: number;
 };
 
-function matchLength(pathname: string, item: TabItem): number {
-  const paths = [item.href, ...(item.match ?? [])].filter((p): p is string => Boolean(p));
-  let best = -1;
-  for (const p of paths) {
-    const hit = item.exact ? pathname === p : pathname === p || pathname.startsWith(p.endsWith("/") ? p : p + "/");
-    if (hit && p.length > best) best = p.length;
-  }
-  return best;
-}
-
-/** Aktiver Routen-Tab: längster passender Pfad, sonst null. */
-export function activeTabKey(pathname: string, items: TabItem[]): string | null {
-  let key: string | null = null;
-  let best = -1;
-  for (const item of items) {
-    const len = matchLength(pathname, item);
-    if (len > best) {
-      best = len;
-      key = item.key;
-    }
-  }
-  return best >= 0 ? key : null;
-}
+export { activeTabKey };
 
 export function TabBar({
   items,

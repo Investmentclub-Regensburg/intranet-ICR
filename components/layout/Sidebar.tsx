@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
@@ -22,6 +22,15 @@ import { SidebarNavIcon } from "@/components/layout/SidebarNavIcon";
 import { navItemVariants } from "@/components/layout/nav-icon-motion";
 import { IcrLogo } from "@/components/brand/IcrLogo";
 import { IconButton } from "@/components/kit/IconButton";
+import {
+  EVENT_SECTIONS,
+  VERWALTUNG_SECTIONS,
+  VEREIN_SECTIONS,
+  activeTabKey,
+  sectionsForRole,
+  type SubNavItem,
+} from "@/components/layout/nav-sections";
+import { PROFILE_TABS } from "@/components/profile/tabs";
 import { cn } from "@/lib/utils";
 
 type Profile = {
@@ -37,8 +46,10 @@ type NavItem = {
   icon: LucideIcon;
   /** Animiertes Icon aus SidebarNavIcon (Schlüssel = alter Pfad), Standard: href. */
   iconKey?: string;
-  /** Weitere Pfade (Präfix), auf denen der Eintrag aktiv ist (Bereiche mit TabBar). */
+  /** Weitere Pfade (Präfix), auf denen der Eintrag aktiv ist (Bereiche mit Unterseiten). */
   match?: string[];
+  /** Unterseiten; klappen unter dem Eintrag auf, solange der Bereich aktiv ist. */
+  children?: SubNavItem[];
   allowedRoles: string[];
 };
 
@@ -55,9 +66,10 @@ const ALL_ROLES = ["member", "admin", "board", "alumni"];
 
 // Struktur UX-Umbau (Hannes 2026-10-08, ux-umbau-brief.md): fünf Bereiche für alle,
 // darunter abgesetzt die Verwaltung (nur admin/board wie bisher). „Mein Profil“
-// steht nicht in der Liste, sondern ist die Nutzerzeile unten (Hannes). Bereiche mit
-// Unterseiten tragen oben eine TabBar; der Navi-Eintrag ist auf allen ihren Pfaden
-// aktiv. URLs bleiben unverändert.
+// steht nicht in der Liste, sondern ist die Nutzerzeile unten (Hannes). Die Sidebar ist
+// die einzige Navigation: Unterseiten eines Bereichs klappen unter dem aktiven Eintrag
+// auf (components/layout/nav-sections.ts), die Seiten tragen keine eigene Tab-Leiste.
+// URLs bleiben unverändert.
 //   Veranstaltungen = /events (Liste) + /calendar (Kalender) + /events/[id]
 //   Verein          = /whatsapp (öffnet zuerst, Hannes) + /members (+ /members/satzung) + /board-members
 //   Verwaltung      = /admin* + /insights (Insights-Tab nur board, regelt die TabBar)
@@ -71,6 +83,7 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/events",
         icon: PartyPopper,
         match: ["/calendar"],
+        children: EVENT_SECTIONS,
         allowedRoles: ALL_ROLES,
       },
       { name: "Schwarzes Brett", href: "/news", icon: Bell, allowedRoles: ALL_ROLES },
@@ -81,6 +94,7 @@ const NAV_GROUPS: NavGroup[] = [
         icon: Users,
         iconKey: "/members",
         match: ["/members", "/board-members"],
+        children: VEREIN_SECTIONS,
         allowedRoles: ALL_ROLES,
       },
     ],
@@ -94,6 +108,7 @@ const NAV_GROUPS: NavGroup[] = [
         href: "/admin",
         icon: Settings,
         match: ["/insights"],
+        children: VERWALTUNG_SECTIONS,
         allowedRoles: ["admin", "board"],
       },
     ],
@@ -128,6 +143,93 @@ function getInitials(vorname: string, nachname: string) {
 }
 
 const drawerEase = [0.22, 1, 0.36, 1] as const;
+const highlightSpring = { type: "spring", stiffness: 500, damping: 42 } as const;
+
+/**
+ * Aktive Fläche: neutrales Grau mit feiner Kante und Hauch Schatten, gleitet per
+ * layoutId zwischen allen Einträgen (Bereiche, Unterseiten). Kein Verlauf; Rot nur
+ * am Icon bzw. am Aufzählungspunkt.
+ */
+function ActiveHighlight({ layoutId }: { layoutId: string }) {
+  return (
+    <motion.span
+      layoutId={layoutId}
+      className="absolute inset-0 rounded-lg bg-[#efebeb] shadow-[0_1px_2px_rgba(17,17,17,0.06)] ring-1 ring-black/[0.05] ring-inset"
+      transition={highlightSpring}
+    />
+  );
+}
+
+/**
+ * Aufgeklappte Unterseiten eines Bereichs: eingerückt bis unter den Text des
+ * Bereichs, je ein Aufzählungspunkt; der aktive Eintrag trägt die graue Fläche und
+ * einen roten Punkt.
+ */
+function SubNav({
+  idPrefix,
+  items,
+  activeKey,
+  onNavigate,
+}: {
+  idPrefix: string;
+  items: { key: string; label: string; href: string }[];
+  activeKey: string | null;
+  onNavigate?: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: "auto", opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.3, ease: drawerEase }}
+      className="overflow-hidden"
+    >
+      <ul className="mt-0.5 mb-1.5 ml-7 space-y-px">
+        {items.map((sub) => {
+          const active = sub.key === activeKey;
+          return (
+            <li key={sub.key}>
+              <Link
+                href={sub.href}
+                onClick={onNavigate}
+                scroll={false}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "relative flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[0.8125rem] transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                  active
+                    ? "font-semibold text-sidebar-foreground"
+                    : "text-sidebar-muted hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
+                )}
+              >
+                {active && <ActiveHighlight layoutId={`${idPrefix}-nav-active`} />}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "relative size-1.5 shrink-0 rounded-full transition-colors",
+                    active ? "bg-primary" : "bg-sidebar-muted/45",
+                  )}
+                />
+                <span className="relative truncate">{sub.label}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </motion.div>
+  );
+}
+
+/** Bereiche von „Mein Profil“ (?tab=…), aufgeklappt über der Nutzerzeile. */
+function ProfileSubNav({ idPrefix, onNavigate }: { idPrefix: string; onNavigate?: () => void }) {
+  const tab = useSearchParams().get("tab");
+  const items = PROFILE_TABS.map((t) => ({
+    key: t.key,
+    label: t.label,
+    href: t.key === "ueberblick" ? "/profile" : `/profile?tab=${t.key}`,
+  }));
+  const activeKey = items.some((i) => i.key === tab) ? tab : "ueberblick";
+  return <SubNav idPrefix={idPrefix} items={items} activeKey={activeKey} onNavigate={onNavigate} />;
+}
 
 export function Sidebar({ profile }: { profile: Profile }) {
   const pathname = usePathname();
@@ -204,7 +306,12 @@ export function Sidebar({ profile }: { profile: Profile }) {
 
   const groups = NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => item.allowedRoles.includes(profile.rolle)),
+    items: group.items
+      .filter((item) => item.allowedRoles.includes(profile.rolle))
+      .map((item) => ({
+        ...item,
+        children: item.children ? sectionsForRole(item.children, profile.rolle) : undefined,
+      })),
   })).filter((group) => group.items.length > 0);
   const initials = getInitials(profile.vorname, profile.nachname);
   const roleLabel = ROLE_LABELS[profile.rolle] ?? profile.rolle;
@@ -231,6 +338,9 @@ export function Sidebar({ profile }: { profile: Profile }) {
             <ul className="space-y-0.5">
               {group.items.map((item, ii) => {
                 const active = isActivePath(pathname, item);
+                // Mit Unterseiten trägt die aktive Unterseite die Fläche, der Bereich nur Text und Icon.
+                const activeChild = active && item.children ? activeTabKey(pathname, item.children) : null;
+                const filled = active && !activeChild;
                 const showUnread = item.href === "/news" && hasUnread && !active;
                 const i = groupOffsets[gi] + ii;
 
@@ -249,11 +359,11 @@ export function Sidebar({ profile }: { profile: Profile }) {
                       className="block rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
                     >
                       <motion.div
-                        // whileTap macht das Element sonst selbst fokussierbar (zweiter Tab-Stopp im Link).
-                        tabIndex={-1}
+                        // Icon-Animation nur beim Hover. Kein whileTap: Nach dem Klick kehrte
+                        // framer-motion in den Hover-Zustand zurück und spielte die Animation
+                        // erneut ab; das Eindrücken macht jetzt CSS (active:scale).
                         initial="rest"
                         whileHover="hover"
-                        whileTap={{ scale: 0.98 }}
                         variants={navItemVariants}
                         onHoverStart={() => setHoveredHref(item.href)}
                         onHoverEnd={() =>
@@ -262,19 +372,11 @@ export function Sidebar({ profile }: { profile: Profile }) {
                           )
                         }
                         className={cn(
-                          "group relative flex items-center gap-3 overflow-visible rounded-lg px-3 py-2 text-sm transition-colors duration-200",
-                          !active && "hover:bg-sidebar-accent/60",
+                          "group relative flex items-center gap-3 overflow-visible rounded-lg px-3 py-2 text-sm transition-[background-color,scale] duration-200 active:scale-[0.98]",
+                          !filled && "hover:bg-sidebar-accent/70",
                         )}
                       >
-                        {active && (
-                          // Aktive Fläche im Markenverlauf gleitet zwischen den Einträgen
-                          // (layoutId, Muster TabBar). Verlauf nur für Markierungen.
-                          <motion.span
-                            layoutId={`${idPrefix}-nav-active`}
-                            className="bg-brand-gradient absolute inset-0 rounded-lg shadow-brand"
-                            transition={{ type: "spring", stiffness: 500, damping: 42 }}
-                          />
-                        )}
+                        {filled && <ActiveHighlight layoutId={`${idPrefix}-nav-active`} />}
                         <span className="relative">
                           <SidebarNavIcon
                             href={item.iconKey ?? item.href}
@@ -287,7 +389,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
                           className={cn(
                             "relative truncate",
                             active
-                              ? "font-semibold text-white"
+                              ? "font-semibold text-sidebar-foreground"
                               : "font-medium text-sidebar-muted group-hover:text-sidebar-foreground",
                           )}
                         >
@@ -302,6 +404,16 @@ export function Sidebar({ profile }: { profile: Profile }) {
                         )}
                       </motion.div>
                     </Link>
+                    <AnimatePresence initial={false}>
+                      {active && item.children && item.children.length > 1 && (
+                        <SubNav
+                          idPrefix={idPrefix}
+                          items={item.children}
+                          activeKey={activeChild}
+                          onNavigate={onNavigate}
+                        />
+                      )}
+                    </AnimatePresence>
                   </motion.li>
                 );
               })}
@@ -313,57 +425,40 @@ export function Sidebar({ profile }: { profile: Profile }) {
   };
 
   // Nutzerzeile = Zugang zu „Mein Profil“ (kein eigener Navi-Eintrag). Auf /profile
-  // trägt sie die aktive Fläche im Markenverlauf; dieselbe layoutId wie die Navi, die
-  // Fläche gleitet also von der Liste hierher. Hover/Fokus: Fläche + Pfeil nach rechts.
+  // klappen darüber die Bereiche des Profils auf; die aktive Fläche (dieselbe layoutId
+  // wie die Navi) gleitet von der Liste dorthin. Hover/Fokus: Fläche + Pfeil nach rechts.
   const renderFooter = (idPrefix: string, onNavigate?: () => void) => (
     <div className="border-t border-sidebar-border pt-4">
+      <AnimatePresence initial={false}>
+        {profileActive && (
+          <Suspense key="profile-sub" fallback={null}>
+            <ProfileSubNav idPrefix={idPrefix} onNavigate={onNavigate} />
+          </Suspense>
+        )}
+      </AnimatePresence>
       <div className="flex items-center gap-1">
         <Link
           href="/profile"
           onClick={onNavigate}
           title="Mein Profil"
           aria-current={profileActive ? "page" : undefined}
-          className={cn(
-            "group relative flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-2 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-            !profileActive && "hover:bg-sidebar-accent focus-visible:bg-sidebar-accent",
-          )}
+          className="group relative flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-2 transition-colors outline-none hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:ring-[3px] focus-visible:ring-ring/40"
         >
-          {profileActive && (
-            <motion.span
-              layoutId={`${idPrefix}-nav-active`}
-              className="bg-brand-gradient absolute inset-0 rounded-lg shadow-brand"
-              transition={{ type: "spring", stiffness: 500, damping: 42 }}
-            />
-          )}
-          <span
-            className={cn(
-              "relative flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-transform duration-300 group-hover:scale-105",
-              profileActive ? "bg-white text-primary" : "bg-primary text-primary-foreground",
-            )}
-          >
+          <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground transition-transform duration-300 group-hover:scale-105">
             {initials}
           </span>
           <span className="relative min-w-0 flex-1 leading-tight">
             <span className="sr-only">Mein Profil: </span>
-            <span
-              className={cn(
-                "block truncate text-sm font-semibold",
-                profileActive ? "text-white" : "text-sidebar-foreground",
-              )}
-            >
+            <span className="block truncate text-sm font-semibold text-sidebar-foreground">
               {profile.vorname} {profile.nachname}
             </span>
-            <span className={cn("block truncate text-xs", profileActive ? "text-white/80" : "text-sidebar-muted")}>
-              {roleLabel}
-            </span>
+            <span className="block truncate text-xs text-sidebar-muted">{roleLabel}</span>
           </span>
           <ChevronRight
             aria-hidden
             className={cn(
               "relative -ml-1 size-3.5 shrink-0 transition-[translate,color,opacity] duration-300 motion-safe:group-hover:translate-x-0.5 motion-safe:group-focus-visible:translate-x-0.5",
-              profileActive
-                ? "text-white"
-                : "text-sidebar-muted opacity-60 group-hover:text-primary group-hover:opacity-100 group-focus-visible:text-primary group-focus-visible:opacity-100",
+              "text-sidebar-muted opacity-60 group-hover:text-sidebar-foreground group-hover:opacity-100 group-focus-visible:text-sidebar-foreground group-focus-visible:opacity-100",
             )}
           />
         </Link>

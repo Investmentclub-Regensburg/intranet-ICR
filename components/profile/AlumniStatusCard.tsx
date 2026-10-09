@@ -75,7 +75,7 @@ export function AlumniStatusCard({ rolle, info }: { rolle: string; info: AlumniI
   return (
     <section className="flex h-full flex-col gap-4 rounded-2xl border border-border bg-card p-5 sm:flex-row sm:items-center sm:gap-5 sm:p-6">
       <div className="flex min-w-0 flex-1 items-start gap-4">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-primary">
+        <span className="tile-icon size-11 rounded-xl">
           <GraduationCap className="size-5" aria-hidden />
         </span>
         <div className="min-w-0 space-y-1">

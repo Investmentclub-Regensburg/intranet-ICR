@@ -51,7 +51,6 @@ export function EventsHub({ view, upcoming, past, memberCount, canCustomMail, st
     <>
       {view === "choose" ? (
         <div className="space-y-6">
-          <h1 className="sr-only">Veranstaltungen</h1>
           <ChoiceTiles
             ariaLabel="Was möchtest du tun?"
             items={[

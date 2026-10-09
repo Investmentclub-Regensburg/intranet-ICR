@@ -34,7 +34,6 @@ export function BvhRequests({ requests, canExport }: { requests: BvhLoginRequest
 
   return (
     <div className="space-y-6">
-      <h1 className="sr-only">BVH-Anfragen</h1>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented
           layoutId="bvh-filter"

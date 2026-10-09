@@ -85,7 +85,7 @@ export function AdminStatTiles({ counts }: { counts: AdminCounts }) {
                 className={cn(DASH_TILE, DASH_FOCUS, "flex h-full flex-col gap-5 p-4 sm:p-5")}
               >
                 <span className="flex items-start justify-between">
-                  <span className="flex size-9 items-center justify-center rounded-xl bg-brand-tint text-primary">
+                  <span className="tile-icon">
                     <Icon className="size-[1.125rem]" aria-hidden />
                   </span>
                   <ArrowUpRight

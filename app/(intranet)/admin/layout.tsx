@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
-import { VerwaltungTabs } from "@/components/admin/VerwaltungTabs";
+import { VerwaltungHeader } from "@/components/admin/VerwaltungHeader";
 
 export default async function AdminLayout({
   children,
@@ -18,10 +18,10 @@ export default async function AdminLayout({
     redirect("/dashboard");
   }
 
-  // Bereich „Verwaltung“: TabBar statt Seitenüberschrift (Muster Tenant-Dashboard).
+  // Bereich „Verwaltung“: Unterseiten in der Sidebar, hier nur der Seitenkopf.
   return (
     <div className="space-y-8">
-      <VerwaltungTabs role={role} />
+      <VerwaltungHeader role={role} />
       <div>{children}</div>
     </div>
   );

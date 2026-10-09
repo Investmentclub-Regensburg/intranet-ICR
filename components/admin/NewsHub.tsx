@@ -55,7 +55,6 @@ export function NewsHub({
     <>
       {view === "choose" ? (
         <div className="space-y-6">
-          <h1 className="sr-only">Schwarzes Brett</h1>
           <ChoiceTiles
             ariaLabel="Was möchtest du tun?"
             items={[

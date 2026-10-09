@@ -31,9 +31,9 @@ export function QuickAccessTiles({ magazinesMeta, monthLabel }: { magazinesMeta:
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
               className={cn(DASH_TILE, DASH_FOCUS, "flex h-full flex-col gap-3 p-4")}
             >
-              <span className="flex size-10 items-center justify-center rounded-xl bg-brand-tint text-primary">
+              <span className="tile-icon">
                 <Icon
-                  className="size-5 transition-transform duration-500 ease-out group-hover:-rotate-8 group-hover:scale-110"
+                  className="size-[1.125rem] transition-transform duration-500 ease-out group-hover:-rotate-8 group-hover:scale-110"
                   aria-hidden
                 />
               </span>

@@ -10,7 +10,6 @@ export default async function AdminFinancePage() {
 
   return (
     <div>
-      <h1 className="sr-only">Finanzen</h1>
       {canExport ? (
         <FinanceExport />
       ) : (

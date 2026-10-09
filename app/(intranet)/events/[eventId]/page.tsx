@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 function Fact({ Icon, label, children }: { Icon: LucideIcon; label: string; children: ReactNode }) {
   return (
     <div className="flex gap-3">
-      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-tint text-primary">
+      <span className="tile-icon mt-0.5 size-8">
         <Icon className="size-4" aria-hidden />
       </span>
       <div className="min-w-0">

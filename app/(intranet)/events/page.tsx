@@ -2,7 +2,8 @@ import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { roleOf } from "@/utils/supabase/guards";
 import { getEvents } from "./actions";
 import { AdminShortcut } from "@/components/area/AdminShortcut";
-import { AreaHeader, EVENT_TABS } from "@/components/area/AreaHeader";
+import { AreaHeader } from "@/components/area/AreaHeader";
+import { EVENT_SECTIONS } from "@/components/layout/nav-sections";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { TileGrid } from "@/components/kit/Tile";
 import { EventTile, PastEventTile } from "@/components/events/EventTile";
@@ -20,11 +21,9 @@ export default async function EventsPage() {
   return (
     <div className="space-y-10">
       <AreaHeader
-        title="Veranstaltungen"
+        area="Veranstaltungen"
         intro="Hier findest du alle Termine zum Hingehen."
-        tabs={EVENT_TABS}
-        layoutId="tabs-veranstaltungen"
-        ariaLabel="Ansicht der Veranstaltungen"
+        sections={EVENT_SECTIONS}
         action={
           canManage ? (
             <AdminShortcut href="/admin/events" label="Neue Veranstaltung" />

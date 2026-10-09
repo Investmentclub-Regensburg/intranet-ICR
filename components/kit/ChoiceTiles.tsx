@@ -45,8 +45,8 @@ function ChoiceInner({ item }: { item: ChoiceItem }) {
     <>
       <span
         className={cn(
-          "flex size-12 items-center justify-center rounded-xl",
-          item.primary ? "bg-primary text-primary-foreground shadow-brand" : "bg-brand-tint text-primary",
+          "tile-icon size-12 rounded-xl",
+          item.primary && "border-primary bg-primary text-primary-foreground",
         )}
       >
         <Icon className="size-6" aria-hidden />

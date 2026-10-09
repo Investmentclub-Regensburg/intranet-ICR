@@ -26,8 +26,6 @@ export default async function AdminTasksPage() {
 
   return (
     <div className="space-y-12">
-      <h1 className="sr-only">Aufgaben</h1>
-
       {/* Handy: zwei Zähler nebeneinander, damit die Anträge schnell sichtbar sind. */}
       <TileGrid columns={4} className="grid-cols-2 gap-3 sm:gap-4">
         <CounterTile

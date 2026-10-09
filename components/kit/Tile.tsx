@@ -9,9 +9,9 @@ import { cn } from "@/lib/utils";
 // gleich hohe Kacheln, die ganze Fläche ist klickbar. Look der Website-Karten
 // (rounded-2xl, Rand line).
 //
-// Hover-Glow (Hannes 2026-10-08): Klickbare Kacheln bekommen beim Hover und bei
-// Tastatur-Fokus einen Rahmen im dunkelroten Verlauf, leichten roten Schein und
-// heben sich minimal; Schrift und Inhalt bleiben gleich. Umgesetzt als CSS-Klasse
+// Hover (Feedback 2026-10-09, ruhig statt roter Schein): Klickbare Kacheln bekommen
+// beim Hover und bei Tastatur-Fokus einen etwas dunkleren Rand und einen weichen
+// neutralen Schatten und heben sich um 1 px. Icons neutral (.tile-icon). Umgesetzt als CSS-Klasse
 // `.tile-glow` (globals.css), die auch eigene Kacheln anderer Bereiche nutzen können.
 // Die letzte Kachel kann eine gestrichelte Plus-Kachel sein (Neu anlegen).
 //
@@ -61,7 +61,7 @@ const TILE_STATIC = "border border-border";
 const TILE_INTERACTIVE = "tile-glow cursor-pointer outline-none";
 
 type TileProps = {
-  /** Lucide-Icon oben links in getönter Fläche. */
+  /** Lucide-Icon oben links (neutral, .tile-icon). */
   Icon?: LucideIcon;
   title: ReactNode;
   /** Kurze Meta-Zeile unter dem Titel (Datum, Ort, Status …). */
@@ -84,8 +84,8 @@ function TileInner({ Icon, title, meta, actions, footer, children }: TileProps) 
       {(Icon || actions) && (
         <div className="flex items-start justify-between gap-3">
           {Icon ? (
-            <span className="flex size-10 items-center justify-center rounded-xl bg-brand-tint text-primary">
-              <Icon className="size-5" aria-hidden />
+            <span className="tile-icon">
+              <Icon className="size-[1.125rem]" aria-hidden />
             </span>
           ) : (
             <span />
@@ -149,7 +149,7 @@ export function Tile(props: TileProps) {
   );
 }
 
-/** Gestrichelte Plus-Kachel am Ende eines Rasters: neu anlegen. Hover wie .tile-glow (Rand rot statt Verlauf). */
+/** Gestrichelte Plus-Kachel am Ende eines Rasters: neu anlegen. Hover wie .tile-glow (neutral). */
 export function AddTile({
   label,
   onClick,
@@ -164,8 +164,8 @@ export function AddTile({
   const cls = cn(
     "flex min-h-[8.5rem] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-input text-muted-foreground outline-none",
     "transition-[border-color,color,background-color,box-shadow,translate,scale] duration-[450ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
-    "hover:border-primary/70 hover:bg-card hover:text-primary hover:shadow-glow motion-safe:hover:-translate-y-0.5",
-    "focus-visible:border-primary/70 focus-visible:bg-card focus-visible:text-primary focus-visible:shadow-glow motion-safe:focus-visible:-translate-y-0.5",
+    "hover:border-ink-mute/50 hover:bg-card hover:text-foreground hover:shadow-glow motion-safe:hover:-translate-y-px",
+    "focus-visible:border-ink-mute/50 focus-visible:bg-card focus-visible:text-foreground focus-visible:shadow-glow motion-safe:focus-visible:-translate-y-px",
     "active:scale-[0.99]",
     className,
   );

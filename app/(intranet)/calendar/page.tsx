@@ -5,7 +5,8 @@ import { getEvents, type EventListItem } from "@/app/(intranet)/events/actions";
 import { eventPath, formatTimeRange, isEventPast, shortTime } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { AdminShortcut } from "@/components/area/AdminShortcut";
-import { AreaHeader, EVENT_TABS } from "@/components/area/AreaHeader";
+import { AreaHeader } from "@/components/area/AreaHeader";
+import { EVENT_SECTIONS } from "@/components/layout/nav-sections";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { CalendarNav, monthName } from "@/components/calendar/CalendarNav";
 import { eventDateParts, todayInBerlin } from "@/components/events/event-display";
@@ -65,11 +66,9 @@ export default async function CalendarPage({
   return (
     <div className="space-y-10">
       <AreaHeader
-        title="Veranstaltungen"
+        area="Veranstaltungen"
         intro="Hier findest du alle Termine zum Hingehen."
-        tabs={EVENT_TABS}
-        layoutId="tabs-veranstaltungen"
-        ariaLabel="Ansicht der Veranstaltungen"
+        sections={EVENT_SECTIONS}
         action={
           canManage ? (
             <AdminShortcut href="/admin/events" label="Neue Veranstaltung" />

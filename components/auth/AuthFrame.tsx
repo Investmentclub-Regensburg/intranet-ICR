@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils";
 /**
  * Rahmen der öffentlichen Seiten (Login, Registrierung, Passwort): links die
  * Markenfläche mit dem roten Aurora-Verlauf (rote Mitte, dunkler Rand, ohne Korn),
- * rechts das Formular auf Weiß. Ab xl etwa zwei Drittel Fläche, ein Drittel
- * Formular (Hannes 2026-10-08); mobil wird die Fläche zum Band über dem Formular.
- * Überschrift im oberen Drittel, oben links Logo + „Intranet“.
+ * rechts das Formular auf Weiß. Ab lg teilen sich beide die Breite 50/50, das
+ * Formular steht mittig in der rechten Hälfte (Login und Registrierung gleich).
+ * Mobil wird die Fläche zum Band über dem Formular.
+ * Überschrift im oberen Drittel, oben links das Logo.
  */
 export function AuthFrame({
   stage,
@@ -23,28 +24,29 @@ export function AuthFrame({
   width?: "narrow" | "wide";
 }) {
   return (
-    <div className="min-h-dvh bg-card lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(26rem,1fr)] xl:grid-cols-[minmax(0,2fr)_minmax(27rem,1fr)]">
+    <div className="min-h-dvh bg-card lg:grid lg:grid-cols-2">
       <aside className="relative isolate overflow-hidden text-white lg:sticky lg:top-0 lg:h-dvh">
         <Aurora />
         {/* Stier als Wasserzeichen, ganz sichtbar. Deckkraft auf dem ganzen SVG (nicht
             über eine halbtransparente Füllfarbe), sonst wird die Überlappung von Stier
             und Kurslinie am Hals doppelt hell. */}
         <IcrLogo className="pointer-events-none absolute right-[7%] bottom-[6%] z-0 hidden h-auto w-[60%] text-white opacity-[0.07] lg:block xl:w-[46%]" />
-        <div className="relative z-10 flex h-full flex-col px-5 pt-5 pb-7 sm:px-10 lg:overflow-y-auto lg:px-12 lg:pt-10 lg:pb-12 xl:px-20">
+        {/* Bei niedrigen Fenstern wird die Fläche scrollbar; die Leiste selbst bleibt
+            unsichtbar, sonst steht sie als dunkler Streifen genau an der Naht. */}
+        <div className="relative z-10 flex h-full flex-col px-5 pt-5 pb-7 [scrollbar-width:none] sm:px-10 lg:overflow-y-auto lg:px-12 [&::-webkit-scrollbar]:hidden lg:pt-10 lg:pb-12 xl:px-20">
           <Link
             href="/login"
             className="group flex w-fit items-center gap-3 rounded-xs outline-none focus-visible:ring-[3px] focus-visible:ring-white/50"
             aria-label="ICR Intranet, zum Login"
           >
             <IcrLogo className="h-9 w-auto text-white transition-[rotate,scale] duration-700 ease-out group-hover:-rotate-6 group-hover:scale-[1.06] lg:h-11" />
-            <span className="text-base font-semibold tracking-[-0.01em]">Intranet</span>
           </Link>
           <div className="mt-6 lg:mt-[14vh] xl:max-w-2xl">{stage}</div>
         </div>
       </aside>
 
-      <main className="flex justify-center px-5 py-10 sm:px-10 lg:items-start lg:px-10 lg:pt-[calc(14vh+5.5rem)] lg:pb-16 xl:px-12">
-        <div className={cn("w-full", width === "wide" ? "max-w-xl" : "max-w-sm")}>{children}</div>
+      <main className="flex justify-center px-5 py-10 sm:px-10 lg:items-start lg:px-12 lg:pt-[calc(14vh+5.5rem)] lg:pb-16 xl:px-16">
+        <div className={cn("w-full", width === "wide" ? "max-w-2xl" : "max-w-md")}>{children}</div>
       </main>
     </div>
   );

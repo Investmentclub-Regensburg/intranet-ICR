@@ -1,4 +1,5 @@
-import { AreaHeader, VEREIN_TABS } from "@/components/area/AreaHeader";
+import { AreaHeader } from "@/components/area/AreaHeader";
+import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
 import { staggerProps } from "@/components/kit/Reveal";
 import { PersonCard } from "@/components/board/PersonCard";
 import { VORSTAND, VORSTAND_AMTSZEIT } from "@/components/board/vorstand";
@@ -6,15 +7,13 @@ import { VORSTAND, VORSTAND_AMTSZEIT } from "@/components/board/vorstand";
 export default function BoardMembersPage() {
   return (
     <div className="space-y-8">
-      <AreaHeader title="Verein" tabs={VEREIN_TABS} layoutId="tabs-verein" ariaLabel="Bereiche des Vereins" />
+      <AreaHeader area="Verein" sections={VEREIN_SECTIONS} />
 
       <section aria-labelledby="vorstand-titel" className="space-y-8">
-        <div className="space-y-3">
-          <p className="eyebrow">Amtszeit {VORSTAND_AMTSZEIT}</p>
-          <h2 id="vorstand-titel" className="text-2xl font-bold tracking-[-0.03em] text-foreground sm:text-[1.75rem]">
-            Vorstand
-          </h2>
-        </div>
+        {/* Titel „Vorstand“ steht im Seitenkopf; hier nur die Amtszeit. */}
+        <p id="vorstand-titel" className="eyebrow">
+          Amtszeit {VORSTAND_AMTSZEIT}
+        </p>
         <ul
           {...staggerProps()}
           className="grid grid-cols-2 gap-x-4 gap-y-10 sm:grid-cols-3 sm:gap-x-6 xl:grid-cols-5"

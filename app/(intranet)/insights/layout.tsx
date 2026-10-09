@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
-import { VerwaltungTabs } from "@/components/admin/VerwaltungTabs";
+import { VerwaltungHeader } from "@/components/admin/VerwaltungHeader";
 
-// Insights gehört zum Bereich „Verwaltung“ (gleiche TabBar wie /admin/**). Die Rollen-
+// Insights gehört zum Bereich „Verwaltung“ (gleicher Kopf wie /admin/**). Die Rollen-
 // prüfung (nur board) bleibt auf der Seite selbst.
 export default async function InsightsLayout({ children }: { children: ReactNode }) {
   const { profile } = await getCachedAuth();
@@ -12,7 +12,7 @@ export default async function InsightsLayout({ children }: { children: ReactNode
 
   return (
     <div className="space-y-8">
-      <VerwaltungTabs role={role} />
+      <VerwaltungHeader role={role} />
       <div>{children}</div>
     </div>
   );

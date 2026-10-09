@@ -19,7 +19,6 @@ export default async function InsightsPage() {
   if (!data) {
     return (
       <div>
-        <h1 className="sr-only">Insights</h1>
         <EmptyState title="Keine Daten verfügbar." />
       </div>
     );
@@ -36,8 +35,6 @@ export default async function InsightsPage() {
 
   return (
     <div className="space-y-10">
-      <h1 className="sr-only">Insights</h1>
-
       <KeyMetricsCards
         cashflow={cashflow}
         activeTotal={data.activeTotal}

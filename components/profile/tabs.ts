@@ -1,4 +1,4 @@
-/** Tabs von „Mein Profil“ (Server und Client). Der Schlüssel steht als ?tab=… in der Adresse. */
+/** Bereiche von „Mein Profil“ (Server, Client, Sidebar). Der Schlüssel steht als ?tab=… in der Adresse. */
 export const PROFILE_TABS = [
   { key: "ueberblick", label: "Überblick" },
   { key: "daten", label: "Meine Daten" },

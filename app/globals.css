@@ -12,7 +12,8 @@
   Immer hell wie die Website (kein Dunkelmodus, Entscheidung Hannes
   2026-10-08): weiße/hellgraue Flächen, Text in Ink-Tönen, Rot nur als Akzent.
   Der Markenverlauf (.bg-brand-gradient) markiert ausschließlich Ausgewähltes:
-  aktiver Navi-Punkt, aktiver Tab, Wizard-Fortschritt, gewählte Kacheln.
+  aktiver Tab, Wizard-Fortschritt, gewählte Kacheln. Der aktive Navi-Punkt ist
+  dezent grau mit rotem Icon (Feedback 2026-10-09).
   Bedienelemente (Buttons, Felder) eckig, Karten und Bilder rund.
   Kein Punktmuster, keine Körnung, keine dunklen Flächen.
 */
@@ -37,8 +38,8 @@
   --shadow-soft: 0 4px 24px -10px rgba(17, 17, 17, 0.12);
   --shadow-card: 0 18px 48px -22px rgba(62, 3, 7, 0.28);
   --shadow-brand: 0 10px 24px -12px rgba(163, 1, 1, 0.65);
-  /* Hover-Glow klickbarer Kacheln (.tile-glow): leichter roter Schein. */
-  --shadow-glow: 0 0 0 1px rgba(163, 1, 1, 0.14), 0 16px 36px -16px rgba(163, 1, 1, 0.45), 0 0 28px -8px rgba(178, 56, 56, 0.38);
+  /* Hover klickbarer Kacheln (.tile-glow): neutraler, weicher Schatten. */
+  --shadow-glow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 12px 28px -14px rgba(17, 17, 17, 0.18);
 
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
@@ -94,7 +95,7 @@
 }
 
 /* Website-Palette: bg #f9f9f9, surface #fff, ink #111, line #e7e4e4, Logo-Rot.
-   Hover-Flächen neutral grau (accent), Rosé nur hinter Icons (brand-tint). */
+   Hover-Flächen neutral grau (accent), Rosé (brand-tint) nur noch für Hinweise und Kalender. */
 :root {
   --radius: 0.5rem;
   --background: #f9f9f9;
@@ -187,6 +188,12 @@
 
   .eyebrow-light {
     @apply text-white/80;
+  }
+
+  /* Icon einer Kachel/Karte: neutral, feiner Rand statt roséfarbener Fläche
+     (Feedback 2026-10-09). Größe über size-* am Element überschreibbar. */
+  .tile-icon {
+    @apply flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-ink-soft;
   }
 }
 
@@ -531,15 +538,15 @@
   }
 }
 
-/* ---------- Hover-Glow klickbarer Kacheln (.tile-glow) ----------
-   Hannes 2026-10-08: Beim Hover (und bei Tastatur-Fokus) bekommt die Kachel
-   einen Rahmen im dunkelroten Verlauf (Bordeaux → Logo-Rot → helles Rot) und
-   einen leichten roten Schein, sie hebt sich minimal. Schrift und Inhalt
-   bleiben unverändert.
+/* ---------- Hover klickbarer Kacheln (.tile-glow) ----------
+   Ruhig wie ein modernes SaaS (Feedback 2026-10-09, löst den roten Schein von
+   2026-10-08 ab): Beim Hover (und bei Tastatur-Fokus) wird der Rand etwas
+   dunkler, ein weicher neutraler Schatten kommt dazu, die Kachel hebt sich um
+   1 px. Kein Rot; Rot bleibt Akzent für Ausgewähltes und Aktionen.
    Technik: transparenter Rand, zwei Hintergrund-Ebenen (Fläche auf der
-   padding-box, Verlauf auf der border-box). Die drei Verlaufsfarben sind
-   registrierte Properties (@property), so blendet der Rahmen weich von Grau in
-   den Verlauf über (ohne @property-Unterstützung springt er nur um).
+   padding-box, Rahmenfarbe auf der border-box). Die Rahmenfarben sind
+   registrierte Properties (@property), so blendet der Rahmen weich über
+   (ohne @property-Unterstützung springt er nur um).
    Funktioniert auch mit overflow-hidden (Bilder in der Kachel).
 
    Einsatz: Tile, AddTile und ChoiceTiles nutzen das schon. Für eigene Kacheln
@@ -568,6 +575,7 @@
 @layer components {
   .tile-glow {
     --tile-surface: var(--card);
+    --tile-edge: #d3cdcd;
     --glow-a: var(--border);
     --glow-b: var(--border);
     --glow-c: var(--border);
@@ -589,21 +597,22 @@
 
   .tile-glow:focus-visible,
   .tile-glow:has(:focus-visible) {
-    --glow-a: var(--color-bordeaux);
-    --glow-b: var(--color-brand);
-    --glow-c: var(--color-brand-soft);
+    --glow-a: var(--tile-edge);
+    --glow-b: var(--tile-edge);
+    --glow-c: var(--tile-edge);
     box-shadow: var(--shadow-glow);
-    translate: 0 -2px;
-    outline: none;
+    translate: 0 -1px;
+    outline: 2px solid color-mix(in srgb, var(--ring) 35%, transparent);
+    outline-offset: 2px;
   }
 
   @media (hover: hover) {
     .tile-glow:hover {
-      --glow-a: var(--color-bordeaux);
-      --glow-b: var(--color-brand);
-      --glow-c: var(--color-brand-soft);
+      --glow-a: var(--tile-edge);
+      --glow-b: var(--tile-edge);
+      --glow-c: var(--tile-edge);
       box-shadow: var(--shadow-glow);
-      translate: 0 -2px;
+      translate: 0 -1px;
     }
   }
 

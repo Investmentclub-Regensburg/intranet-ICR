@@ -1,14 +1,13 @@
-import { AreaHeader, VEREIN_TABS } from "@/components/area/AreaHeader";
+import { AreaHeader } from "@/components/area/AreaHeader";
+import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
 import { MembersSearch } from "@/components/members/MembersSearch";
 
 export default function MembersPage() {
   return (
     <div className="space-y-8">
       <AreaHeader
-        title="Verein"
-        tabs={VEREIN_TABS}
-        layoutId="tabs-verein"
-        ariaLabel="Bereiche des Vereins"
+        area="Verein"
+        sections={VEREIN_SECTIONS}
       />
       <MembersSearch />
     </div>

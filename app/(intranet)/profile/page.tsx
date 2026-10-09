@@ -1,7 +1,5 @@
 import { redirect } from "next/navigation";
-import { PageHeader } from "@/components/kit/PageHeader";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
-import { isProfileTab } from "@/components/profile/tabs";
 import { ProfileOverview } from "@/components/profile/ProfileOverview";
 import { ProfileDataSections } from "@/components/profile/ProfileDataSections";
 import { MyEventsSection } from "@/components/profile/MyEventsSection";
@@ -17,11 +15,7 @@ import {
 } from "@/components/profile/profile-format";
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
 
-export default async function ProfilePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string | string[] }>;
-}) {
+export default async function ProfilePage() {
   const { user } = await getCachedAuth();
 
   if (!user) {
@@ -29,7 +23,7 @@ export default async function ProfilePage({
   }
 
   const supabase = await getCachedSupabase();
-  const [{ data: profile }, { data: alumniRow }, params] = await Promise.all([
+  const [{ data: profile }, { data: alumniRow }] = await Promise.all([
     supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
     // Letzter eigener Alumni-Antrag mit Datum (RLS: nur eigene Zeilen), für die Status-Kachel.
     supabase
@@ -39,7 +33,6 @@ export default async function ProfilePage({
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    searchParams,
   ]);
 
   const p = {
@@ -75,14 +68,9 @@ export default async function ProfilePage({
   // Alumni zahlen keinen Beitrag (der Finanzexport überspringt sie).
   const paysFee = p.rolle !== "alumni" && p.status !== "alumni";
 
-  const tabParam = Array.isArray(params.tab) ? params.tab[0] : params.tab;
-  const initialTab = isProfileTab(tabParam) ? tabParam : "ueberblick";
-
   return (
     <div className="space-y-6 sm:space-y-8">
-      <PageHeader title="Mein Profil" />
       <ProfileTabs
-        initialTab={initialTab}
         panels={{
           ueberblick: (
             <ProfileOverview

@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import QRCode from "qrcode";
 import { ExternalLink, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { AreaHeader, VEREIN_TABS } from "@/components/area/AreaHeader";
+import { AreaHeader } from "@/components/area/AreaHeader";
+import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { isActiveMemberProfile } from "@/lib/profile-status";
 
@@ -38,10 +39,8 @@ export default async function WhatsAppPage() {
   return (
     <div className="space-y-8">
       <AreaHeader
-        title="Verein"
-        tabs={VEREIN_TABS}
-        layoutId="tabs-verein"
-        ariaLabel="Bereiche des Vereins"
+        area="Verein"
+        sections={VEREIN_SECTIONS}
       />
 
       <section
@@ -63,7 +62,7 @@ export default async function WhatsAppPage() {
             </div>
             <div className="order-1 min-w-0 space-y-5 md:order-2">
               <div className="flex items-start gap-4">
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-primary">
+                <span className="tile-icon size-11 rounded-xl">
                   <MessageCircle className="size-5" aria-hidden />
                 </span>
                 <div className="min-w-0 space-y-1">
