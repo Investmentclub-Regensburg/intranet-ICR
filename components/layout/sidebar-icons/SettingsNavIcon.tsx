@@ -38,9 +38,9 @@ export function SettingsNavIcon({
         rotate: [0, 360],
         scale: [1, 1.12, 1],
         transition: {
-          rotate: { duration: 0.55, ease: "easeInOut" },
+          rotate: { duration: 0.63, ease: "easeInOut" },
           scale: {
-            duration: 0.55,
+            duration: 0.63,
             ease: "easeInOut",
             times: [0, 0.45, 1],
           },

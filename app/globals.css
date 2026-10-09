@@ -2,20 +2,25 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* Dunkel nur unter html.dark und nicht in einem hell erzwungenen Bereich (.light,
+   z. B. die Auth-Seiten). */
+@custom-variant dark (&:is(.dark *):not(:is(.light, .light *)));
 
 /*
   ICR Design-System (übernommen von der Website investmentclubregensburg.com,
   clients/kunde-investmentclub-regensburg/src/styles/global.css).
   Eine Schrift (Inter Variable, self-hosted über @fontsource-variable/inter,
   importiert in app/layout.tsx), eine Markenfarbe: das Logo-Rot #a30101.
-  Immer hell wie die Website (kein Dunkelmodus, Entscheidung Hannes
-  2026-10-08): weiße/hellgraue Flächen, Text in Ink-Tönen, Rot nur als Akzent.
+  Hell wie die Website: weiße/hellgraue Flächen, Text in Ink-Tönen, Rot nur als
+  Akzent. Dunkelmodus (wieder da seit 2026-10-09, Umschalter in der Sidebar):
+  neutrales Grau statt Night/Bordeaux, Rot weiterhin nur als Akzent (Hannes
+  2026-10-08: „kein Mischmasch aus Schwarz und Rot“). Die Auth-Seiten bleiben
+  immer hell (Klasse .light in AuthFrame).
   Der Markenverlauf (.bg-brand-gradient) markiert ausschließlich Ausgewähltes:
   aktiver Tab, Wizard-Fortschritt, gewählte Kacheln. Der aktive Navi-Punkt ist
   dezent grau mit rotem Icon (Feedback 2026-10-09).
   Bedienelemente (Buttons, Felder) eckig, Karten und Bilder rund.
-  Kein Punktmuster, keine Körnung, keine dunklen Flächen.
+  Kein Punktmuster, keine Körnung.
 */
 
 /* Marken-Konstanten (Logo, Verlauf, Auth-Seiten). */
@@ -81,6 +86,9 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* Aktive Fläche in der Sidebar, Kante gehoverter Kacheln. */
+  --color-sidebar-active: var(--sidebar-active);
+  --color-edge: var(--edge);
 
   /* Radius 0.5rem → rounded-2xl = 1rem wie die Karten der Website.
      rounded-xs = 3px: eckige Buttons und Felder (Website .btn). */
@@ -96,7 +104,8 @@
 
 /* Website-Palette: bg #f9f9f9, surface #fff, ink #111, line #e7e4e4, Logo-Rot.
    Hover-Flächen neutral grau (accent), Rosé (brand-tint) nur noch für Hinweise und Kalender. */
-:root {
+:root,
+.light {
   --radius: 0.5rem;
   --background: #f9f9f9;
   --foreground: #111111;
@@ -130,6 +139,79 @@
   --sidebar-accent-foreground: #111111;
   --sidebar-border: #e7e4e4;
   --sidebar-ring: #a30101;
+  --sidebar-active: #efebeb;
+  --edge: #d3cdcd;
+  color-scheme: light;
+}
+
+/* Hell erzwungen innerhalb von html.dark: auch die Marken-Konstanten zurück. */
+.light {
+  --color-brand: #a30101;
+  --color-brand-hover: #870101;
+  --color-brand-soft: #b23838;
+  --color-brand-tint: #f7ecec;
+  --color-ink: #111111;
+  --color-ink-soft: #424242;
+  --color-ink-mute: #6b6b6b;
+  --color-line: #e7e4e4;
+  --color-success: #1e7a46;
+  --color-success-tint: #e8f4ec;
+  --shadow-soft: 0 4px 24px -10px rgba(17, 17, 17, 0.12);
+  --shadow-glow: 0 1px 2px rgba(17, 17, 17, 0.04), 0 12px 28px -14px rgba(17, 17, 17, 0.18);
+}
+
+/* Dunkel: neutrales Grau (kein Night/Bordeaux), Rot aufgehellt.
+   Kontraste: Weiß auf --primary 4,6:1; --color-brand als Text auf dem Grund 4,7:1;
+   --muted-foreground auf Karten 6,3:1. */
+.dark {
+  --background: #111111;
+  --foreground: #ededed;
+  --card: #191919;
+  --card-foreground: #ededed;
+  --popover: #1c1c1c;
+  --popover-foreground: #ededed;
+  --primary: #d63c3c;
+  --primary-foreground: #ffffff;
+  --secondary: #222222;
+  --secondary-foreground: #ededed;
+  --muted: #202020;
+  --muted-foreground: #9b9b9b;
+  --accent: #232323;
+  --accent-foreground: #ededed;
+  --destructive: #f05252;
+  --border: #2a2a2a;
+  --input: #363636;
+  --ring: #e04848;
+  --chart-1: #d63c3c;
+  --chart-2: #f0a3a3;
+  --chart-3: #9e2a2a;
+  --chart-4: #8f8f8f;
+  --chart-5: #5a2626;
+  --sidebar: #151515;
+  --sidebar-foreground: #ededed;
+  --sidebar-muted: #9b9b9b;
+  --sidebar-primary: #e04848;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #222222;
+  --sidebar-accent-foreground: #ededed;
+  --sidebar-border: #262626;
+  --sidebar-ring: #e04848;
+  --sidebar-active: #262626;
+  --edge: #3d3d3d;
+  color-scheme: dark;
+
+  --color-brand: #e04848;
+  --color-brand-hover: #ea6262;
+  --color-brand-soft: #e86a6a;
+  --color-brand-tint: #2a1818;
+  --color-ink: #ededed;
+  --color-ink-soft: #c4c4c4;
+  --color-ink-mute: #9b9b9b;
+  --color-line: #2a2a2a;
+  --color-success: #4cc27e;
+  --color-success-tint: #142a1d;
+  --shadow-soft: 0 4px 24px -10px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 28px -14px rgba(0, 0, 0, 0.7);
 }
 
 @layer base {
@@ -139,7 +221,6 @@
 
   html {
     interpolate-size: allow-keywords;
-    color-scheme: light;
   }
 
   body {
@@ -575,7 +656,7 @@
 @layer components {
   .tile-glow {
     --tile-surface: var(--card);
-    --tile-edge: #d3cdcd;
+    --tile-edge: var(--edge);
     --glow-a: var(--border);
     --glow-b: var(--border);
     --glow-c: var(--border);
@@ -585,7 +666,7 @@
     background:
       linear-gradient(var(--tile-surface), var(--tile-surface)) padding-box,
       linear-gradient(135deg, var(--glow-a) 0%, var(--glow-b) 55%, var(--glow-c) 100%) border-box;
-    box-shadow: 0 1px 2px rgba(17, 17, 17, 0.03);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.03);
     transition:
       --glow-a 0.45s var(--ease-out),
       --glow-b 0.45s var(--ease-out),

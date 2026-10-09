@@ -35,7 +35,7 @@ export function PersonCard({ name, rolle, bereich, linkedin, foto, fokus, zoom =
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`${name} auf LinkedIn`}
-          className="absolute right-3 bottom-3 flex size-10 items-center justify-center rounded-full bg-white/90 text-ink shadow-sm backdrop-blur transition-colors outline-none hover:bg-brand hover:text-white focus-visible:ring-[3px] focus-visible:ring-ring/40"
+          className="absolute right-3 bottom-3 flex size-10 items-center justify-center rounded-full bg-card/90 text-ink shadow-sm backdrop-blur transition-colors outline-none hover:bg-brand hover:text-white focus-visible:ring-[3px] focus-visible:ring-ring/40"
         >
           <Linkedin className="size-[17px]" aria-hidden />
         </a>

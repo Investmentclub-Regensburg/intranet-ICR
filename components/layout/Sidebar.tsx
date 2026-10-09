@@ -19,6 +19,7 @@ import {
 import { LogoutButton } from "@/app/dashboard/logout-button";
 import { checkUnreadNews, markNewsAsRead } from "@/app/(intranet)/news/actions";
 import { SidebarNavIcon } from "@/components/layout/SidebarNavIcon";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { navItemVariants } from "@/components/layout/nav-icon-motion";
 import { IcrLogo } from "@/components/brand/IcrLogo";
 import { IconButton } from "@/components/kit/IconButton";
@@ -143,6 +144,9 @@ function getInitials(vorname: string, nachname: string) {
 }
 
 const drawerEase = [0.22, 1, 0.36, 1] as const;
+/** Icon-Animation erst nach kurzem Verweilen auf der Zeile: wirkt ruhiger, und beim
+ *  schnellen Überfahren der Liste springt nicht jedes Icon an. */
+const NAV_HOVER_INTENT_MS = 100;
 const highlightSpring = { type: "spring", stiffness: 500, damping: 42 } as const;
 
 /**
@@ -154,7 +158,7 @@ function ActiveHighlight({ layoutId }: { layoutId: string }) {
   return (
     <motion.span
       layoutId={layoutId}
-      className="absolute inset-0 rounded-lg bg-[#efebeb] shadow-[0_1px_2px_rgba(17,17,17,0.06)] ring-1 ring-black/[0.05] ring-inset"
+      className="absolute inset-0 rounded-lg bg-sidebar-active shadow-[0_1px_2px_rgb(0_0_0/0.06)] ring-1 ring-sidebar-foreground/[0.06] ring-inset"
       transition={highlightSpring}
     />
   );
@@ -237,9 +241,24 @@ export function Sidebar({ profile }: { profile: Profile }) {
   const [hasUnread, setHasUnread] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [hoveredHref, setHoveredHref] = useState<string | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastReadRef = useRef(profile.letzterNewsAufruf);
   const lastCheckAtRef = useRef<number | null>(null);
   const prevPathnameRef = useRef<string | null>(null);
+
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = null;
+  };
+  const startRowHover = (href: string) => {
+    clearHoverTimer();
+    hoverTimerRef.current = setTimeout(() => setHoveredHref(href), NAV_HOVER_INTENT_MS);
+  };
+  const endRowHover = (href: string) => {
+    clearHoverTimer();
+    setHoveredHref((current) => (current === href ? null : current));
+  };
+  useEffect(() => clearHoverTimer, []);
 
   // Server-Profil (z. B. nach markNewsAsRead + refresh) mit Ref abgleichen
   useEffect(() => {
@@ -359,18 +378,15 @@ export function Sidebar({ profile }: { profile: Profile }) {
                       className="block rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
                     >
                       <motion.div
-                        // Icon-Animation nur beim Hover. Kein whileTap: Nach dem Klick kehrte
-                        // framer-motion in den Hover-Zustand zurück und spielte die Animation
-                        // erneut ab; das Eindrücken macht jetzt CSS (active:scale).
+                        // Icon-Animation nur beim Hover, mit kurzer Verzögerung (NAV_HOVER_INTENT_MS).
+                        // Kein whileTap: Nach dem Klick kehrte framer-motion in den Hover-Zustand
+                        // zurück und spielte die Animation erneut ab; das Eindrücken macht CSS
+                        // (active:scale).
                         initial="rest"
-                        whileHover="hover"
+                        animate={hoveredHref === item.href ? "hover" : "rest"}
                         variants={navItemVariants}
-                        onHoverStart={() => setHoveredHref(item.href)}
-                        onHoverEnd={() =>
-                          setHoveredHref((current) =>
-                            current === item.href ? null : current
-                          )
-                        }
+                        onHoverStart={() => startRowHover(item.href)}
+                        onHoverEnd={() => endRowHover(item.href)}
                         className={cn(
                           "group relative flex items-center gap-3 overflow-visible rounded-lg px-3 py-2 text-sm transition-[background-color,scale] duration-200 active:scale-[0.98]",
                           !filled && "hover:bg-sidebar-accent/70",
@@ -428,7 +444,8 @@ export function Sidebar({ profile }: { profile: Profile }) {
   // klappen darüber die Bereiche des Profils auf; die aktive Fläche (dieselbe layoutId
   // wie die Navi) gleitet von der Liste dorthin. Hover/Fokus: Fläche + Pfeil nach rechts.
   const renderFooter = (idPrefix: string, onNavigate?: () => void) => (
-    <div className="border-t border-sidebar-border pt-4">
+    <div className="border-t border-sidebar-border pt-3">
+      <ThemeToggle layoutId={`${idPrefix}-theme`} className="mb-2" />
       <AnimatePresence initial={false}>
         {profileActive && (
           <Suspense key="profile-sub" fallback={null}>
@@ -512,7 +529,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.25 }}
               onClick={() => setIsOpen(false)}
-              className="absolute inset-0 bg-ink/20 backdrop-blur-md"
+              className="absolute inset-0 bg-ink/20 dark:bg-black/50 backdrop-blur-md"
             />
             <motion.aside
               role="dialog"

@@ -23,7 +23,7 @@ function randomDayExcept(current: number): number {
 }
 
 const dayNumberTransition = {
-  duration: 0.42,
+  duration: 0.48,
   ease: [0.33, 1, 0.68, 1] as const,
 };
 

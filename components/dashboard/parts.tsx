@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 /** Kachel-Grundlook wie components/kit/Tile (rund, Rand line, Hover: dunklerer Rand + neutraler Schatten). */
 export const DASH_TILE =
-  "group relative rounded-2xl border border-border bg-card text-card-foreground transition-[border-color,box-shadow] duration-300 hover:border-[#d3cdcd] hover:shadow-glow";
+  "group relative rounded-2xl border border-border bg-card text-card-foreground transition-[border-color,box-shadow] duration-300 hover:border-edge hover:shadow-glow";
 
 export const DASH_FOCUS = "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40";
 

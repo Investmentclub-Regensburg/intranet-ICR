@@ -60,12 +60,12 @@ export function BoardMembersNavIcon({
       void figureControls.start({
         y: [0, -2, -0.5, 0],
         scale: [1, 1.035, 1.01, 1],
-        transition: { duration: 0.95, ease: "easeOut" },
+        transition: { duration: 1.09, ease: "easeOut" },
       });
 
       void headControls.start({
         rotate: [0, 4, 1, 4, 0],
-        transition: { duration: 0.9, ease: "easeInOut" },
+        transition: { duration: 1.03, ease: "easeInOut" },
       });
 
       await armControls.start({
@@ -75,9 +75,9 @@ export function BoardMembersNavIcon({
         rotate: -4,
         transition: {
           visibility: { duration: 0 },
-          opacity: { duration: 0.06 },
-          pathLength: { duration: 0.34, ease: [0.33, 1, 0.68, 1] },
-          rotate: { duration: 0.34, ease: [0.33, 1, 0.68, 1] },
+          opacity: { duration: 0.07 },
+          pathLength: { duration: 0.39, ease: [0.33, 1, 0.68, 1] },
+          rotate: { duration: 0.39, ease: [0.33, 1, 0.68, 1] },
         },
       });
 
@@ -85,7 +85,7 @@ export function BoardMembersNavIcon({
 
       await armControls.start({
         rotate: [-5, -30, -3, -24, -5],
-        transition: { duration: 0.56, ease: "easeInOut" },
+        transition: { duration: 0.64, ease: "easeInOut" },
       });
 
       if (cancelled) return;
@@ -96,10 +96,10 @@ export function BoardMembersNavIcon({
         opacity: 0,
         visibility: "hidden",
         transition: {
-          pathLength: { duration: 0.36, ease: [0.4, 0, 0.2, 1] },
-          rotate: { duration: 0.36, ease: [0.4, 0, 0.2, 1] },
-          opacity: { duration: 0.1, delay: 0.26 },
-          visibility: { delay: 0.36, duration: 0 },
+          pathLength: { duration: 0.41, ease: [0.4, 0, 0.2, 1] },
+          rotate: { duration: 0.41, ease: [0.4, 0, 0.2, 1] },
+          opacity: { duration: 0.11, delay: 0.3 },
+          visibility: { delay: 0.41, duration: 0 },
         },
       });
     }

@@ -24,7 +24,7 @@ export function AuthFrame({
   width?: "narrow" | "wide";
 }) {
   return (
-    <div className="min-h-dvh bg-card lg:grid lg:grid-cols-2">
+    <div className="light min-h-dvh bg-card text-foreground lg:grid lg:grid-cols-2">
       <aside className="relative isolate overflow-hidden text-white lg:sticky lg:top-0 lg:h-dvh">
         <Aurora />
         {/* Stier als Wasserzeichen, ganz sichtbar. Deckkraft auf dem ganzen SVG (nicht

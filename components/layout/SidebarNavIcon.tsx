@@ -11,6 +11,7 @@ import {
 } from "@/components/layout/nav-icon-motion";
 import { InsightsNavIcon } from "@/components/layout/sidebar-icons/InsightsNavIcon";
 import { BoardMembersNavIcon } from "@/components/layout/sidebar-icons/BoardMembersNavIcon";
+import { DashboardNavIcon } from "@/components/layout/sidebar-icons/DashboardNavIcon";
 import { CalendarNavIcon } from "@/components/layout/sidebar-icons/CalendarNavIcon";
 import { EventsNavIcon } from "@/components/layout/sidebar-icons/EventsNavIcon";
 import { MembersNavIcon } from "@/components/layout/sidebar-icons/MembersNavIcon";
@@ -29,6 +30,7 @@ type CustomNavIconProps = {
 };
 
 const CUSTOM_NAV_ICONS: Record<string, ComponentType<CustomNavIconProps>> = {
+  "/dashboard": DashboardNavIcon,
   "/events": EventsNavIcon,
   "/insights": InsightsNavIcon,
   "/members": MembersNavIcon,
