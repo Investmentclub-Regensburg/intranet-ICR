@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, GraduationCap, KeyRound, UserPlus, type LucideIcon } from "lucide-react";
+import { CalendarDays, GraduationCap, KeyRound, type LucideIcon } from "lucide-react";
 import { Tile } from "@/components/kit/Tile";
 import { StatusPill } from "@/components/kit/StatusCard";
 
@@ -11,7 +11,6 @@ import { StatusPill } from "@/components/kit/StatusCard";
 // nicht an Client-Komponenten geben).
 
 const ICONS = {
-  "user-plus": UserPlus,
   "graduation-cap": GraduationCap,
   "key-round": KeyRound,
   "calendar-days": CalendarDays,

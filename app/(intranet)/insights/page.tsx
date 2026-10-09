@@ -27,7 +27,6 @@ export default async function InsightsPage() {
   const status = [
     { name: "Aktiv", value: data.statusCounts.active },
     { name: "Alumni", value: data.statusCounts.alumni },
-    { name: "Antrag offen", value: data.statusCounts.applicant },
     { name: "Ausgetreten", value: data.statusCounts.cancelled },
   ];
   const statusTotal = status.reduce((s, i) => s + i.value, 0);

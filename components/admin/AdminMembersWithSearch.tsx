@@ -10,7 +10,7 @@ import { statusGroup } from "./format";
 import type { AdminMemberRow } from "@/app/(intranet)/admin/members/actions";
 
 type RoleKey = "all" | "member" | "admin" | "board" | "alumni";
-type StatusKey = "all" | "active" | "applicant" | "cancelled";
+type StatusKey = "all" | "active" | "cancelled";
 
 type Props = {
   members: AdminMemberRow[];
@@ -22,7 +22,6 @@ export function AdminMembersWithSearch({ members, canEditRole }: Props) {
   const [role, setRole] = useState<RoleKey>("all");
   const [status, setStatus] = useState<StatusKey>("all");
 
-  const count = (pred: (m: AdminMemberRow) => boolean) => members.filter(pred).length;
 
   const roleOptions = useMemo(
     () =>
@@ -48,7 +47,6 @@ export function AdminMembersWithSearch({ members, canEditRole }: Props) {
         [
           ["all", "Alle"],
           ["active", "Aktiv"],
-          ["applicant", "Antrag offen"],
           ["cancelled", "Ausgetreten"],
         ] as const
       ).map(([key, label]) => ({
@@ -96,9 +94,6 @@ export function AdminMembersWithSearch({ members, canEditRole }: Props) {
 
       <p className="text-sm text-muted-foreground" aria-live="polite">
         {hasFilters ? `${filtered.length} von ${members.length} Einträgen` : `${members.length} Einträge`}
-        {count((m) => m.status === "applicant") > 0 && status !== "applicant" && (
-          <> · {count((m) => m.status === "applicant")} mit offenem Antrag</>
-        )}
       </p>
 
       {filtered.length === 0 ? (

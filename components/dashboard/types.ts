@@ -36,8 +36,6 @@ export type DashboardNewsItem = {
 
 /** Zählwerte für die Verwaltungszeile (nur admin/board). Keine Personendaten. */
 export type AdminCounts = {
-  /** Profile mit Status „applicant“ (Mitgliedsantrag offen). */
-  applicants: number;
   /** Alumni-Anträge mit Status „pending“. */
   alumniRequests: number;
   /** BVH-Anfragen, noch nicht abgehakt. */

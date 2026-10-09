@@ -235,7 +235,6 @@ export async function getAdminCounts(): Promise<AdminCounts | null> {
     return null;
   }
 
-  let applicants = 0;
   let activeMembers = 0;
   let newThisSemester = 0;
   for (const row of profilesRes.data ?? []) {
@@ -244,11 +243,7 @@ export async function getAdminCounts(): Promise<AdminCounts | null> {
     const role = String(raw["Rolle"] ?? "").trim().toLowerCase();
     const isAlumni = role === "alumni" || status === "alumni";
 
-    if (status === "applicant") {
-      applicants++;
-      continue;
-    }
-    if (status === "cancelled") continue;
+    if (status === "cancelled" || status === "applicant") continue;
     // „Aktiv“ wie in Insights: Status active, Alumni nicht mitgezählt.
     if (status === "active" && !isAlumni) activeMembers++;
     // Neuzugang: Antrag ab Semesterbeginn und freigegeben (nicht offen, nicht ausgetreten).
@@ -257,7 +252,6 @@ export async function getAdminCounts(): Promise<AdminCounts | null> {
   }
 
   return {
-    applicants,
     alumniRequests: alumniRes.count ?? 0,
     bvhRequests: bvhRes.count ?? 0,
     activeMembers,

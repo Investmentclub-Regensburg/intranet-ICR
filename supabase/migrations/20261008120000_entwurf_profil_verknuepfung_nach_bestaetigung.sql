@@ -22,7 +22,7 @@
 --     für unbekannte Adressen ein neues Profil angelegt – ein bestehendes Profil wird dann NICHT
 --     automatisch übernommen (Verknüpfung in dem Fall manuell durch den Vorstand).
 --   * Status neuer Profile über public.registrations_require_approval() (hier: false = wie bisher
---     'active'; siehe Entwurf 20261008120100 für die Freigabe durch den Vorstand).
+--     'active'; eine Freigabe durch den Vorstand ist nicht vorgesehen, Entwurf dazu entfernt).
 --   * Registrierungsdaten werden auf sinnvolle Längen gekürzt.
 --
 -- Vor der Ausführung prüfen:

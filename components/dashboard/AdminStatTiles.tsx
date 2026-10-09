@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { MotionConfig, motion } from "framer-motion";
-import { ArrowUpRight, GraduationCap, KeyRound, TrendingUp, UserPlus, Users, type LucideIcon } from "lucide-react";
+import { ArrowUpRight, GraduationCap, KeyRound, TrendingUp, Users, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DASH_FOCUS, DASH_TILE, TileIn } from "./parts";
 import type { AdminCounts } from "./types";
@@ -23,16 +23,6 @@ type StatItem = {
 /** Verwaltung (admin/board): Zahl groß, Bezeichnung, Link in den Admin-Bereich. */
 export function AdminStatTiles({ counts }: { counts: AdminCounts }) {
   const items: StatItem[] = [
-    {
-      key: "applicants",
-      value: counts.applicants,
-      label: "Mitgliedsanträge",
-      meta: "offen",
-      // Freigabe-Liste steht in der Verwaltung unter „Aufgaben“ (feat/ux-verwaltung)
-      href: "/admin#mitgliedsantraege",
-      Icon: UserPlus,
-      attention: true,
-    },
     {
       key: "alumni",
       value: counts.alumniRequests,
@@ -71,12 +61,11 @@ export function AdminStatTiles({ counts }: { counts: AdminCounts }) {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @xl:gap-4 @4xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 @xl:gap-4 @4xl:grid-cols-4">
         {items.map(({ key, value, label, meta, href, Icon, attention }, i) => {
           const hot = attention && value > 0;
           return (
-            // Fünfte Kachel füllt auf dem Handy (zwei Spalten) die letzte Zeile.
-            <TileIn key={key} index={i} className={i === items.length - 1 ? "col-span-2 @xl:col-span-1" : undefined}>
+            <TileIn key={key} index={i}>
               <MotionLink
                 href={href}
                 whileHover={{ y: -3 }}
