@@ -4,12 +4,15 @@ import { getEvents } from "@/app/(intranet)/events/actions";
 import { splitUpcomingPast } from "@/lib/events";
 import { CounterTile } from "@/components/admin/CounterTile";
 import { TileGrid } from "@/components/kit/Tile";
+import { TaskBoard } from "@/components/admin/TaskBoard";
+import { getBoardData } from "./tasks/actions";
 
 export default async function AdminTasksPage() {
-  const [alumni, bvh, events] = await Promise.all([
+  const [alumni, bvh, events, board] = await Promise.all([
     getAlumniRequests(),
     getBvhLoginRequests(),
     getEvents(),
+    getBoardData(),
   ]);
 
   const openAlumni = alumni.filter((r) => r.status === "pending").length;
@@ -30,6 +33,8 @@ export default async function AdminTasksPage() {
           tone="neutral"
         />
       </TileGrid>
+
+      <TaskBoard data={board} />
     </div>
   );
 }
