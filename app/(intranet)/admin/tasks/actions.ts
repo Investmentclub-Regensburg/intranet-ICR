@@ -55,6 +55,8 @@ const ARCHIVE_LIMIT = 100;
 const STATUSES: readonly TaskStatus[] = ["planned", "in_progress", "done"];
 const PRIORITIES: readonly TaskPriority[] = ["low", "normal", "high"];
 const MAX_ASSIGNEES = 20;
+const ASSIGNEES_FAILED =
+  "die Zuständigen konnten nicht gespeichert werden. Mehrere Zuständige gehen erst nach der Datenbank-Migration 20261011120000.";
 const BASE_COLUMNS =
   "id, title, description, status, priority, deadline, assignee_profile_id, created_by, created_at, completed_at, archived_at";
 const TASK_COLUMNS = `${BASE_COLUMNS}, board_task_assignees(profile_id)`;
@@ -214,6 +216,53 @@ async function saveAssignees(
   return !error;
 }
 
+/** Bisherige Zuständige einer Aufgabe (vor dem Speichern), für die Zuweisungs-Mail. */
+async function currentAssignees(admin: ReturnType<typeof createServiceClient>, taskId: string): Promise<string[]> {
+  const { data, error } = await admin.from("board_task_assignees").select("profile_id").eq("task_id", taskId);
+  if (!error) return (data ?? []).map((r) => String(r.profile_id));
+  const { data: task } = await admin.from("board_tasks").select("assignee_profile_id").eq("id", taskId).maybeSingle();
+  return task?.assignee_profile_id ? [String(task.assignee_profile_id)] : [];
+}
+
+/**
+ * Mail an neu zugeteilte Personen (Typ task_assigned, Versand über die Edge Function notify-board).
+ * Wer sich selbst einträgt, bekommt keine Mail. Fehler blockieren das Speichern nicht.
+ */
+async function notifyNewAssignees(
+  admin: ReturnType<typeof createServiceClient>,
+  actor: Record<string, unknown> | null,
+  taskId: string,
+  v: Extract<Valid, { ok: true }>,
+  previous: string[],
+) {
+  const actorId = actor?.id ? String(actor.id) : null;
+  const added = v.assigneeIds.filter((id) => !previous.includes(id) && id !== actorId);
+  if (added.length === 0) return;
+
+  const members = new Map((await loadMembers(admin)).map((m) => [m.id, m.name]));
+  const actorName = `${String(actor?.["Vorname"] ?? "").trim()} ${String(actor?.["Nachname"] ?? "").trim()}`.trim();
+  const description = String(v.row.description ?? "");
+  const { error } = await admin.from("notification_events").insert(
+    added.map((profileId) => ({
+      type: "task_assigned",
+      profile_id: profileId,
+      payload: {
+        task_id: taskId,
+        title: v.row.title,
+        description: description.length > 1500 ? `${description.slice(0, 1500).trimEnd()} …` : description,
+        deadline: v.row.deadline,
+        priority: v.row.priority,
+        status: v.row.status,
+        assignee_profile_id: profileId,
+        assigned_by_profile_id: actorId,
+        assigned_by_name: actorName || "Jemand aus dem Vorstand",
+        co_assignees: v.assigneeIds.filter((id) => id !== profileId).map((id) => members.get(id) ?? "Ehemalig"),
+      },
+    })),
+  );
+  if (error) console.error("notifyNewAssignees:", error.code ?? error.message);
+}
+
 /** Erledigte Aufgaben über DONE_VISIBLE hinaus (älteste zuerst) ins Archiv schieben. */
 async function trimDoneColumn(admin: ReturnType<typeof createServiceClient>) {
   const { data } = await admin
@@ -251,8 +300,9 @@ export async function createTask(input: TaskInput): Promise<{ error?: string }> 
   if (error || !created) return { error: "Aufgabe konnte nicht angelegt werden." };
   if (!(await saveAssignees(admin, String(created.id), v.assigneeIds))) {
     revalidatePath("/admin");
-    return { error: "Aufgabe angelegt, aber die Zuständigen konnten nicht gespeichert werden." };
+    return { error: `Aufgabe angelegt, aber ${ASSIGNEES_FAILED}` };
   }
+  await notifyNewAssignees(admin, auth.profile, String(created.id), v, []);
   if (input.status === "done") await trimDoneColumn(admin);
   revalidatePath("/admin");
   return {};
@@ -269,6 +319,7 @@ export async function updateTask(id: string, input: TaskInput): Promise<{ error?
   const { data: current } = await admin.from("board_tasks").select("status").eq("id", id).maybeSingle();
   if (!current) return { error: "Aufgabe nicht gefunden." };
   const statusChanged = current.status !== input.status;
+  const previous = await currentAssignees(admin, id);
 
   const { error } = await admin
     .from("board_tasks")
@@ -277,8 +328,9 @@ export async function updateTask(id: string, input: TaskInput): Promise<{ error?
   if (error) return { error: "Aufgabe konnte nicht gespeichert werden." };
   if (!(await saveAssignees(admin, id, v.assigneeIds))) {
     revalidatePath("/admin");
-    return { error: "Die Zuständigen konnten nicht gespeichert werden." };
+    return { error: `Gespeichert, aber ${ASSIGNEES_FAILED}` };
   }
+  await notifyNewAssignees(admin, auth.profile, id, v, previous);
   if (statusChanged && input.status === "done") await trimDoneColumn(admin);
   revalidatePath("/admin");
   return {};

@@ -14,6 +14,8 @@
 // in Resend-Batches à 100. Der Fortschritt steht in payload.sent_count, ein Retry setzt dort fort.
 // Events vom Typ task_deadline (Aufgaben-Board, täglich per pg_cron, ein Event je zuständiger
 // Person) gehen an diese Person (Adresse aus dem Profil zu payload.assignee_profile_id), Reply-To Vorstand.
+// Events vom Typ task_assigned (Aufgabe neu zugeteilt, von den Server Actions des Aufgaben-Boards)
+// gehen ebenso an payload.assignee_profile_id; Reply-To ist die Person, die zugeteilt hat.
 // Events vom Typ iban_changed gehen an den Vorstand (nur die letzten 4 Stellen der IBAN).
 //
 // Secrets (Dashboard → Edge Functions → Secrets oder `supabase secrets set`):
@@ -35,6 +37,7 @@ type EventType =
   | "alumni_decided"
   | "event_announcement"
   | "task_deadline"
+  | "task_assigned"
   | "iban_changed"
   | "test";
 
@@ -298,9 +301,10 @@ async function resolveMemberRecipient(
  */
 async function resolveAssigneeRecipient(
   supabase: ReturnType<typeof createClient>,
-  ev: NotificationEvent
+  ev: NotificationEvent,
+  field = "assignee_profile_id"
 ): Promise<MemberRecipient | null> {
-  const profileId = str(ev.payload?.assignee_profile_id);
+  const profileId = str(ev.payload?.[field]);
   if (!UUID_RE.test(profileId)) return null;
   const { data } = await supabase
     .from("profiles")
@@ -320,7 +324,7 @@ const STATUS_LABELS: Record<string, string> = { planned: "Geplant", in_progress:
 
 function buildMail(
   ev: NotificationEvent,
-  extra: { emailConfirmed?: boolean | null; recipient?: MemberRecipient | null }
+  extra: { emailConfirmed?: boolean | null; recipient?: MemberRecipient | null; replyTo?: string | null }
 ): Mail {
   const p = ev.payload ?? {};
   const name = fullName(p);
@@ -444,6 +448,47 @@ function buildMail(
         text: `${title}\n\n${intro}\n\n${r.text}`,
         to: recipient ? [recipient] : [],
         replyTo: TO_EMAILS[0],
+      };
+    }
+    case "task_assigned": {
+      const vorname = str(extra.recipient?.vorname) || "Hallo";
+      const recipient = extra.recipient?.email ?? "";
+      const taskTitle = str(p.title) || "Aufgabe";
+      const by = str(p.assigned_by_name) || "Jemand aus dem Vorstand";
+      const coAssignees = Array.isArray(p.co_assignees) ? p.co_assignees.map(str).filter(Boolean) : [];
+      const description = truncate(str(p.description), 1500);
+      const title = `Neue Aufgabe für dich: ${taskTitle}`;
+      const intro = `Hallo ${vorname}, ${by} hat dir im Aufgaben-Board eine Aufgabe zugeteilt.`;
+      const rows: Array<[string, string]> = [
+        ["Aufgabe", taskTitle],
+        ["Zugeteilt von", by],
+        ["Deadline", str(p.deadline) ? formatDate(p.deadline) : "Keine"],
+        ["Priorität", PRIORITY_LABELS[str(p.priority)] ?? str(p.priority)],
+        ["Status", STATUS_LABELS[str(p.status)] ?? str(p.status)],
+      ];
+      if (coAssignees.length > 0) rows.push(["Ebenfalls zuständig", coAssignees.join(", ")]);
+      const r = renderRows(rows);
+      const afterRowsHtml = description
+        ? `<p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#374151">${escapeHtml(description).replace(/\n/g, "<br />")}</p>`
+        : "";
+      const link = adminLink("/admin", "Aufgabe im Intranet öffnen");
+      const footer = "Automatische Benachrichtigung aus dem ICR Intranet. Bei Fragen antworte einfach auf diese Mail.";
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, link, { footer, afterRowsHtml }),
+        text: [
+          title,
+          "",
+          intro,
+          "",
+          r.text,
+          description ? `\nBeschreibung:\n${description}` : "",
+          link ? `\n${link.label}: ${link.href}` : "",
+          "",
+          footer,
+        ].join("\n"),
+        to: recipient ? [recipient] : [],
+        replyTo: extra.replyTo || TO_EMAILS[0],
       };
     }
     case "iban_changed": {
@@ -600,14 +645,19 @@ async function processEvents(
       const recipient =
         ev.type === "alumni_decided"
           ? await resolveMemberRecipient(supabase, ev)
-          : ev.type === "task_deadline"
+          : ev.type === "task_deadline" || ev.type === "task_assigned"
             ? await resolveAssigneeRecipient(supabase, ev)
             : null;
+      // Antworten auf die Zuweisungs-Mail gehen an die Person, die zugeteilt hat.
+      const replyTo =
+        ev.type === "task_assigned"
+          ? (await resolveAssigneeRecipient(supabase, ev, "assigned_by_profile_id"))?.email ?? null
+          : null;
 
       if (ev.type === "event_announcement") {
         await sendAnnouncement(supabase, ev);
       } else {
-        await sendViaResend(buildMail(ev, { emailConfirmed, recipient }));
+        await sendViaResend(buildMail(ev, { emailConfirmed, recipient, replyTo }));
       }
 
       await supabase

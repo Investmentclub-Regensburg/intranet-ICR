@@ -4,6 +4,8 @@
 --  * Bestehende Zuständige aus board_tasks.assignee_profile_id werden übernommen. Die Spalte bleibt
 --    vorerst bestehen (ältere App-Versionen lesen sie) und zeigt auf die erste zuständige Person.
 --  * enqueue_task_deadline_reminders(): eine Erinnerung je zuständiger Person.
+--  * Neuer Benachrichtigungstyp task_assigned: Mail an Personen, die einer Aufgabe neu zugeteilt
+--    werden (eingereiht von den Server Actions in app/(intranet)/admin/tasks/actions.ts).
 --
 -- Zugriff nur über Server Actions mit Service Role; RLS an, keine Policies.
 -- Idempotent: mehrfach ausführbar.
@@ -27,6 +29,13 @@ select t.id, t.assignee_profile_id
   from public.board_tasks t
  where t.assignee_profile_id is not null
 on conflict do nothing;
+
+alter table public.notification_events drop constraint if exists notification_events_type_check;
+alter table public.notification_events add constraint notification_events_type_check
+  check (type in (
+    'member_registered', 'member_cancelled', 'alumni_requested', 'alumni_decided',
+    'event_announcement', 'task_deadline', 'task_assigned', 'iban_changed', 'test'
+  ));
 
 comment on column public.board_tasks.assignee_profile_id is
   'Veraltet: erste zuständige Person. Maßgeblich ist public.board_task_assignees.';
