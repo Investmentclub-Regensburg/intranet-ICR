@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarClock,
+  Check,
   ChevronDown,
   Flag,
   Plus,
@@ -65,8 +66,6 @@ const PRIORITY_OPTIONS = [
   { key: "high", label: "Hoch" },
 ] as const;
 
-const NONE = "none";
-
 function todayBerlin(): string {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Berlin" });
 }
@@ -101,7 +100,7 @@ const EMPTY_INPUT: TaskInput = {
   status: "planned",
   priority: "normal",
   deadline: null,
-  assigneeId: null,
+  assigneeIds: [],
 };
 
 export function TaskBoard({ data }: { data: BoardData }) {
@@ -122,7 +121,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
   );
 
   const members = useMemo(() => new Map(data.members.map((m) => [m.id, m])), [data.members]);
-  const visible = onlyMine && data.meId ? tasks.filter((t) => t.assigneeId === data.meId) : tasks;
+  const visible = onlyMine && data.meId ? tasks.filter((t) => t.assigneeIds.includes(data.meId!)) : tasks;
 
   function move(task: BoardTask, status: TaskStatus) {
     if (task.status === status) return;
@@ -172,7 +171,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
             Aufgaben-Board
           </h2>
           <p className="text-sm text-muted-foreground">
-            To-dos für Vorstand und Admins. Bei nahender Deadline bekommt die zuständige Person eine E-Mail.
+            To-dos für Vorstand und Admins. Bei nahender Deadline bekommen alle Zuständigen eine E-Mail.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -189,7 +188,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
               onChange={(key) => setOnlyMine(key === "mine")}
             />
           )}
-          <Button onClick={() => setEditing({ task: null, input: { ...EMPTY_INPUT, assigneeId: data.meId } })}>
+          <Button onClick={() => setEditing({ task: null, input: { ...EMPTY_INPUT, assigneeIds: data.meId ? [data.meId] : [] } })}>
             <Plus aria-hidden />
             Neue Aufgabe
           </Button>
@@ -232,7 +231,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
                 <TaskCard
                   key={task.id}
                   task={task}
-                  assignee={task.assigneeId ? members.get(task.assigneeId) : undefined}
+                  assignees={task.assigneeIds.flatMap((id) => members.get(id) ?? [])}
                   dragging={dragId === task.id}
                   onDragStart={(e) => {
                     e.dataTransfer.setData("text/plain", task.id);
@@ -252,7 +251,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
                         status: task.status,
                         priority: task.priority,
                         deadline: task.deadline,
-                        assigneeId: task.assigneeId,
+                        assigneeIds: task.assigneeIds,
                       },
                     })
                   }
@@ -303,7 +302,9 @@ export function TaskBoard({ data }: { data: BoardData }) {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{task.title}</p>
                     <p className="text-xs text-muted-foreground">
-                      {task.assigneeId ? (members.get(task.assigneeId)?.name ?? "Ehemalig") : "Niemand zugewiesen"}
+                      {task.assigneeIds.length > 0
+                        ? task.assigneeIds.map((id) => members.get(id)?.name ?? "Ehemalig").join(", ")
+                        : "Niemand zugewiesen"}
                       {task.completedAt &&
                         ` · erledigt am ${new Date(task.completedAt).toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" })}`}
                     </p>
@@ -353,7 +354,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
 
 function TaskCard({
   task,
-  assignee,
+  assignees,
   dragging,
   onDragStart,
   onDragEnd,
@@ -365,7 +366,7 @@ function TaskCard({
   onArchive,
 }: {
   task: BoardTask;
-  assignee?: BoardMember;
+  assignees: BoardMember[];
   dragging: boolean;
   onDragStart: (e: DragEvent) => void;
   onDragEnd: () => void;
@@ -426,16 +427,7 @@ function TaskCard({
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5 text-xs">
-          {assignee ? (
-            <span className="flex min-w-0 items-center gap-1.5" title={assignee.name}>
-              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-[0.5625rem] font-semibold text-primary-foreground">
-                {assignee.initials}
-              </span>
-              <span className="truncate text-muted-foreground">{assignee.name.split(" ")[0]}</span>
-            </span>
-          ) : (
-            <span className="text-muted-foreground">Niemand</span>
-          )}
+          <AssigneeStack assignees={assignees} />
           {task.deadline && (
             <span className={cn("flex shrink-0 items-center gap-1 font-medium", deadlineTone)}>
               <CalendarClock className="size-3.5" aria-hidden />
@@ -465,6 +457,38 @@ function TaskCard({
   );
 }
 
+const STACK_MAX = 3;
+
+/** Zuständige als überlappende Initialen; bei einer Person zusätzlich der Vorname. */
+function AssigneeStack({ assignees }: { assignees: BoardMember[] }) {
+  if (assignees.length === 0) return <span className="text-muted-foreground">Niemand</span>;
+  const shown = assignees.slice(0, STACK_MAX);
+  const rest = assignees.length - shown.length;
+  const names = assignees.map((a) => a.name).join(", ");
+  return (
+    <span className="flex min-w-0 items-center gap-1.5" title={names}>
+      <span className="flex shrink-0 -space-x-1" aria-label={`Zuständig: ${names}`} role="img">
+        {shown.map((a) => (
+          <span
+            key={a.id}
+            className="flex size-5 items-center justify-center rounded-full bg-primary text-[0.5625rem] font-semibold text-primary-foreground ring-2 ring-card"
+          >
+            {a.initials}
+          </span>
+        ))}
+        {rest > 0 && (
+          <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[0.5625rem] font-semibold text-ink-soft ring-2 ring-card">
+            +{rest}
+          </span>
+        )}
+      </span>
+      {assignees.length === 1 && (
+        <span className="truncate text-muted-foreground">{assignees[0].name.split(" ")[0]}</span>
+      )}
+    </span>
+  );
+}
+
 function TaskDialog({
   task,
   initial,
@@ -482,6 +506,11 @@ function TaskDialog({
   const [pending, startTransition] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const set = <K extends keyof TaskInput>(key: K, value: TaskInput[K]) => setInput((v) => ({ ...v, [key]: value }));
+  const toggleAssignee = (id: string) =>
+    setInput((v) => ({
+      ...v,
+      assigneeIds: v.assigneeIds.includes(id) ? v.assigneeIds.filter((x) => x !== id) : [...v.assigneeIds, id],
+    }));
 
   function save() {
     startTransition(async () => {
@@ -518,8 +547,8 @@ function TaskDialog({
         <DialogHeader>
           <DialogTitle>{task ? "Aufgabe bearbeiten" : "Neue Aufgabe"}</DialogTitle>
           <DialogDescription>
-            Zuständig können Vorstand und Admins sein. Mit Deadline gibt es zwei Tage vorher und am Tag selbst eine
-            E-Mail.
+            Zuständig können ein oder mehrere Vorstände und Admins sein. Mit Deadline bekommen alle Zuständigen zwei
+            Tage vorher und am Tag selbst eine E-Mail.
           </DialogDescription>
         </DialogHeader>
 
@@ -553,24 +582,50 @@ function TaskDialog({
               className="flex w-full rounded-lg border border-input bg-card px-3 py-2 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm"
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="task-assignee">Zuständig</Label>
-              <Select value={input.assigneeId ?? NONE} onValueChange={(v) => set("assigneeId", v === NONE ? null : v)}>
-                <SelectTrigger id="task-assignee" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Niemand</SelectItem>
-                  {members.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name}
-                      {m.role === "admin" ? " (Admin)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <fieldset className="space-y-1.5">
+            <legend className="flex w-full items-baseline justify-between gap-2 text-sm leading-none font-medium">
+              Zuständig
+              <span className="text-xs font-normal text-muted-foreground">
+                {input.assigneeIds.length === 0
+                  ? "Niemand ausgewählt"
+                  : `${input.assigneeIds.length} ausgewählt`}
+              </span>
+            </legend>
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {members.map((m) => {
+                const selected = input.assigneeIds.includes(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => toggleAssignee(m.id)}
+                    className={cn(
+                      "inline-flex h-8 items-center gap-1.5 rounded-full border pr-3 pl-1 text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                      selected
+                        ? "border-primary/40 bg-primary/[0.07] text-foreground"
+                        : "border-border bg-card text-muted-foreground hover:border-edge hover:text-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex size-6 items-center justify-center rounded-full text-[0.625rem] font-semibold",
+                        selected ? "bg-primary text-primary-foreground" : "bg-muted text-ink-soft",
+                      )}
+                    >
+                      {selected ? <Check className="size-3.5" aria-hidden /> : m.initials}
+                    </span>
+                    {m.name}
+                    {m.role === "admin" && <span className="text-xs text-muted-foreground">Admin</span>}
+                  </button>
+                );
+              })}
+              {members.length === 0 && (
+                <p className="text-sm text-muted-foreground">Keine Vorstände oder Admins gefunden.</p>
+              )}
             </div>
+          </fieldset>
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="task-status">Status</Label>
               <Select value={input.status} onValueChange={(v) => set("status", v as TaskStatus)}>

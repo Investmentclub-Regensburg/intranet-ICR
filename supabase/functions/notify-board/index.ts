@@ -12,8 +12,9 @@
 // alle anderen an den Vorstand.
 // Events vom Typ event_announcement (neues Event) gehen an payload.recipients – einzeln adressiert,
 // in Resend-Batches à 100. Der Fortschritt steht in payload.sent_count, ein Retry setzt dort fort.
-// Events vom Typ task_deadline (Aufgaben-Board, täglich per pg_cron) gehen an die zuständige
-// Person (Adresse aus dem Profil zu payload.assignee_profile_id), Reply-To Vorstand.
+// Events vom Typ task_deadline (Aufgaben-Board, täglich per pg_cron, ein Event je zuständiger
+// Person) gehen an diese Person (Adresse aus dem Profil zu payload.assignee_profile_id), Reply-To Vorstand.
+// Events vom Typ iban_changed gehen an den Vorstand (nur die letzten 4 Stellen der IBAN).
 //
 // Secrets (Dashboard → Edge Functions → Secrets oder `supabase secrets set`):
 //   NOTIFY_BOARD_SECRET  – muss dem Vault-Secret notify_board_secret entsprechen

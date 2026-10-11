@@ -5,7 +5,8 @@ import { requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isUuid } from "@/lib/validation";
 
-// Aufgaben-Board für Vorstand und Admins (Tabelle board_tasks, Migration 20261009130000).
+// Aufgaben-Board für Vorstand und Admins (Tabellen board_tasks und board_task_assignees,
+// Migrationen 20261009130000 und 20261011120000).
 // Zugriff nur hier über die Service Role nach requireRole(["admin", "board"]).
 
 export type TaskStatus = "planned" | "in_progress" | "done";
@@ -19,7 +20,8 @@ export type BoardTask = {
   priority: TaskPriority;
   /** YYYY-MM-DD oder null */
   deadline: string | null;
-  assigneeId: string | null;
+  /** Zuständige (Profil-IDs von Vorstand/Admins), beliebig viele. */
+  assigneeIds: string[];
   createdById: string | null;
   createdAt: string;
   completedAt: string | null;
@@ -44,7 +46,7 @@ export type TaskInput = {
   status: TaskStatus;
   priority: TaskPriority;
   deadline: string | null;
-  assigneeId: string | null;
+  assigneeIds: string[];
 };
 
 /** In der Spalte „Erledigt“ sichtbar; ältere erledigte Aufgaben gehen automatisch ins Archiv. */
@@ -52,8 +54,10 @@ const DONE_VISIBLE = 5;
 const ARCHIVE_LIMIT = 100;
 const STATUSES: readonly TaskStatus[] = ["planned", "in_progress", "done"];
 const PRIORITIES: readonly TaskPriority[] = ["low", "normal", "high"];
-const TASK_COLUMNS =
+const MAX_ASSIGNEES = 20;
+const BASE_COLUMNS =
   "id, title, description, status, priority, deadline, assignee_profile_id, created_by, created_at, completed_at, archived_at";
+const TASK_COLUMNS = `${BASE_COLUMNS}, board_task_assignees(profile_id)`;
 
 async function guard() {
   return requireRole(["admin", "board"], "Nur für Vorstand und Admins.");
@@ -69,12 +73,21 @@ function toTask(raw: Record<string, unknown>): BoardTask {
       ? (raw.priority as TaskPriority)
       : "normal",
     deadline: raw.deadline ? String(raw.deadline).slice(0, 10) : null,
-    assigneeId: raw.assignee_profile_id ? String(raw.assignee_profile_id) : null,
+    assigneeIds: assigneeIdsOf(raw),
     createdById: raw.created_by ? String(raw.created_by) : null,
     createdAt: String(raw.created_at ?? ""),
     completedAt: raw.completed_at ? String(raw.completed_at) : null,
     archivedAt: raw.archived_at ? String(raw.archived_at) : null,
   };
+}
+
+/** Zuständige aus der Zuordnungstabelle; ohne sie (Migration fehlt) aus der alten Spalte. */
+function assigneeIdsOf(raw: Record<string, unknown>): string[] {
+  const rows = raw.board_task_assignees;
+  if (Array.isArray(rows)) {
+    return rows.map((r) => String((r as { profile_id?: unknown }).profile_id ?? "")).filter(Boolean);
+  }
+  return raw.assignee_profile_id ? [String(raw.assignee_profile_id)] : [];
 }
 
 async function loadMembers(admin: ReturnType<typeof createServiceClient>): Promise<BoardMember[]> {
@@ -105,28 +118,32 @@ export async function getBoardData(): Promise<BoardData> {
   if (!auth.ok) return empty;
 
   const admin = createServiceClient();
-  const [tasksRes, archivedRes, members] = await Promise.all([
-    admin.from("board_tasks").select(TASK_COLUMNS).is("archived_at", null).order("created_at", { ascending: true }),
-    admin
-      .from("board_tasks")
-      .select(TASK_COLUMNS)
-      .not("archived_at", "is", null)
-      .order("archived_at", { ascending: false })
-      .limit(ARCHIVE_LIMIT),
-    loadMembers(admin),
-  ]);
+  const load = (columns: string) =>
+    Promise.all([
+      admin.from("board_tasks").select(columns).is("archived_at", null).order("created_at", { ascending: true }),
+      admin
+        .from("board_tasks")
+        .select(columns)
+        .not("archived_at", "is", null)
+        .order("archived_at", { ascending: false })
+        .limit(ARCHIVE_LIMIT),
+    ]);
+  const [members, first] = await Promise.all([loadMembers(admin), load(TASK_COLUMNS)]);
+  // Fehlt board_task_assignees noch, ohne Zuordnungstabelle laden.
+  let [tasksRes, archivedRes] = first;
+  if (tasksRes.error) [tasksRes, archivedRes] = await load(BASE_COLUMNS);
   if (tasksRes.error) return { ...empty, members };
 
   return {
     available: true,
-    tasks: (tasksRes.data ?? []).map((r) => toTask(r as Record<string, unknown>)),
-    archived: (archivedRes.data ?? []).map((r) => toTask(r as Record<string, unknown>)),
+    tasks: ((tasksRes.data ?? []) as unknown as Record<string, unknown>[]).map(toTask),
+    archived: ((archivedRes.data ?? []) as unknown as Record<string, unknown>[]).map(toTask),
     members,
     meId: auth.profile?.id ? String(auth.profile.id) : null,
   };
 }
 
-type Valid = { ok: true; row: Record<string, unknown> } | { ok: false; error: string };
+type Valid = { ok: true; row: Record<string, unknown>; assigneeIds: string[] } | { ok: false; error: string };
 
 async function validate(input: TaskInput, admin: ReturnType<typeof createServiceClient>): Promise<Valid> {
   const title = String(input.title ?? "").trim();
@@ -145,20 +162,56 @@ async function validate(input: TaskInput, admin: ReturnType<typeof createService
     deadline = input.deadline;
   }
 
-  let assignee: string | null = null;
-  if (input.assigneeId) {
-    if (!isUuid(input.assigneeId)) return { ok: false, error: "Ungültige Zuständigkeit." };
-    const members = await loadMembers(admin);
-    if (!members.some((m) => m.id === input.assigneeId)) {
+  const assigneeIds = [...new Set(Array.isArray(input.assigneeIds) ? input.assigneeIds.map(String) : [])];
+  if (assigneeIds.length > MAX_ASSIGNEES) return { ok: false, error: "Zu viele Zuständige." };
+  if (assigneeIds.some((id) => !isUuid(id))) return { ok: false, error: "Ungültige Zuständigkeit." };
+  if (assigneeIds.length > 0) {
+    const members = new Set((await loadMembers(admin)).map((m) => m.id));
+    if (assigneeIds.some((id) => !members.has(id))) {
       return { ok: false, error: "Zuweisen geht nur an Vorstand oder Admins." };
     }
-    assignee = input.assigneeId;
   }
 
   return {
     ok: true,
-    row: { title, description, status: input.status, priority: input.priority, deadline, assignee_profile_id: assignee },
+    row: {
+      title,
+      description,
+      status: input.status,
+      priority: input.priority,
+      deadline,
+      // Alte Spalte für ältere App-Versionen: erste zuständige Person.
+      assignee_profile_id: assigneeIds[0] ?? null,
+    },
+    assigneeIds,
   };
+}
+
+/** Zuständige einer Aufgabe ersetzen. */
+async function saveAssignees(
+  admin: ReturnType<typeof createServiceClient>,
+  taskId: string,
+  assigneeIds: string[],
+): Promise<boolean> {
+  const { error: deleteError } = await admin
+    .from("board_task_assignees")
+    .delete()
+    .eq("task_id", taskId)
+    .not("profile_id", "in", `(${assigneeIds.join(",") || "00000000-0000-0000-0000-000000000000"})`);
+  if (deleteError) {
+    console.error("saveAssignees:", deleteError.code ?? deleteError.message);
+    // Ohne Zuordnungstabelle (Migration fehlt) reicht die alte Spalte für höchstens eine Person.
+    return assigneeIds.length <= 1;
+  }
+  if (assigneeIds.length === 0) return true;
+  const { error } = await admin
+    .from("board_task_assignees")
+    .upsert(
+      assigneeIds.map((profile_id) => ({ task_id: taskId, profile_id })),
+      { onConflict: "task_id,profile_id", ignoreDuplicates: true },
+    );
+  if (error) console.error("saveAssignees:", error.code ?? error.message);
+  return !error;
 }
 
 /** Erledigte Aufgaben über DONE_VISIBLE hinaus (älteste zuerst) ins Archiv schieben. */
@@ -186,12 +239,20 @@ export async function createTask(input: TaskInput): Promise<{ error?: string }> 
   const v = await validate(input, admin);
   if (!v.ok) return { error: v.error };
 
-  const { error } = await admin.from("board_tasks").insert({
-    ...v.row,
-    ...statusFields(input.status),
-    created_by: auth.profile?.id ?? null,
-  });
-  if (error) return { error: "Aufgabe konnte nicht angelegt werden." };
+  const { data: created, error } = await admin
+    .from("board_tasks")
+    .insert({
+      ...v.row,
+      ...statusFields(input.status),
+      created_by: auth.profile?.id ?? null,
+    })
+    .select("id")
+    .single();
+  if (error || !created) return { error: "Aufgabe konnte nicht angelegt werden." };
+  if (!(await saveAssignees(admin, String(created.id), v.assigneeIds))) {
+    revalidatePath("/admin");
+    return { error: "Aufgabe angelegt, aber die Zuständigen konnten nicht gespeichert werden." };
+  }
   if (input.status === "done") await trimDoneColumn(admin);
   revalidatePath("/admin");
   return {};
@@ -214,6 +275,10 @@ export async function updateTask(id: string, input: TaskInput): Promise<{ error?
     .update({ ...v.row, ...(statusChanged ? statusFields(input.status) : {}), updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return { error: "Aufgabe konnte nicht gespeichert werden." };
+  if (!(await saveAssignees(admin, id, v.assigneeIds))) {
+    revalidatePath("/admin");
+    return { error: "Die Zuständigen konnten nicht gespeichert werden." };
+  }
   if (statusChanged && input.status === "done") await trimDoneColumn(admin);
   revalidatePath("/admin");
   return {};
