@@ -46,7 +46,7 @@ export default async function EventsPage() {
               <EventTile
                 key={e.id}
                 event={e}
-                isRegistered={!!user && e.registered_user_ids.includes(user.id)}
+                isRegistered={!!user && e.is_registered}
               />
             ))}
           </TileGrid>

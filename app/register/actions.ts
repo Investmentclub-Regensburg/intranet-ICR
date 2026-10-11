@@ -11,6 +11,7 @@ import {
 } from "@/lib/member-fields";
 import { authErrorMessage, checkPasswordLength } from "@/lib/auth-messages";
 import { isPendingProfile } from "@/lib/profile-status";
+import { RATE_LIMITED_MESSAGE, checkTurnstile, clientIp, withinRateLimits } from "@/lib/bot-protection";
 
 /** Bei Fehler zurückgegebene Formulardaten (ohne Passwörter) für erneute Anzeige. */
 export type RegisterSavedState = {
@@ -187,50 +188,14 @@ export async function registerAction(
     return { error: "Die BIC ist ungültig (8 oder 11 Zeichen).", saved };
   }
 
-  // Turnstile Bot-Schutz validieren (VOR signUp)
-  const turnstileToken = formData.get("cf-turnstile-response") as string | null;
-  if (!turnstileToken?.trim()) {
-    return { error: "Bot-Schutz fehlgeschlagen. Bitte bestätige, dass du kein Bot bist.", saved };
-  }
+  // Bremse gegen Massen-Registrierungen je IP, dann Turnstile (VOR signUp).
+  const allowed = await withinRateLimits([
+    { scope: "signup-ip", value: await clientIp(), max: 5, windowSeconds: 60 * 60 },
+  ]);
+  if (!allowed) return { error: RATE_LIMITED_MESSAGE, saved };
 
-  const isLocalhostBypass =
-    turnstileToken === "localhost-bypass" && process.env.NODE_ENV === "development";
-
-  // Ist in Supabase Auth (Attack Protection) CAPTCHA mit Turnstile aktiviert, prüft Supabase
-  // das Token selbst – dann wird es nur durchgereicht (Turnstile-Tokens sind einmalig gültig).
-  // So greift der Bot-Schutz auch bei Registrierungen, die die App umgehen.
-  const supabaseVerifiesCaptcha = process.env.SUPABASE_AUTH_CAPTCHA === "true";
-
-  if (!isLocalhostBypass && !supabaseVerifiesCaptcha) {
-    const turnstileSecret = process.env.TURNSTILE_SECRET_KEY;
-    if (!turnstileSecret) {
-      return {
-        error: "Registrierung ist aktuell nicht verfügbar. Bitte kontaktiere den Vorstand.",
-        saved,
-      };
-    }
-
-    try {
-      const turnstileRes = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          secret: turnstileSecret,
-          response: turnstileToken,
-        }),
-      });
-
-      const turnstileData = (await turnstileRes.json()) as { success?: boolean };
-      if (!turnstileRes.ok || !turnstileData.success) {
-        return { error: "Bot-Schutz fehlgeschlagen. Bitte versuche es erneut.", saved };
-      }
-    } catch {
-      return {
-        error: "Bot-Schutz konnte nicht geprüft werden. Bitte versuche es später erneut.",
-        saved,
-      };
-    }
-  }
+  const captcha = await checkTurnstile(formData);
+  if (!captcha.ok) return { error: captcha.error, saved };
 
   const supabase = await createClient();
 
@@ -239,7 +204,7 @@ export async function registerAction(
     email: email!,
     password: password!,
     options: {
-      ...(supabaseVerifiesCaptcha && !isLocalhostBypass ? { captchaToken: turnstileToken } : {}),
+      ...(captcha.captchaToken ? { captchaToken: captcha.captchaToken } : {}),
       // Geprüfte, getrimmte Werte übergeben (nicht die Roh-Formulardaten).
       data: {
         Vorname: vorname,

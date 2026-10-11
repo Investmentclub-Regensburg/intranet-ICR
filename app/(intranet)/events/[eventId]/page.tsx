@@ -47,7 +47,7 @@ export default async function EventDetailPage({ params }: Props) {
   const past = isEventPast(event);
   const role = roleOf(profile as Record<string, unknown> | null);
   const canManage = role === "admin" || role === "board";
-  const isRegistered = !!user && event.registered_user_ids.includes(user.id);
+  const isRegistered = !!user && event.is_registered;
   const time = formatTimeRange(event.event_time, event.end_time);
   const paragraphs = (event.description ?? "").split(/\n{2,}/).filter((p) => p.trim());
 

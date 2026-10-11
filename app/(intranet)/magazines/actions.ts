@@ -22,8 +22,8 @@ export type RequestBvhResult = {
 
 /**
  * Status der letzten BVH-Anfrage des aktuellen Users, gelesen unter RLS.
- * Ohne Lese-Policy für eigene Anfragen (Produktion bis Migrationsentwurf 20261008120300)
- * liefert die Abfrage keine Zeile: dann hasRequested = false, die Seite zeigt keinen Status.
+ * Liest über die Policy „Users can read own bvh requests“ (Migration 20261009140000);
+ * ohne sie liefert die Abfrage keine Zeile: dann hasRequested = false, die Seite zeigt keinen Status.
  */
 export type BvhLoginStatus = { hasRequested: boolean; handled: boolean; requestedAt: string | null };
 

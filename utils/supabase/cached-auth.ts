@@ -27,14 +27,16 @@ export const getCachedAuth = cache(async () => {
   if (!user) return { user: null, profile: null };
 
   const supabase = await getCachedSupabase();
-  const { data: profile } = await supabase
+  const { data: profile, error } = await supabase
     .from("profiles")
     .select("*")
     .eq("user_id", user.id)
     .maybeSingle();
 
   const p = (profile ?? null) as Record<string, unknown> | null;
-  if (isCancelledProfile(p) || isPendingProfile(p)) {
+  // Ohne Profil oder bei einem Datenbankfehler kein Zugriff (fail-closed).
+  if (error) return { user: null, profile: null };
+  if (!p || isCancelledProfile(p) || isPendingProfile(p)) {
     // Zusätzliche Schutzebene: Zugriff auf Intranet sofort entziehen
     // (gekündigt oder Mitgliedsantrag noch nicht vom Vorstand freigegeben).
     // In Middleware wird die Session zusätzlich mit Cookie-Write invalidiert.

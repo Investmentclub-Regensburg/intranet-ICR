@@ -73,16 +73,20 @@ export async function middleware(request: NextRequest) {
     return response;
   };
 
-  // Kritische Zugriffssperre: gekündigte Accounts und nicht freigegebene Anträge sofort abmelden + blockieren.
+  // Kritische Zugriffssperre: gekündigte Accounts, nicht freigegebene Anträge und Konten ohne
+  // Profil sofort abmelden + blockieren. Ein Datenbankfehler sperrt nicht aus (kein Abmelden),
+  // lässt aber auch nicht ins Intranet: Layouts prüfen über getCachedAuth() erneut.
+  let accessBlocked = false;
   if (user) {
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select('"Status"')
       .eq("user_id", user.id)
       .maybeSingle();
 
     const p = (profile ?? null) as Record<string, unknown> | null;
-    if (isCancelledProfile(p) || isPendingProfile(p)) {
+    accessBlocked = Boolean(profileError);
+    if (!profileError && (!p || isCancelledProfile(p) || isPendingProfile(p))) {
       await supabase.auth.signOut();
       return redirectWithSupabaseCookies("/login");
     }
@@ -101,9 +105,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/reset-password");
 
   // 5. Die strikten Regeln (Kein Ping-Pong mehr)
-  if (isAuthRoute && user) {
+  if (isAuthRoute && user && !accessBlocked) {
     // Eingeloggt, aber will zum Login? Ab ins Dashboard (oder zur ursprünglich angefragten Seite).
     return redirectWithSupabaseCookies(safeRedirectPath(request.nextUrl.searchParams.get("next")));
+  }
+
+  if (isProtectedRoute && accessBlocked && !pathname.startsWith("/reset-password")) {
+    return redirectWithSupabaseCookies("/login");
   }
 
   if (isProtectedRoute && !user) {

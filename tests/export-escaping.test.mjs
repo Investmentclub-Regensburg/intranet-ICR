@@ -52,3 +52,24 @@ test("sepaDate akzeptiert nur YYYY-MM-DD", () => {
   assert.equal(sepaDate("2026-10-01</DtOfSgntr>", "2026-01-01"), "2026-01-01");
   assert.equal(sepaDate(null, "2026-01-01"), "2026-01-01");
 });
+
+test("SEPA-Geschäftstage und Fälligkeitstag", async () => {
+  const { isSepaBusinessDay, earliestCollectionDate, suggestedCollectionDate, checkCollectionDate, berlinToday } =
+    await import("../lib/sepa.ts");
+  assert.equal(isSepaBusinessDay("2026-10-09"), true); // Freitag
+  assert.equal(isSepaBusinessDay("2026-10-10"), false); // Samstag
+  assert.equal(isSepaBusinessDay("2026-04-03"), false); // Karfreitag 2026
+  assert.equal(isSepaBusinessDay("2026-04-06"), false); // Ostermontag 2026
+  assert.equal(isSepaBusinessDay("2026-12-25"), false);
+  assert.equal(isSepaBusinessDay("2026-02-30"), false);
+  // Freitag + 2 Geschäftstage = Dienstag
+  assert.equal(earliestCollectionDate("2026-10-09"), "2026-10-13");
+  // Gründonnerstag 2026-04-02 → Di 07.04. und Mi 08.04.
+  assert.equal(earliestCollectionDate("2026-04-02"), "2026-04-08");
+  assert.equal(suggestedCollectionDate("2026-10-09"), "2026-10-23");
+  assert.equal(checkCollectionDate("2026-10-12", "2026-10-09") !== null, true);
+  assert.equal(checkCollectionDate("2026-10-13", "2026-10-09"), null);
+  assert.equal(checkCollectionDate("2026-10-17", "2026-10-09") !== null, true);
+  // Mitternacht in Berlin ist in UTC noch der Vortag
+  assert.equal(berlinToday(new Date("2026-10-08T22:30:00Z")), "2026-10-09");
+});

@@ -2,7 +2,7 @@
 
 import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
-import { sanitizeForSEPA } from "@/lib/sepa";
+import { berlinToday, checkCollectionDate, sanitizeForSEPA } from "@/lib/sepa";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 
 export type Semester = "SoSe" | "WiSe";
@@ -17,6 +17,8 @@ export type FinanceMemberRow = {
   joinedAt: string | null;
   mandateDate: string | null;
   amount: number;
+  /** IBAN seit dem letzten SEPA-XML-Export geändert → Mandatsänderung (AmdmntInd, SMNDA). */
+  amended: boolean;
 };
 
 /** Manuelle Anpassung je Semester (Tabelle finance_export_overrides). */
@@ -68,6 +70,15 @@ export type FinanceExportResult = {
   overridesAvailable: boolean;
   /** Nur im Export-Modus und nur, wenn die SEPA_CREDITOR_*-Variablen gültig gesetzt sind. */
   creditor: SepaCreditor | null;
+  /** Zeitpunkt des letzten SEPA-XML-Exports (Bezug für Mandatsänderungen), sonst null. */
+  lastXmlExportAt: string | null;
+};
+
+/** Angaben zum Download (nur Export-Modus); landen im Protokoll finance_exports. */
+export type FinanceExportRequest = {
+  format: "csv" | "xml";
+  /** Fälligkeitstag YYYY-MM-DD (Pflicht für XML). */
+  collectionDate: string | null;
 };
 
 const CREDITOR_ID_RE = /^[A-Z]{2}\d{2}[A-Z0-9]{3}[A-Z0-9]{1,28}$/;
@@ -142,7 +153,8 @@ function day(value: unknown): string | null {
 export async function getFinanceExportData(
   semester: Semester,
   year: number,
-  mode: FinanceExportMode = "preview"
+  mode: FinanceExportMode = "preview",
+  request?: FinanceExportRequest
 ): Promise<FinanceExportResult> {
   const auth = await requireRole(EXPORT_ROLES, "Keine Berechtigung für den Finanzexport.");
   if (!auth.ok) {
@@ -150,21 +162,45 @@ export async function getFinanceExportData(
   }
   checkPeriod(semester, year);
   const showFullIban = mode === "export";
+  if (showFullIban) {
+    if (!request || (request.format !== "csv" && request.format !== "xml")) {
+      throw new Error("Ungültiges Exportformat.");
+    }
+    if (request.format === "xml") {
+      const dateError = checkCollectionDate(String(request.collectionDate ?? ""));
+      if (dateError) throw new Error(dateError);
+    }
+  }
 
   const supabase = createServiceClient();
   const periodStart = getPeriodStart(semester, year);
 
-  const [{ data: profiles, error }, overridesRes] = await Promise.all([
+  const [profilesRes, overridesRes, lastXmlRes] = await Promise.all([
     supabase
       .from("profiles")
-      .select('"id", "Vorname", "Nachname", "IBAN", "BIC", "Status", "Rolle", "Datum_Kündigung", "Datum_Antrag", "E-Mail"')
+      .select('"id", "Vorname", "Nachname", "IBAN", "BIC", "Status", "Rolle", "Datum_Kündigung", "Datum_Antrag", "E-Mail", iban_changed_at')
       .range(0, 9999),
     supabase
       .from("finance_export_overrides")
       .select("profile_id, action")
       .eq("semester", semester)
       .eq("year", year),
+    supabase
+      .from("finance_exports")
+      .select("created_at")
+      .eq("format", "xml")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+  // Ohne Spalte iban_changed_at (Migration 20261009140000 fehlt) ohne Mandatsänderungen laden.
+  const { data: profiles, error } = profilesRes.error
+    ? await supabase
+        .from("profiles")
+        .select('"id", "Vorname", "Nachname", "IBAN", "BIC", "Status", "Rolle", "Datum_Kündigung", "Datum_Antrag", "E-Mail"')
+        .range(0, 9999)
+    : profilesRes;
+  const lastXmlExportAt = lastXmlRes.data?.created_at ? String(lastXmlRes.data.created_at) : null;
 
   if (error || !profiles) {
     throw new Error("Fehler beim Laden der Profile aus der Datenbank.");
@@ -200,6 +236,9 @@ export async function getFinanceExportData(
     const bicClean = text(profile["BIC"]).replace(/\s/g, "").toUpperCase();
     const joinedAt = day(profile["Datum_Antrag"]);
     const cancelledAt = day(profile["Datum_Kündigung"]);
+    const ibanChangedAt = typeof profile["iban_changed_at"] === "string" ? profile["iban_changed_at"] : null;
+    // Ohne bisherigen XML-Export zählt jede erfasste Änderung (erster Einzug nach der Umstellung).
+    const amended = Boolean(ibanChangedAt) && (!lastXmlExportAt || ibanChangedAt! > lastXmlExportAt);
 
     let category: FinanceCategory;
     if (override === "exclude") {
@@ -235,8 +274,9 @@ export async function getFinanceExportData(
         bic: bicClean,
         status,
         joinedAt,
-        mandateDate: joinedAt ?? new Date().toISOString().slice(0, 10),
+        mandateDate: joinedAt ?? berlinToday(),
         amount,
+        amended,
       });
     }
     if (!showFullIban) {
@@ -258,12 +298,28 @@ export async function getFinanceExportData(
 
   rows.sort((a, b) => a.lastName.localeCompare(b.lastName, "de") || a.firstName.localeCompare(b.firstName, "de"));
 
+  // Jeder Download mit vollständigen Bankdaten wird protokolliert.
+  if (showFullIban && request) {
+    const { error: logError } = await supabase.from("finance_exports").insert({
+      semester,
+      year,
+      format: request.format,
+      collection_date: request.format === "xml" ? request.collectionDate : null,
+      tx_count: validMembers.length,
+      total_amount: validMembers.reduce((sum, row) => sum + row.amount, 0),
+      amended_count: validMembers.filter((row) => row.amended).length,
+      created_by: auth.user.id,
+    });
+    if (logError) console.error("getFinanceExportData (Protokoll):", logError.code ?? logError.message);
+  }
+
   return {
     validMembers,
     rows,
     stats,
     overridesAvailable,
     creditor: showFullIban ? getSepaCreditor() : null,
+    lastXmlExportAt,
   };
 }
 

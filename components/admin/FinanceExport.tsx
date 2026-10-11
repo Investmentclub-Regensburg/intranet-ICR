@@ -28,12 +28,20 @@ import {
   type SepaCreditor,
 } from "@/app/(intranet)/admin/actions/finance";
 import {
+  SEPA_PRENOTIFICATION_DAYS,
+  berlinDateTime,
+  berlinToday,
   buildSepaIdentifier,
   buildNumericIdentifier,
+  checkCollectionDate,
+  earliestCollectionDate,
   escapeXml,
   sanitizeNameForBank,
   sepaDate,
+  suggestedCollectionDate,
 } from "@/lib/sepa";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { joinCsvRow } from "@/lib/csv";
 
 // Finanzen als Wizard: Semester → Vorschau → Export. Die Vorschau (FinancePreview) zeigt alle
@@ -97,6 +105,8 @@ export function FinanceExport() {
   const [downloading, setDownloading] = useState<"" | "csv" | "xml">("");
   const [downloaded, setDownloaded] = useState<("csv" | "xml")[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Fälligkeitstag für das SEPA-XML (Vorschlag: nach Ablauf der Vorabankündigung).
+  const [collectionDate, setCollectionDate] = useState(() => suggestedCollectionDate());
   // Zeitraum der geladenen Vorschau – der Export nutzt genau diesen Zeitraum.
   const [loadedPeriod, setLoadedPeriod] = useState<{ semester: Semester; year: number } | null>(null);
 
@@ -174,18 +184,26 @@ export function FinanceExport() {
   }
 
   /** Vollständige Exportdaten erst beim Download vom Server holen (Vorschau zeigt gekürzte IBANs). */
-  async function loadExportRows(): Promise<{
+  async function loadExportRows(format: "csv" | "xml"): Promise<{
     rows: FinanceMemberRow[];
     creditor: SepaCreditor | null;
     period: { semester: Semester; year: number };
   } | null> {
     if (!loadedPeriod) return null;
     setError(null);
+    if (format === "xml") {
+      const dateError = checkCollectionDate(collectionDate);
+      if (dateError) {
+        setError(dateError);
+        return null;
+      }
+    }
     try {
       const { validMembers: rows, creditor } = await getFinanceExportData(
         loadedPeriod.semester,
         loadedPeriod.year,
-        "export"
+        "export",
+        { format, collectionDate: format === "xml" ? collectionDate : null }
       );
       return rows.length ? { rows, creditor, period: loadedPeriod } : null;
     } catch (err) {
@@ -198,7 +216,7 @@ export function FinanceExport() {
   }
 
   async function handleExportCsv(): Promise<boolean> {
-    const data = await loadExportRows();
+    const data = await loadExportRows("csv");
     if (!data) return false;
     const { rows } = data;
 
@@ -215,8 +233,7 @@ export function FinanceExport() {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const today = new Date();
-    const fileName = `sepa_export_${today.toISOString().slice(0, 10)}.csv`;
+    const fileName = `sepa_export_${berlinToday()}.csv`;
     a.href = url;
     a.download = fileName;
     document.body.appendChild(a);
@@ -227,7 +244,7 @@ export function FinanceExport() {
   }
 
   async function handleExportSepaXml(): Promise<boolean> {
-    const data = await loadExportRows();
+    const data = await loadExportRows("xml");
     if (!data) return false;
     const { rows, period, creditor } = data;
     if (!creditor) {
@@ -237,11 +254,14 @@ export function FinanceExport() {
       return false;
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    // Datum und Uhrzeit in deutscher Zeit (nicht UTC: sonst kurz nach Mitternacht der Vortag).
+    const createdAt = berlinDateTime();
+    const today = createdAt.slice(0, 10);
     const periodLabel = getPeriodLabel(period.semester, period.year);
     const periodToken = buildSepaIdentifier(periodLabel, 10) || "PERIODE";
+    // Mit Uhrzeit, damit ein zweiter Export am selben Tag eine neue MsgId bekommt.
     const messageId =
-      buildSepaIdentifier(`ICRBEITRAG${periodToken}${today.replace(/-/g, "")}`) ||
+      buildSepaIdentifier(`ICRBEITRAG${periodToken}${createdAt.replace(/\D/g, "")}`) ||
       "ICRBEITRAG";
 
     const totalAmount = rows
@@ -265,6 +285,20 @@ export function FinanceExport() {
           buildSepaIdentifier(`${messageId}${idx + 1}`, 35) || `E2E${idx + 1}`;
         const dtOfSgntr = escapeXml(sepaDate(row.mandateDate, today));
         const bic = buildSepaIdentifier(row.bic, 11);
+        // IBAN seit dem letzten XML-Export geändert: gleiches Mandat, neues Konto (SMNDA).
+        const amendmentXml = row.amended
+          ? `
+            <AmdmntInd>true</AmdmntInd>
+            <AmdmntInfDtls>
+              <OrgnlDbtrAcct>
+                <Id>
+                  <Othr>
+                    <Id>SMNDA</Id>
+                  </Othr>
+                </Id>
+              </OrgnlDbtrAcct>
+            </AmdmntInfDtls>`
+          : "";
         const dbtrAgtXml = bic
           ? `<DbtrAgt>
           <FinInstnId>
@@ -288,7 +322,7 @@ export function FinanceExport() {
         <DrctDbtTx>
           <MndtRltdInf>
             <MndtId>${escapeXml(mndtId)}</MndtId>
-            <DtOfSgntr>${dtOfSgntr}</DtOfSgntr>
+            <DtOfSgntr>${dtOfSgntr}</DtOfSgntr>${amendmentXml}
           </MndtRltdInf>
         </DrctDbtTx>
         ${dbtrAgtXml}
@@ -309,7 +343,7 @@ export function FinanceExport() {
   <CstmrDrctDbtInitn>
     <GrpHdr>
       <MsgId>${escapeXml(messageId)}</MsgId>
-      <CreDtTm>${today}T00:00:00</CreDtTm>
+      <CreDtTm>${createdAt}</CreDtTm>
       <NbOfTxs>${rows.length}</NbOfTxs>
       <CtrlSum>${totalAmount}</CtrlSum>
       <InitgPty>
@@ -330,7 +364,7 @@ export function FinanceExport() {
         </LclInstrm>
         <SeqTp>RCUR</SeqTp>
       </PmtTpInf>
-      <ReqdColltnDt>${today}</ReqdColltnDt>
+      <ReqdColltnDt>${escapeXml(collectionDate)}</ReqdColltnDt>
       <Cdtr>
         <Nm>${escapeXml(creditorName)}</Nm>
       </Cdtr>
@@ -384,6 +418,9 @@ export function FinanceExport() {
   const period = loadedPeriod ?? { semester, year };
   const total = validMembers.reduce((sum, row) => sum + row.amount, 0);
   const euro = (n: number) => n.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
+  const minCollectionDate = earliestCollectionDate();
+  const collectionError = checkCollectionDate(collectionDate);
+  const amendedCount = validMembers.filter((row) => row.amended).length;
   const errorLine = error ? (
     <p className="text-sm font-medium text-destructive" role="alert">
       {error}
@@ -477,6 +514,44 @@ export function FinanceExport() {
           {getPeriodLabel(period.semester, period.year)} · {validMembers.length}{" "}
           {validMembers.length === 1 ? "Lastschrift" : "Lastschriften"} · {euro(total)}
         </p>
+        <div className="grid gap-4 rounded-2xl border border-border bg-card p-5 sm:grid-cols-[auto_1fr] sm:items-start sm:gap-6">
+          <div className="space-y-2">
+            <Label htmlFor="collection-date">Fälligkeitstag (SEPA-XML)</Label>
+            <Input
+              id="collection-date"
+              type="date"
+              value={collectionDate}
+              min={minCollectionDate}
+              onChange={(e) => {
+                setCollectionDate(e.target.value);
+                setDownloaded((list) => list.filter((k) => k !== "xml"));
+              }}
+              aria-invalid={collectionError ? true : undefined}
+              aria-describedby="collection-date-hint"
+              className="h-10 w-full sm:w-48"
+            />
+          </div>
+          <div id="collection-date-hint" className="space-y-1.5 text-sm text-muted-foreground">
+            {collectionError ? (
+              <p className="font-medium text-destructive">{collectionError}</p>
+            ) : (
+              <p>
+                Einzug am <span className="font-medium text-foreground">{formatDay(collectionDate)}</span>. Die Datei
+                muss spätestens einen Bankgeschäftstag vorher bei der Bank sein.
+              </p>
+            )}
+            <p>
+              Mitglieder müssen den Einzug {SEPA_PRENOTIFICATION_DAYS} Tage vorher angekündigt bekommen (Betrag und
+              Termin), sofern nicht kürzer vereinbart.
+            </p>
+            {amendedCount > 0 && (
+              <p className="text-foreground">
+                {amendedCount} {amendedCount === 1 ? "Lastschrift ist" : "Lastschriften sind"} wegen geänderter IBAN
+                als Mandatsänderung gekennzeichnet.
+              </p>
+            )}
+          </div>
+        </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Tile
             Icon={FileSpreadsheet}
@@ -502,6 +577,18 @@ export function FinanceExport() {
       </WizardStep>
     </div>
   );
+}
+
+function formatDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("de-DE", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function DownloadState({ busy, done }: { busy: boolean; done: boolean }) {

@@ -12,6 +12,8 @@
 // alle anderen an den Vorstand.
 // Events vom Typ event_announcement (neues Event) gehen an payload.recipients – einzeln adressiert,
 // in Resend-Batches à 100. Der Fortschritt steht in payload.sent_count, ein Retry setzt dort fort.
+// Events vom Typ task_deadline (Aufgaben-Board, täglich per pg_cron) gehen an die zuständige
+// Person (Adresse aus dem Profil zu payload.assignee_profile_id), Reply-To Vorstand.
 //
 // Secrets (Dashboard → Edge Functions → Secrets oder `supabase secrets set`):
 //   NOTIFY_BOARD_SECRET  – muss dem Vault-Secret notify_board_secret entsprechen
@@ -31,6 +33,8 @@ type EventType =
   | "alumni_requested"
   | "alumni_decided"
   | "event_announcement"
+  | "task_deadline"
+  | "iban_changed"
   | "test";
 
 type NotificationEvent = {
@@ -287,6 +291,32 @@ async function resolveMemberRecipient(
   return null;
 }
 
+/**
+ * Empfänger für Aufgaben-Erinnerungen: Profil zu payload.assignee_profile_id (profiles.id),
+ * nur Vorstand/Admin und nicht gekündigt.
+ */
+async function resolveAssigneeRecipient(
+  supabase: ReturnType<typeof createClient>,
+  ev: NotificationEvent
+): Promise<MemberRecipient | null> {
+  const profileId = str(ev.payload?.assignee_profile_id);
+  if (!UUID_RE.test(profileId)) return null;
+  const { data } = await supabase
+    .from("profiles")
+    .select('"E-Mail", "Vorname", "Rolle", "Status"')
+    .eq("id", profileId)
+    .maybeSingle();
+  const p = (data ?? {}) as Record<string, unknown>;
+  const role = str(p["Rolle"]).toLowerCase();
+  if (role !== "board" && role !== "admin") return null;
+  if (str(p["Status"]).toLowerCase() === "cancelled") return null;
+  const email = str(p["E-Mail"]).toLowerCase();
+  return EMAIL_RE.test(email) ? { email, vorname: str(p["Vorname"]) } : null;
+}
+
+const PRIORITY_LABELS: Record<string, string> = { low: "Niedrig", normal: "Normal", high: "Hoch" };
+const STATUS_LABELS: Record<string, string> = { planned: "Geplant", in_progress: "In Arbeit", done: "Erledigt" };
+
 function buildMail(
   ev: NotificationEvent,
   extra: { emailConfirmed?: boolean | null; recipient?: MemberRecipient | null }
@@ -389,6 +419,49 @@ function buildMail(
         text: `${title}\n\n${intro}\n\n${r.text}`,
         to: recipient ? [recipient] : [],
         replyTo: TO_EMAILS[0],
+      };
+    }
+    case "task_deadline": {
+      const vorname = str(extra.recipient?.vorname) || "Hallo";
+      const recipient = extra.recipient?.email ?? "";
+      const overdue = Number(p.stage) >= 2;
+      const taskTitle = str(p.title) || "Aufgabe";
+      const title = overdue ? `Deadline erreicht: ${taskTitle}` : `Deadline naht: ${taskTitle}`;
+      const intro = overdue
+        ? `Hallo ${vorname}, die Deadline deiner Aufgabe „${taskTitle}“ ist heute bzw. bereits überschritten.`
+        : `Hallo ${vorname}, die Deadline deiner Aufgabe „${taskTitle}“ ist in den nächsten Tagen.`;
+      const rows: Array<[string, string]> = [
+        ["Aufgabe", taskTitle],
+        ["Deadline", formatDate(p.deadline)],
+        ["Priorität", PRIORITY_LABELS[str(p.priority)] ?? str(p.priority)],
+        ["Status", STATUS_LABELS[str(p.status)] ?? str(p.status)],
+      ];
+      const r = renderRows(rows);
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, adminLink("/admin", "Aufgaben öffnen")),
+        text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: recipient ? [recipient] : [],
+        replyTo: TO_EMAILS[0],
+      };
+    }
+    case "iban_changed": {
+      const rows: Array<[string, string]> = [
+        ["Name", name],
+        ["E-Mail", str(p.email)],
+        ["Neue IBAN (Ende)", str(p.iban_last4) ? `…${str(p.iban_last4)}` : "entfernt"],
+        ["Bisherige IBAN (Ende)", str(p.old_iban_last4) ? `…${str(p.old_iban_last4)}` : "keine"],
+        ["Zeitpunkt", formatDateTime(p.changed_at ?? ev.created_at)],
+      ];
+      const r = renderRows(rows);
+      const title = `Bankverbindung geändert: ${name}`;
+      const intro =
+        "Ein Mitglied hat seine IBAN im Profil geändert. Der nächste SEPA-Export kennzeichnet die Lastschrift als Mandatsänderung. Falls die Änderung unerwartet ist, bitte beim Mitglied nachfragen.";
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),
+        text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: TO_EMAILS,
       };
     }
     case "test":
@@ -524,7 +597,11 @@ async function processEvents(
       }
 
       const recipient =
-        ev.type === "alumni_decided" ? await resolveMemberRecipient(supabase, ev) : null;
+        ev.type === "alumni_decided"
+          ? await resolveMemberRecipient(supabase, ev)
+          : ev.type === "task_deadline"
+            ? await resolveAssigneeRecipient(supabase, ev)
+            : null;
 
       if (ev.type === "event_announcement") {
         await sendAnnouncement(supabase, ev);

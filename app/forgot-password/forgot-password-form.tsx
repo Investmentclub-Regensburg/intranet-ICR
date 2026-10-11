@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TurnstileField } from "@/components/auth/TurnstileField";
 import { forgotPasswordAction, type ForgotPasswordState } from "./actions";
 
 const initialState: ForgotPasswordState = {
@@ -14,7 +15,9 @@ const initialState: ForgotPasswordState = {
 };
 
 export function ForgotPasswordForm() {
-  const [state, formAction] = useActionState(forgotPasswordAction, initialState);
+  const [state, formAction, pending] = useActionState(forgotPasswordAction, initialState);
+  const [captchaReady, setCaptchaReady] = useState(false);
+  const captcha = <TurnstileField resetKey={state} onTokenChange={setCaptchaReady} />;
 
   if (state.success) {
     return (
@@ -31,12 +34,13 @@ export function ForgotPasswordForm() {
         </div>
         <form action={formAction} className="space-y-2">
           <input type="hidden" name="email" value={state.email ?? ""} readOnly />
+          {captcha}
           {state.error && (
             <p className="text-sm text-destructive" role="alert">
               {state.error}
             </p>
           )}
-          <Button type="submit" variant="outline" size="lg" className="w-full">
+          <Button type="submit" variant="outline" size="lg" className="w-full" disabled={pending || !captchaReady}>
             E-Mail erneut senden
           </Button>
         </form>
@@ -58,12 +62,13 @@ export function ForgotPasswordForm() {
           className="h-11"
         />
       </div>
+      {captcha}
       {state.error && (
         <p className="text-sm text-destructive" role="alert">
           {state.error}
         </p>
       )}
-      <Button type="submit" size="lg" className="w-full">
+      <Button type="submit" size="lg" className="w-full" disabled={pending || !captchaReady}>
         Reset-Link senden
       </Button>
     </form>

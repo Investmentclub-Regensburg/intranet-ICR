@@ -18,8 +18,12 @@ import {
 export type EventListItem = EventCore & {
   created_at: string;
   registration_count: number;
-  registered_user_ids: string[];
+  /** Ist die angemeldete Person für dieses Event angemeldet? (Keine fremden User-IDs nach außen.) */
+  is_registered: boolean;
 };
+
+/** Intern (Cache): mit den User-IDs der Anmeldungen. */
+type CachedEvent = Omit<EventListItem, "is_registered"> & { registered_user_ids: string[] };
 
 export type MyEventItem = Pick<EventCore, "id" | "title" | "event_date" | "event_time" | "end_time" | "location">;
 
@@ -99,7 +103,7 @@ function toEventCore(e: Record<string, unknown>): EventCore {
 // ---------------------------------------------------------------------------
 
 const fetchEvents = unstable_cache(
-  async (): Promise<EventListItem[]> => {
+  async (): Promise<CachedEvent[]> => {
     const admin = createServiceClient();
     const [{ data: events, error }, { data: regs }] = await Promise.all([
       admin
@@ -130,15 +134,19 @@ const fetchEvents = unstable_cache(
       };
     });
   },
-  ["events-list-v2"],
+  ["events-list-v3"],
   { revalidate: 60, tags: [EVENTS_TAG] }
 );
 
-/** Alle Events, aufsteigend nach Beginn. Nur serverseitig verwenden (enthält User-IDs der Anmeldungen). */
+/** Alle Events, aufsteigend nach Beginn, mit Anmeldestatus der angemeldeten Person. */
 export async function getEvents(): Promise<EventListItem[]> {
   const auth = await requireUser();
   if (!auth.ok) return [];
-  return fetchEvents();
+  const userId = auth.user.id;
+  return (await fetchEvents()).map(({ registered_user_ids, ...e }) => ({
+    ...e,
+    is_registered: registered_user_ids.includes(userId),
+  }));
 }
 
 export async function getEvent(eventId: string): Promise<EventListItem | null> {
@@ -154,7 +162,7 @@ export async function getMyEvents(): Promise<MyEventsResult> {
 
   const now = Date.now();
   const mine = (await fetchEvents()).filter((e) => e.registered_user_ids.includes(user.id));
-  const pick = (e: EventListItem): MyEventItem => ({
+  const pick = (e: CachedEvent): MyEventItem => ({
     id: e.id,
     title: e.title,
     event_date: e.event_date,
@@ -551,17 +559,30 @@ async function enqueueAnnouncement(
   if (error) return { count: 0, error };
   if (emails.length === 0) return { count: 0, error: "Keine Empfänger gefunden." };
 
-  const { error: insertError } = await admin.from("notification_events").insert({
-    type: "event_announcement",
-    payload: {
-      event_id: eventId,
-      event: toEventCore(row),
-      mode: target.mode,
-      recipients: emails,
-      sent_count: 0,
-      requested_by: requestedBy,
-    },
+  const payload = {
+    event_id: eventId,
+    event: toEventCore(row),
+    mode: target.mode,
+    recipients: emails,
+    sent_count: 0,
+    requested_by: requestedBy,
+  };
+  // Sperre prüfen und eintragen in einer Transaktion (zwei gleichzeitige Klicks → nur eine Rundmail).
+  const { data: queuedId, error: rpcError } = await admin.rpc("enqueue_event_announcement", {
+    p_event_id: eventId,
+    p_payload: payload,
+    p_cooldown_seconds: Math.round(ANNOUNCEMENT_COOLDOWN_MS / 1000),
   });
+  let insertError = rpcError;
+  if (rpcError?.code === "PGRST202") {
+    // Funktion fehlt noch (Migration 20261009140000 nicht ausgeführt): direkt eintragen.
+    ({ error: insertError } = await admin.from("notification_events").insert({ type: "event_announcement", payload }));
+  } else if (!rpcError && !queuedId) {
+    return {
+      count: 0,
+      error: "Für dieses Event ging in den letzten 24 Stunden bereits eine Mail an alle Mitglieder raus.",
+    };
+  }
   if (insertError) {
     console.error("enqueueAnnouncement:", insertError);
     return { count: 0, error: "Mailversand konnte nicht gestartet werden." };
