@@ -1,5 +1,6 @@
 "use server";
 import { createClient } from "@/utils/supabase/server";
+import { createServiceClient } from "@/utils/supabase/service";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import {
   FIELD_LIMITS,
@@ -47,8 +48,11 @@ export type RegisterActionState = {
  */
 function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(value);
-  return !isNaN(date.getTime());
+  const date = new Date(`${value}T00:00:00Z`);
+  // Ungültige Tage wie 2000-02-30 rollt Date in den Folgemonat – das muss auffallen.
+  if (isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return false;
+  const year = date.getUTCFullYear();
+  return year >= 1900 && year <= new Date().getUTCFullYear();
 }
 
 export async function registerAction(
@@ -199,30 +203,34 @@ export async function registerAction(
 
   const supabase = await createClient();
 
-  // options.data: Keys exakt wie vom SQL-Trigger erwartet (raw_user_meta_data->>'Vorname' etc.).
+  // Keys exakt wie vom SQL-Trigger erwartet (provision_profile_for_auth_user). Geprüfte, getrimmte
+  // Werte übergeben (nicht die Roh-Formulardaten).
+  const registration = {
+    Vorname: vorname,
+    Nachname: nachname,
+    Geburtsdatum: geburtstagRaw,
+    "Straße": strasse,
+    Hausnr: hausnummer,
+    Ort: ort,
+    PLZ: plz,
+    Handynummer: handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
+    Fach: studiengang || null,
+    Abschluss: abschluss || null,
+    Semester: student === "Ja" ? String(semesterNumber) : "",
+    "Uni/OTH": hochschultyp || null,
+    IBAN: ibanClean,
+    BIC: bicClean,
+    "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
+  };
+
+  // Am Konto (und damit im Session-Cookie) stehen nur die Namen. Alles andere geht unten in
+  // pending_registrations und wird bei der E-Mail-Bestätigung ins Profil übernommen.
   const { data: authData, error: signUpError } = await supabase.auth.signUp({
     email: email!,
     password: password!,
     options: {
       ...(captcha.captchaToken ? { captchaToken: captcha.captchaToken } : {}),
-      // Geprüfte, getrimmte Werte übergeben (nicht die Roh-Formulardaten).
-      data: {
-        Vorname: vorname,
-        Nachname: nachname,
-        Geburtsdatum: geburtstagRaw,
-        "Straße": strasse,
-        Hausnr: hausnummer,
-        Ort: ort,
-        PLZ: plz,
-        Handynummer: handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
-        Fach: studiengang || null,
-        Abschluss: abschluss || null,
-        Semester: student === "Ja" ? String(semesterNumber) : "",
-        "Uni/OTH": hochschultyp || null,
-        IBAN: ibanClean,
-        BIC: bicClean,
-        "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
-      },
+      data: { Vorname: vorname, Nachname: nachname },
     },
   });
 
@@ -239,6 +247,18 @@ export async function registerAction(
 
   if (!authData.user) {
     return { error: "Registrierung fehlgeschlagen. Bitte erneut versuchen.", saved };
+  }
+
+  // Leere identities = Adresse ist schon registriert (Supabase verrät das nicht); dann nichts ablegen.
+  if (authData.user.identities?.length) {
+    const stored = await storePendingRegistration(authData.user.id, registration);
+    if (!stored) {
+      return {
+        error:
+          "Dein Konto wurde angelegt, deine Angaben konnten aber nicht gespeichert werden. Bitte melde dich beim Vorstand.",
+        saved,
+      };
+    }
   }
 
   if (!authData.session) {
@@ -266,4 +286,29 @@ export async function registerAction(
   }
 
   return { error: "", redirect: "/dashboard" };
+}
+
+/**
+ * Registrierungsdaten bis zur E-Mail-Bestätigung in pending_registrations ablegen (nur Service Role;
+ * die user_id stammt aus dem gerade erfolgten signUp, nicht aus dem Formular).
+ * Rückfall, falls das scheitert (z. B. Migration noch nicht eingespielt): wie früher als Zusatzdaten
+ * am Konto. Die Datenbank entfernt sie dort wieder, sobald das Profil alles enthält.
+ */
+async function storePendingRegistration(userId: string, data: Record<string, unknown>): Promise<boolean> {
+  try {
+    const admin = createServiceClient();
+    const { error } = await admin.from("pending_registrations").upsert({ user_id: userId, data });
+    if (!error) return true;
+
+    console.error("registerAction: pending_registrations", error.code);
+    const { error: metaError } = await admin.auth.admin.updateUserById(userId, { user_metadata: data });
+    if (metaError) {
+      console.error("registerAction: user_metadata", metaError.code ?? metaError.status);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("registerAction: storePendingRegistration", err instanceof Error ? err.message : "unbekannt");
+    return false;
+  }
 }

@@ -25,7 +25,13 @@ export default async function ProfilePage() {
 
   const supabase = await getCachedSupabase();
   const [{ data: profile }, { data: alumniRow }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
+    supabase
+      .from("profiles")
+      .select(
+        '"Vorname", "Nachname", "Rolle", "Status", "Datum_Antrag", "Datum_Mandat", "Straße", "Hausnummer", "PLZ", "Ort", "Handynummer", "IBAN", "BIC"',
+      )
+      .eq("user_id", user.id)
+      .maybeSingle(),
     // Letzter eigener Alumni-Antrag mit Datum (RLS: nur eigene Zeilen), für die Status-Kachel.
     supabase
       .from("alumni_requests")
