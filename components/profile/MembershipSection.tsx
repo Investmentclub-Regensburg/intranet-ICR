@@ -13,8 +13,6 @@ export type MembershipData = {
   statusLabel: string;
   statusVariant: StatusVariant;
   isCancelled: boolean;
-  /** Mitgliedsnummer oder leer */
-  memberNumber: string;
   /** „12.03.2024“ oder null */
   memberSince: string | null;
   /** „2 Jahre, 7 Monate“ oder null */
@@ -37,7 +35,6 @@ const EURO = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR"
 export function MembershipSection({ data, rolle, alumni }: { data: MembershipData; rolle: string; alumni: AlumniInfo }) {
   const paysFee = data.feeStop !== null;
   const facts: { label: string; value: string | null; hint?: string }[] = [
-    { label: "Mitgliedsnummer", value: data.memberNumber || null },
     { label: "Mitglied seit", value: data.memberSince },
     { label: "Mitgliedsdauer", value: data.duration },
   ];
@@ -83,7 +80,7 @@ export function MembershipSection({ data, rolle, alumni }: { data: MembershipDat
           <dl
             className={cn(
               "grid grid-cols-2 gap-px border-t border-border bg-border",
-              facts.length === 4 ? "lg:grid-cols-4" : "sm:grid-cols-3",
+              facts.length === 3 && "sm:grid-cols-3",
             )}
           >
             {facts.map(({ label, value, hint }, i) => (
