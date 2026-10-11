@@ -12,40 +12,38 @@ try {
 const supabaseRealtime = supabaseOrigin.replace(/^https:/, "wss:");
 const TURNSTILE = "https://challenges.cloudflare.com";
 
+// Vercel-Toolbar (Kommentare/Feedback) läuft nur auf Preview-Deployments, z. B. dev.
+const VERCEL_LIVE = process.env.VERCEL_ENV === "preview" ? "https://vercel.live" : "";
+
 /**
- * Vollständige Content-Security-Policy – vorerst nur als Report-Only:
- * Verstöße erscheinen in der Browser-Konsole, blockiert wird nichts.
- * Nach Prüfung im Browser (Login, Registrierung mit Turnstile, Event-Bilder,
- * Uploads, Admin-Exporte) kann sie als "Content-Security-Policy" erzwungen werden.
+ * Content-Security-Policy (erzwungen): Der Browser lädt Skripte, Bilder, Schriften und
+ * Verbindungen nur von hier aufgeführten Quellen. Neue externe Dienste (CDN, Analyse, Einbettungen)
+ * müssen hier ergänzt werden, sonst blockiert der Browser sie.
  * 'unsafe-inline' bei script-src ist nötig, solange Next.js ohne Nonces läuft.
  */
-const cspReportOnly = [
+const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' ${TURNSTILE}${isDev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' ${TURNSTILE} ${VERCEL_LIVE}${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${supabaseOrigin}`.trim(),
+  `img-src 'self' data: blob: ${supabaseOrigin} ${VERCEL_LIVE}`,
   "font-src 'self' data:",
-  `connect-src 'self' ${supabaseOrigin} ${supabaseRealtime} ${TURNSTILE}`.replace(/\s+/g, " ").trim(),
-  `frame-src ${TURNSTILE}`,
+  `connect-src 'self' ${supabaseOrigin} ${supabaseRealtime} ${TURNSTILE} ${VERCEL_LIVE}`,
+  `frame-src ${TURNSTILE} ${VERCEL_LIVE}`,
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "object-src 'none'",
-].join("; ");
-
-/**
- * Erzwungener Teil der CSP: nur Direktiven, die keine bestehende Funktion betreffen
- * (keine Einbettung in fremde Seiten, kein <base>-Umbiegen, keine Plugins).
- */
-const cspEnforced = ["frame-ancestors 'none'", "base-uri 'self'", "object-src 'none'"].join("; ");
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
+]
+  .map((directive) => directive.replace(/\s+/g, " ").trim())
+  .join("; ");
 
 /**
  * Sicherheits-Header für alle Routen.
  */
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: cspEnforced },
-  { key: "Content-Security-Policy-Report-Only", value: cspReportOnly },
+  { key: "Content-Security-Policy", value: csp },
   // Clickjacking-Schutz für ältere Browser (zusätzlich zu frame-ancestors).
   { key: "X-Frame-Options", value: "DENY" },
   // MIME-Sniffing unterbinden.
