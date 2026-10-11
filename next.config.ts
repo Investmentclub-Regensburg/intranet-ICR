@@ -10,6 +10,29 @@ try {
   supabaseOrigin = "";
 }
 const supabaseRealtime = supabaseOrigin.replace(/^https:/, "wss:");
+
+// Lokal (next dev, lokaler Build) nie gegen die Produktions-Datenbank: .env.local zeigt auf das
+// Test-Projekt Intranet-Test. Nur Vercel (Produktion, Branch prod) nutzt die Produktion.
+// Schutz vor Versehen, keine Sicherheitsgrenze (VERCEL=1 umgeht ihn).
+const PROD_SUPABASE_REF = "vxcwtfktnefreboejgpw";
+function jwtRef(token: string | undefined): string {
+  try {
+    const payload = token?.split(".")[1];
+    return payload ? String(JSON.parse(Buffer.from(payload, "base64url").toString()).ref ?? "") : "";
+  } catch {
+    return "";
+  }
+}
+if (
+  !process.env.VERCEL &&
+  (supabaseOrigin.includes(PROD_SUPABASE_REF) ||
+    jwtRef(process.env.SUPABASE_SERVICE_ROLE_KEY) === PROD_SUPABASE_REF)
+) {
+  throw new Error(
+    "Supabase-Zugangsdaten (URL oder Service-Role-Key) zeigen auf die Produktion. Lokal bitte die Zugangsdaten " +
+      "des Test-Projekts (Intranet-Test) in .env.local eintragen.",
+  );
+}
 const TURNSTILE = "https://challenges.cloudflare.com";
 
 // Vercel-Toolbar (Kommentare/Feedback) läuft nur auf Preview-Deployments, z. B. dev.

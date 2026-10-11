@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
@@ -14,10 +14,14 @@ type IbanBicFieldsProps = {
 export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFieldsProps) {
   const [iban, setIban] = useState(initialIban);
   const [bic, setBic] = useState(initialBic);
-  useEffect(() => {
+  // Neue Startwerte (z. B. nach fehlgeschlagenem Absenden) übernehmen – während des Renderns statt
+  // per Effekt (https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  const [prevInitial, setPrevInitial] = useState({ iban: initialIban, bic: initialBic });
+  if (prevInitial.iban !== initialIban || prevInitial.bic !== initialBic) {
+    setPrevInitial({ iban: initialIban, bic: initialBic });
     setIban(initialIban);
     setBic(initialBic);
-  }, [initialIban, initialBic]);
+  }
   const [ibanError, setIbanError] = useState<string | null>(null);
   const [bicError, setBicError] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
