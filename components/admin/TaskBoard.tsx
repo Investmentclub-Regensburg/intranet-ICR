@@ -26,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { IconButton } from "@/components/kit/IconButton";
 import { Segmented } from "@/components/kit/Segmented";
@@ -489,6 +490,75 @@ function AssigneeStack({ assignees }: { assignees: BoardMember[] }) {
   );
 }
 
+/** Auswahlliste wie ein Select, aber mit Mehrfachauswahl; bleibt beim Anklicken offen. */
+function AssigneeSelect({
+  id,
+  members,
+  value,
+  onToggle,
+  onClear,
+}: {
+  id: string;
+  members: BoardMember[];
+  value: string[];
+  onToggle: (id: string) => void;
+  onClear: () => void;
+}) {
+  const selected = members.filter((m) => value.includes(m.id));
+  const label =
+    value.length === 0
+      ? "Niemand"
+      : selected.length === 1
+        ? selected[0].name
+        : `${selected[0]?.name.split(" ")[0] ?? "Ehemalig"} +${value.length - 1}`;
+  return (
+    <Popover>
+      <PopoverTrigger
+        id={id}
+        className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        title={selected.map((m) => m.name).join(", ") || undefined}
+      >
+        <span className={cn("truncate", value.length === 0 && "text-muted-foreground")}>{label}</span>
+        <ChevronDown className="size-4 shrink-0 opacity-50" aria-hidden />
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="max-h-(--radix-popover-content-available-height) w-(--radix-popover-trigger-width) min-w-56 overflow-y-auto rounded-lg p-1 shadow-soft"
+      >
+        <div role="listbox" aria-multiselectable="true" aria-label="Zuständig">
+          <button
+            type="button"
+            role="option"
+            aria-selected={value.length === 0}
+            onClick={onClear}
+            className="relative flex w-full items-center rounded-sm py-1.5 pr-8 pl-2 text-left text-sm outline-hidden select-none hover:bg-accent focus-visible:bg-accent"
+          >
+            Niemand
+            {value.length === 0 && <Check className="absolute right-2 size-4 text-muted-foreground" aria-hidden />}
+          </button>
+          {members.map((m) => {
+            const isSelected = value.includes(m.id);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => onToggle(m.id)}
+                className="relative flex w-full items-center rounded-sm py-1.5 pr-8 pl-2 text-left text-sm outline-hidden select-none hover:bg-accent focus-visible:bg-accent"
+              >
+                {m.name}
+                {m.role === "admin" ? " (Admin)" : ""}
+                {isSelected && <Check className="absolute right-2 size-4 text-muted-foreground" aria-hidden />}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function TaskDialog({
   task,
   initial,
@@ -543,7 +613,7 @@ function TaskDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && !pending && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{task ? "Aufgabe bearbeiten" : "Neue Aufgabe"}</DialogTitle>
           <DialogDescription>
@@ -582,50 +652,17 @@ function TaskDialog({
               className="flex w-full rounded-lg border border-input bg-card px-3 py-2 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm"
             />
           </div>
-          <fieldset className="space-y-1.5">
-            <legend className="flex w-full items-baseline justify-between gap-2 text-sm leading-none font-medium">
-              Zuständig
-              <span className="text-xs font-normal text-muted-foreground">
-                {input.assigneeIds.length === 0
-                  ? "Niemand ausgewählt"
-                  : `${input.assigneeIds.length} ausgewählt`}
-              </span>
-            </legend>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {members.map((m) => {
-                const selected = input.assigneeIds.includes(m.id);
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => toggleAssignee(m.id)}
-                    className={cn(
-                      "inline-flex h-8 items-center gap-1.5 rounded-full border pr-3 pl-1 text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                      selected
-                        ? "border-primary/40 bg-primary/[0.07] text-foreground"
-                        : "border-border bg-card text-muted-foreground hover:border-edge hover:text-foreground",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex size-6 items-center justify-center rounded-full text-[0.625rem] font-semibold",
-                        selected ? "bg-primary text-primary-foreground" : "bg-muted text-ink-soft",
-                      )}
-                    >
-                      {selected ? <Check className="size-3.5" aria-hidden /> : m.initials}
-                    </span>
-                    {m.name}
-                    {m.role === "admin" && <span className="text-xs text-muted-foreground">Admin</span>}
-                  </button>
-                );
-              })}
-              {members.length === 0 && (
-                <p className="text-sm text-muted-foreground">Keine Vorstände oder Admins gefunden.</p>
-              )}
-            </div>
-          </fieldset>
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="task-assignees">Zuständig</Label>
+              <AssigneeSelect
+                id="task-assignees"
+                members={members}
+                value={input.assigneeIds}
+                onToggle={toggleAssignee}
+                onClear={() => set("assigneeIds", [])}
+              />
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="task-status">Status</Label>
               <Select value={input.status} onValueChange={(v) => set("status", v as TaskStatus)}>
