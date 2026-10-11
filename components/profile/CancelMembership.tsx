@@ -14,31 +14,20 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { StatusCard, type StatusVariant } from "@/components/kit/StatusCard";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cancelMembership } from "@/app/(intranet)/profile/actions";
 import type { FeeStop } from "@/components/profile/profile-format";
 
 /**
- * Mitgliedschaft als Status-Kachel mit dezentem „Kündigen“ (neutral, kein Alarm-Rot)
- * und Bestätigungs-Modal. Logik wie bisher (cancelMembership: Status gekündigt,
+ * Kündigung als abgesetzter Gefahrenbereich am Seitenende (wie „Danger Zone“ in SaaS-Einstellungen).
+ * Bestätigung im Modal erst nach Häkchen. Logik wie bisher (cancelMembership: Status gekündigt,
  * Kündigungsdatum heute, Abmeldung, Weiterleitung zum Login).
- * `feeStop` kommt aus denselben Stichtagen wie der Finanzexport; null = kein Beitrag
- * (Alumni), dann entfällt der Satz.
+ * `feeStop` kommt aus denselben Stichtagen wie der Finanzexport; null = kein Beitrag (Alumni).
  */
-export function CancelMembership({
-  statusLabel,
-  status,
-  since,
-  feeStop,
-}: {
-  statusLabel: string;
-  status: StatusVariant;
-  /** ISO-Datum des Mitgliedsantrags oder null */
-  since: string | null;
-  feeStop: FeeStop | null;
-}) {
+export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [understood, setUnderstood] = useState(false);
 
   async function handleConfirm() {
     setLoading(true);
@@ -68,22 +57,41 @@ export function CancelMembership({
     }
   }
 
+  const consequences = [
+    "Dein Zugang zum Intranet endet sofort.",
+    feeStop
+      ? `Ab ${feeStop.semester} wird kein Beitrag mehr eingezogen (Stichtag ${feeStop.stichtag}).`
+      : null,
+    "Rückgängig machen kann das nur der Vorstand.",
+  ].filter((c): c is string => Boolean(c));
+
   return (
-    <StatusCard
-      status={status}
-      title="Mitgliedschaft"
-      statusLabel={statusLabel}
-      date={since}
-      dateLabel="Mitglied seit"
-      next={
-        feeStop
-          ? `Kündigst du heute, wird ab ${feeStop.semester} kein Beitrag mehr eingezogen (Stichtag ${feeStop.stichtag}).`
-          : undefined
-      }
-      action={
-        <AlertDialog open={open} onOpenChange={(next) => !loading && setOpen(next)}>
+    <section aria-labelledby="cancel-heading" className="space-y-3">
+      <h2 id="cancel-heading" className="text-sm font-semibold text-muted-foreground">
+        Mitgliedschaft beenden
+      </h2>
+      <div className="flex flex-col gap-4 rounded-2xl border border-destructive/25 bg-card p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-6">
+        <div className="min-w-0 space-y-1">
+          <p className="text-base leading-snug font-bold tracking-[-0.02em]">Mitgliedschaft kündigen</p>
+          <p className="text-sm text-muted-foreground">
+            {feeStop
+              ? `Kündigst du heute, wird ab ${feeStop.semester} kein Beitrag mehr eingezogen. Dein Zugang endet sofort.`
+              : "Dein Zugang zum Intranet endet sofort."}
+          </p>
+        </div>
+        <AlertDialog
+          open={open}
+          onOpenChange={(next) => {
+            if (loading) return;
+            setOpen(next);
+            if (!next) setUnderstood(false);
+          }}
+        >
           <AlertDialogTrigger asChild>
-            <Button variant="outline" className="w-full sm:w-auto">
+            <Button
+              variant="outline"
+              className="w-full shrink-0 border-destructive/30 text-destructive hover:bg-destructive/5 hover:text-destructive sm:w-auto"
+            >
               Kündigen
             </Button>
           </AlertDialogTrigger>
@@ -91,13 +99,22 @@ export function CancelMembership({
             <AlertDialogHeader>
               <AlertDialogTitle>Mitgliedschaft kündigen?</AlertDialogTitle>
               <AlertDialogDescription asChild>
-                <div className="space-y-1">
-                  <p>Dein Zugang zum Intranet endet sofort.</p>
-                  {feeStop && <p>Ab {feeStop.semester} wird kein Beitrag mehr eingezogen.</p>}
-                  <p>Rückgängig machen kann das nur der Vorstand.</p>
-                </div>
+                <ul className="list-disc space-y-1 pl-5 text-left">
+                  {consequences.map((c) => (
+                    <li key={c}>{c}</li>
+                  ))}
+                </ul>
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+              <Checkbox
+                checked={understood}
+                onCheckedChange={(v) => setUnderstood(v === true)}
+                disabled={loading}
+                className="mt-0.5"
+              />
+              <span>Ich möchte meine Mitgliedschaft im ICR verbindlich kündigen.</span>
+            </label>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={loading}>Abbrechen</AlertDialogCancel>
               <AlertDialogAction
@@ -106,14 +123,14 @@ export function CancelMembership({
                   e.preventDefault();
                   handleConfirm();
                 }}
-                disabled={loading}
+                disabled={loading || !understood}
               >
-                {loading ? "Wird verarbeitet…" : "Kündigen"}
+                {loading ? "Wird verarbeitet…" : "Endgültig kündigen"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      }
-    />
+      </div>
+    </section>
   );
 }

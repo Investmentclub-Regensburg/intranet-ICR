@@ -10,6 +10,7 @@ import {
   STATUS_LABELS,
   formatDate,
   initials,
+  maskIban,
   membershipDuration,
   nextFeeStop,
 } from "@/components/profile/profile-format";
@@ -42,6 +43,8 @@ export default async function ProfilePage() {
     rolle: ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase(),
     status: ((profile?.["Status"] as string) ?? "").trim().toLowerCase(),
     datumAntrag: (profile?.["Datum_Antrag"] as string | null) ?? null,
+    datumMandat: (profile?.["Datum_Mandat"] as string | null) ?? null,
+    mitgliedsnummer: String(profile?.["Mitgliedsnummer"] ?? "").trim(),
     strasse: ((profile?.["Straße"] as string) ?? "").trim(),
     hausnummer: ((profile?.["Hausnummer"] as string) ?? "").trim(),
     plz: ((profile?.["PLZ"] as string) ?? "").trim(),
@@ -106,12 +109,19 @@ export default async function ProfilePage() {
           mitgliedschaft: (
             <MembershipSection
               rolle={p.rolle}
-              isCancelled={p.status === "cancelled"}
-              statusLabel={statusLabel}
-              statusVariant={p.status === "" || p.status === "active" || p.status === "alumni" ? "done" : "open"}
-              since={p.datumAntrag}
               alumni={alumni}
-              feeStop={paysFee ? nextFeeStop() : null}
+              data={{
+                roleLabel,
+                statusLabel,
+                statusVariant: p.status === "" || p.status === "active" || p.status === "alumni" ? "done" : "open",
+                isCancelled: p.status === "cancelled",
+                memberNumber: p.mitgliedsnummer,
+                memberSince,
+                duration: membershipDuration(p.datumAntrag),
+                feeStop: paysFee ? nextFeeStop() : null,
+                ibanMasked: maskIban(p.iban),
+                mandateDate: formatDate(p.datumMandat),
+              }}
             />
           ),
         }}

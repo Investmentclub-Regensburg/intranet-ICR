@@ -1,5 +1,6 @@
 "use server";
 
+import { MEMBERSHIP_FEE_PER_SEMESTER } from "@/lib/membership-fee";
 import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { berlinToday, checkCollectionDate, sanitizeForSEPA } from "@/lib/sepa";
@@ -117,7 +118,7 @@ function getPeriodStart(semester: Semester, year: number): Date {
   return new Date(year, 9, 1); // 01.10.YYYY (Monat 9, 0-basiert)
 }
 
-const FEE_PER_SEMESTER = 15.0;
+const FEE_PER_SEMESTER = MEMBERSHIP_FEE_PER_SEMESTER;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OVERRIDE_ACTIONS: readonly FinanceOverrideAction[] = ["include", "exclude", "free_semester"];
 
