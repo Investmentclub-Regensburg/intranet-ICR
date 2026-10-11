@@ -1,18 +1,45 @@
 # Supabase (ICR Intranet)
 
+## Umgebungen
+
+| Umgebung | Supabase-Projekt | Wer nutzt es | Daten |
+|---|---|---|---|
+| Lokal (`next dev`), Tests | `Intranet-Test` (`rkegvieoejmyutkowwwf`) | `.env.local` | nur erfunden (`seed.sql`) |
+| CI | `supabase start` (Docker auf dem GitHub-Runner) | `.github/workflows/ci.yml` | nur erfunden |
+| Produktion | `Intranet-Database` (`vxcwtfktnefreboejgpw`) | Vercel, Branch `prod` | echte Mitglieder |
+
+`next dev` bricht ab, wenn `.env.local` auf die Produktion zeigt (`next.config.ts`).
+
 ## Migrationen
 
-Alle Schemaänderungen liegen unter `migrations/` und sind idempotent. Ausführen per Supabase CLI
-(`supabase link --project-ref <ref>` → `supabase db push`) oder Inhalt im SQL Editor einfügen.
+**Ablauf:** Feature-Branch → PR nach `dev` (CI grün) → Merge → Migration läuft automatisch ins
+Test-Projekt (`.github/workflows/test-db.yml`) → Release-PR `dev` → `prod` → Merge → die
+Supabase-GitHub-Integration spielt neue Migrationen in die Produktion ein.
 
-**Entwürfe:** Dateien mit `_entwurf_` im Namen sind noch nicht freigegeben. Sie beginnen mit dem
-Kommentar „ENTWURF – vor Ausführung gegen Schema-Dump prüfen“ und brechen ab, solange in derselben
-Sitzung nicht `set icr.apply_drafts = on;` gesetzt ist (ein `supabase db push` stoppt deshalb an der
-ersten Entwurfsdatei). Nach Prüfung den Schutzblock entfernen oder die Zeile voranstellen.
+**Regeln:**
+- Schemaänderungen nur als neue Datei unter `migrations/` (`supabase migration new <name>`).
+  **Nie** im SQL-Editor oder per `supabase db push` in der Produktion – sonst läuft die Migration beim
+  Merge ein zweites Mal. Ist es doch passiert: sofort
+  `supabase migration repair --db-url "<prod>" --status applied <version>`.
+- `migrations/20261011200000_baseline.sql` ist der Stand der Produktion vom 11.10.2026 und dort als
+  eingespielt markiert. Nie ändern (die CI prüft die Prüfsumme). Ältere Dateien: `migrations_archive/`
+  (nur zur Nachvollziehbarkeit, werden nicht mehr ausgeführt).
+- Neue Migrationen müssen neuer sein als alle vorhandenen und dürfen bestehende nicht ändern (CI).
+- Destruktive Befehle (`DROP TABLE/COLUMN/SCHEMA`, `TRUNCATE`, `DELETE FROM`, Typänderungen) lässt die
+  CI nur mit dem PR-Label `destructive-ok` durch. Vorher Daten der Produktion sichern.
+- Abwärtskompatibel bauen: Vercel und Supabase deployen gleichzeitig. Erst hinzufügen, Code umstellen,
+  Altes in einem späteren Release entfernen.
+- Vor dem PR gegen das Test-Projekt testen: `supabase db push` (die CLI ist mit dem Test-Projekt
+  verknüpft; `cat supabase/.temp/project-ref` muss `rkegvieoejmyutkowwwf` zeigen). Die CLI **nie** mit der
+  Produktion verknüpfen – `supabase db reset --linked` würde dort alles löschen.
+
+**Test-Projekt neu aufbauen:** `supabase db reset --linked` (nur mit Link auf das Test-Projekt). Danach
+die Passwörter der Testkonten setzen (siehe Kommentar in `seed.sql`). Vault-Secrets für Mails im
+Test-Projekt nie auf die Produktion zeigen lassen.
 
 ## Events
 
-Migration: `migrations/20261003120000_events_overhaul.sql`
+Migration: `migrations_archive/20261003120000_events_overhaul.sql`
 
 - `description`, `location`, `organizer`, `event_time`, `end_time` sind optional; `end_time` ist vom Typ `time`.
   Liegt `end_time` vor `event_time`, endet das Event am Folgetag.
@@ -31,7 +58,7 @@ Die Edge Function verschickt jede Mail einzeln adressiert in Resend-Batches à 1
 
 ## Vorstands-Benachrichtigungen (Registrierung, Kündigung, Alumni-Antrag)
 
-Migration: `migrations/20260920120000_board_notifications.sql`
+Migration: `migrations_archive/20260920120000_board_notifications.sql`
 Edge Function: `functions/notify-board/index.ts`
 
 ### Ablauf
@@ -47,7 +74,7 @@ Edge Function: `functions/notify-board/index.ts`
    die Admin-Seite oder indirekt über das Rollen-Dropdown), entsteht ein Event `alumni_decided`, das
    an das Mitglied selbst geht (Adresse aus `profiles."E-Mail"` zu `payload.user_id`, ersatzweise die
    Adresse des Auth-Kontos; Reply-To = Vorstandsadresse).
-   Migration: `migrations/20260921090000_alumni_decision_mail.sql`.
+   Migration: `migrations_archive/20260921090000_alumni_decision_mail.sql`.
 
 Fehlt ein Vault-Secret, bleibt das Event mit `sent_at = null` in der Outbox liegen; es geht nichts verloren.
 
