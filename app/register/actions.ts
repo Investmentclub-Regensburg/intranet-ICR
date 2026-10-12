@@ -222,6 +222,8 @@ export async function registerAction(
     IBAN: ibanClean,
     BIC: bicClean,
     "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
+    // Der letzte Schritt lautet „Mit der Registrierung akzeptierst du die Vereinssatzung“.
+    "Vereinsatzung-Bestätigung": true,
   };
 
   // Am Konto (und damit im Session-Cookie) stehen nur die Namen. Alles andere geht unten in
