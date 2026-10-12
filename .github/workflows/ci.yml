@@ -145,8 +145,9 @@ jobs:
             "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')")
           echo "Für anon ausführbare Funktionen: $count"
           test "$count" = "0"
+      # Aufräumen auch nach Fehlern – aber nur, wenn die CLI überhaupt installiert wurde.
       - if: always()
-        run: supabase stop --no-backup
+        run: if command -v supabase >/dev/null; then supabase stop --no-backup; fi
 
   security:
     runs-on: ubuntu-latest

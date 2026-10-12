@@ -29,7 +29,8 @@ export const getCachedAuth = cache(async () => {
   const supabase = await getCachedSupabase();
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("*")
+    // Nur, was Layout, Rollenprüfung und Statusprüfung brauchen – keine sensiblen Felder.
+    .select('id, user_id, "Vorname", "Nachname", "E-Mail", "Rolle", "Status", letzter_news_aufruf')
     .eq("user_id", user.id)
     .maybeSingle();
 

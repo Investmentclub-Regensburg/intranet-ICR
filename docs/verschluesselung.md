@@ -1,6 +1,6 @@
 # Verschlüsselung der Mitgliedsdaten
 
-Stand: 12.10.2026. Phase 0 und Phase 1 sind umgesetzt, Phase 2 und 3 sind geplant.
+Stand: 12.10.2026. Phase 0 und 1 sind umgesetzt, Phase 2a ist in Arbeit (Datenbank, Profil, Registrierung), Phase 2b und 3 sind geplant.
 
 ## Ziel und Schutzumfang
 
@@ -121,6 +121,55 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
 8. **Mail „Neues Mitglied“:** Der Ort fehlt dann in der Payload, die App liefert ihn nach.
 9. **`utils/supabase/cached-auth.ts`:** feste Spaltenliste statt `select("*")`.
 
+## Phase 2a: Was gilt (umgesetzt)
+
+- **Dual Write:** `member_secrets` ist die maßgebliche Fassung. Die Klartextspalten in `profiles` werden
+  bis Phase 3 mitgeschrieben, damit Finanzexport, BVH-Export und Admin-Tabelle bis Phase 2b weiter
+  funktionieren.
+- **Sperre im Dashboard:** Bei Mitgliedern mit `member_secrets`-Zeile lassen sich IBAN, BIC,
+  Geburtsdatum, Straße, Hausnummer, PLZ, Ort und Handynummer **nicht mehr im Supabase-Dashboard oder per
+  SQL ändern**, nur noch über das Intranet. Sonst wäre die verschlüsselte Fassung veraltet und würde beim
+  nächsten Speichern die Korrektur überschreiben.
+  - **Offen:** Das Geburtsdatum kann im Intranet niemand ändern. Eine Korrekturmöglichkeit für den
+    Vorstand kommt mit Phase 2b.
+  - **Notfall-Korrektur durch den Vorstand, gilt nur bis Phase 3:**
+    1. `delete from public.member_secrets where profile_id = '<id>';`. Das ist sicher, weil der Klartext
+       garantiert identisch ist.
+    2. Dann den Klartext korrigieren. Beim nächsten Speichern im Profil entsteht die Zeile neu.
+  - **Nie** `app.member_secrets_write` von Hand setzen. Dann wäre die verschlüsselte Fassung veraltet, und
+    die Korrektur ginge beim nächsten Speichern verloren.
+- **Altbestand:** Mitglieder ohne `member_secrets`-Zeile bleiben wie bisher. Eine IBAN-Änderung im
+  Dashboard meldet der alte Trigger weiterhin.
+- **Registrierung ohne Key:** Ist kein Master Key konfiguriert oder registriert, läuft die Registrierung
+  nur mit Klartext weiter. Phase 3 verschlüsselt dann nach. Profiländerungen werden dagegen abgelehnt
+  (fail closed).
+
+### Rollout in die Produktion (Reihenfolge)
+
+0. **Probelauf im Test-Projekt:** Test-Key registrieren und den ganzen Ablauf durchspielen:
+   - Registrieren und bestätigen
+   - zweimal speichern
+   - IBAN wechseln: genau ein Event
+   - Änderung im Dashboard: wird abgewiesen
+1. **Prod-Master-Key erzeugen**, auf einem vertrauenswürdigen Rechner: Key und Prüfwert
+   (`scripts/key-check-value.mjs` mit dem frisch erzeugten Key) **zusammen** offline hinterlegen und die
+   Wiederherstellungsprobe machen. Danach liegt der Key nur noch in der Hinterlegung und in Vercel, nicht
+   auf einem Laptop.
+2. **Vercel:** In Vercel nur für **Production** `MEMBER_DATA_MASTER_KEY` und `MEMBER_DATA_MASTER_KEY_ID`
+   setzen. Prüfen, dass Preview und Development den Key **nicht** haben.
+3. **Release-PR mergen**, mit dem Label `destructive-ok` (Treffer `delete from` in
+   `finish_pending_registration`). Die Migration läuft über die Supabase-Integration.
+4. **Den hinterlegten Prüfwert registrieren:** `insert into public.member_crypto_keys (key_id, kcv) …` im
+   SQL-Editor.
+   - Bis dahin schlagen Profiländerungen fehl, und Registrierungen laufen nur mit Klartext.
+   - Die Schritte 3 und 4 deshalb direkt nacheinander ausführen.
+5. **Testen:** Profil eines Testkontos speichern. Erwartet wird eine `member_secrets`-Zeile und kein
+   `iban_changed`-Event.
+
+**Instant Rollback in Vercel:** Die alte App schreibt `profiles` direkt. Bei Mitgliedern mit
+`member_secrets`-Zeile weist der Datenbank-Schutz das ab, Profiländerungen schlagen dann fehl. Das ist
+gewollt (fail closed).
+
 ## Phase 3: Bestandsdaten umstellen (geplant)
 
 1. **Backfill:**
@@ -136,6 +185,10 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
    - Der IBAN-Trigger ist entschärft.
 4. **Klartext leeren:**
    - Nur mit der Bedingung, dass die Werte noch dem gelesenen Stand entsprechen.
+   - Mit gesetztem Kennzeichen `app.member_secrets_write` innerhalb einer Datenbankfunktion. Sonst blockiert
+     der Schutz-Trigger, und der alte IBAN-Trigger würde das Leeren als Änderung melden.
+   - Vorher muss die Korrekturfunktion für den Vorstand aus Phase 2b stehen, denn danach geht die
+     Notfall-Korrektur nicht mehr.
    - Danach blockiert ein Trigger neue Klartext-Schreibvorgänge (Schutz gegen alte Deployments).
    - Die Migration läuft mit dem Label `destructive-ok`.
 5. **Altlasten:** `raw_user_meta_data` und verwaiste `pending_registrations` bereinigen.
