@@ -94,6 +94,7 @@ select vault.create_secret('<zufälliges Secret, z. B. openssl rand -hex 32>', '
 | `NOTIFY_BOARD_SECRET` | ja | identisch mit dem Vault-Secret `notify_board_secret` |
 | `RESEND_API_KEY` | ja | Resend API-Key |
 | `NOTIFY_TO_EMAIL` | nein | Empfänger, kommasepariert (Default `info@investmentclubregensburg.com`) |
+| `NOTIFY_CANCELLATION_EMAIL` | nein | Empfänger der Kündigungsmails und Antwortadresse der Kündigungsbestätigung an das Mitglied (Default `kuendigung@investmentclubregensburg.com`) |
 | `NOTIFY_FROM_EMAIL` | nein | Absender, Domain muss in Resend verifiziert sein (Default `ICR Intranet <intranet@myicr.investmentclubregensburg.com>`) |
 | `INTRANET_URL` | nein | Basis-URL des Intranets für Links in der Mail (Default `https://myicr.investmentclubregensburg.com`) |
 

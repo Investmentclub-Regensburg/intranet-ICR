@@ -22,6 +22,8 @@
 //   NOTIFY_BOARD_SECRET  – muss dem Vault-Secret notify_board_secret entsprechen
 //   RESEND_API_KEY       – Resend API-Key
 //   NOTIFY_TO_EMAIL      – Empfänger, kommasepariert (Default: info@investmentclubregensburg.com)
+//   NOTIFY_CANCELLATION_EMAIL – Empfänger der Kündigungsmails und Antwortadresse der Kündigungsbestätigung,
+//                          kommasepariert (Default: kuendigung@investmentclubregensburg.com)
 //   NOTIFY_FROM_EMAIL    – Absender, Domain muss in Resend verifiziert sein
 //   INTRANET_URL         – optional, Basis-URL für Links in die Admin-Seiten (Default: https://myicr.investmentclubregensburg.com)
 //
@@ -58,6 +60,11 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const NOTIFY_SECRET = Deno.env.get("NOTIFY_BOARD_SECRET") ?? "";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
 const TO_EMAILS = (Deno.env.get("NOTIFY_TO_EMAIL") ?? "info@investmentclubregensburg.com")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+// Kündigungen gehen an die Gruppe „Kündigung“ statt an die allgemeine Vorstandsadresse.
+const CANCELLATION_EMAILS = (Deno.env.get("NOTIFY_CANCELLATION_EMAIL") ?? "kuendigung@investmentclubregensburg.com")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -402,7 +409,7 @@ function buildMail(
         subject: title,
         html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
-        to: TO_EMAILS,
+        to: CANCELLATION_EMAILS,
       };
     }
     case "member_cancellation_confirmed": {
@@ -421,7 +428,7 @@ function buildMail(
       const rows: Array<[string, string]> = [
         ["Eingegangen am", formatDate(p.datum_kuendigung)],
         ["Kein Beitrag mehr ab", feeSemester ? `${feeSemester} (Stichtag ${str(p.fee_stichtag)})` : "– (bisher beitragsfrei)"],
-        ["Rückfragen", TO_EMAILS[0] ?? ""],
+        ["Rückfragen", CANCELLATION_EMAILS[0] ?? ""],
       ];
       const r = renderRows(rows);
       return {
@@ -431,7 +438,7 @@ function buildMail(
         }),
         text: `${title}\n\n${intro}\n\n${r.text}`,
         to: recipient ? [recipient] : [],
-        replyTo: TO_EMAILS[0],
+        replyTo: CANCELLATION_EMAILS[0],
       };
     }
     case "alumni_requested": {
