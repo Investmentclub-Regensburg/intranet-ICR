@@ -137,6 +137,15 @@ export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
                   </label>
                 ))}
               </div>
+              {reason && (
+                <button
+                  type="button"
+                  onClick={() => setReason("")}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  Auswahl zurücksetzen
+                </button>
+              )}
               <textarea
                 value={reasonText}
                 onChange={(e) => setReasonText(e.target.value.slice(0, CANCELLATION_TEXT_MAX))}
@@ -144,7 +153,7 @@ export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
                 rows={3}
                 placeholder="Möchtest du uns noch etwas mitgeben? (optional)"
                 aria-label="Anmerkung zur Kündigung (optional)"
-                className="w-full resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="w-full resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-base outline-none md:text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
               />
               <p className="text-right text-xs text-muted-foreground tabular-nums">
                 {reasonText.length}/{CANCELLATION_TEXT_MAX}

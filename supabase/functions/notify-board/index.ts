@@ -165,6 +165,11 @@ function renderRows(rows: Array<[string, string]>): { html: string; text: string
   return { html, text };
 }
 
+/** Anrede: „Hallo Anna,“ bzw. „Hallo,“ ohne Vornamen. */
+function greeting(vorname: string): string {
+  return vorname ? `Hallo ${vorname},` : "Hallo,";
+}
+
 const DEFAULT_FOOTER =
   "Automatische Benachrichtigung aus dem ICR Intranet. Antworten auf diese E-Mail werden nicht gelesen.";
 
@@ -380,7 +385,12 @@ function buildMail(
         ["Studiengang", str(p.studiengang)],
         ["Mitglied seit", formatDate(p.datum_antrag)],
         ["Kündigungsdatum", formatDate(p.datum_kuendigung)],
-        ["Grund", CANCELLATION_REASONS[str(p.reason)] ?? (str(p.reason) ? str(p.reason) : "nicht angegeben")],
+        [
+          "Grund",
+          p.self_service === false
+            ? "– (Kündigung durch den Vorstand im Intranet)"
+            : (CANCELLATION_REASONS[str(p.reason)] ?? (str(p.reason) || "nicht angegeben")),
+        ],
         ["Anmerkung", str(p.reason_text)],
         ["Zeitpunkt", formatDateTime(ev.created_at)],
       ];
@@ -396,7 +406,7 @@ function buildMail(
       };
     }
     case "member_cancellation_confirmed": {
-      const vorname = str(extra.recipient?.vorname) || "Hallo";
+      const vorname = str(extra.recipient?.vorname);
       // Empfänger nur aus dem Profil des kündigenden Kontos (siehe resolveMemberRecipient).
       const recipient = extra.recipient?.email ?? "";
       const title = "Deine Kündigung beim ICR ist eingegangen";
@@ -405,11 +415,11 @@ function buildMail(
         ? ` Ab dem ${feeSemester} wird kein Mitgliedsbeitrag mehr eingezogen.`
         : "";
       const intro =
-        `Hallo ${vorname}, wir bestätigen dir hiermit die Kündigung deiner Mitgliedschaft im Investmentclub Regensburg.${feeLine} ` +
+        `${greeting(vorname)} wir bestätigen dir hiermit die Kündigung deiner Mitgliedschaft im Investmentclub Regensburg.${feeLine} ` +
         "Dein Zugang zum Intranet ist damit beendet. Schade, dass du gehst – danke für deine Zeit im ICR und alles Gute für deinen weiteren Weg! " +
         "War die Kündigung ein Versehen oder hast du Fragen, antworte einfach auf diese Mail.";
       const rows: Array<[string, string]> = [
-        ["Kündigung zum", formatDate(p.datum_kuendigung)],
+        ["Eingegangen am", formatDate(p.datum_kuendigung)],
         ["Kein Beitrag mehr ab", feeSemester ? `${feeSemester} (Stichtag ${str(p.fee_stichtag)})` : "– (bisher beitragsfrei)"],
         ["Rückfragen", TO_EMAILS[0] ?? ""],
       ];
@@ -445,7 +455,7 @@ function buildMail(
       };
     }
     case "alumni_decided": {
-      const vorname = str(extra.recipient?.vorname) || "Hallo";
+      const vorname = str(extra.recipient?.vorname);
       const approved = str(p.decision) === "approved";
       // Empfänger nur aus dem Profil des antragstellenden Kontos (siehe resolveMemberRecipient).
       const recipient = extra.recipient?.email ?? "";
@@ -453,8 +463,8 @@ function buildMail(
         ? "Dein Alumni-Status wurde freigeschaltet"
         : "Dein Alumni-Antrag wurde abgelehnt";
       const intro = approved
-        ? `Hallo ${vorname}, der Vorstand hat deinen Antrag geprüft und dich als Alumni freigeschaltet. Dein Profil im Intranet zeigt ab sofort die Rolle „Alumni“.`
-        : `Hallo ${vorname}, der Vorstand hat deinen Antrag auf den Alumni-Status geprüft und ihn leider abgelehnt. Bei Fragen melde dich gern beim Vorstand.`;
+        ? `${greeting(vorname)} der Vorstand hat deinen Antrag geprüft und dich als Alumni freigeschaltet. Dein Profil im Intranet zeigt ab sofort die Rolle „Alumni“.`
+        : `${greeting(vorname)} der Vorstand hat deinen Antrag auf den Alumni-Status geprüft und ihn leider abgelehnt. Bei Fragen melde dich gern beim Vorstand.`;
       const rows: Array<[string, string]> = [
         ["Entscheidung", approved ? "Freigeschaltet" : "Abgelehnt"],
         ["Entschieden am", formatDateTime(p.handled_at ?? ev.created_at)],
@@ -470,14 +480,14 @@ function buildMail(
       };
     }
     case "task_deadline": {
-      const vorname = str(extra.recipient?.vorname) || "Hallo";
+      const vorname = str(extra.recipient?.vorname);
       const recipient = extra.recipient?.email ?? "";
       const overdue = Number(p.stage) >= 2;
       const taskTitle = str(p.title) || "Aufgabe";
       const title = overdue ? `Deadline erreicht: ${taskTitle}` : `Deadline naht: ${taskTitle}`;
       const intro = overdue
-        ? `Hallo ${vorname}, die Deadline deiner Aufgabe „${taskTitle}“ ist heute bzw. bereits überschritten.`
-        : `Hallo ${vorname}, die Deadline deiner Aufgabe „${taskTitle}“ ist in den nächsten Tagen.`;
+        ? `${greeting(vorname)} die Deadline deiner Aufgabe „${taskTitle}“ ist heute bzw. bereits überschritten.`
+        : `${greeting(vorname)} die Deadline deiner Aufgabe „${taskTitle}“ ist in den nächsten Tagen.`;
       const rows: Array<[string, string]> = [
         ["Aufgabe", taskTitle],
         ["Deadline", formatDate(p.deadline)],
@@ -494,14 +504,14 @@ function buildMail(
       };
     }
     case "task_assigned": {
-      const vorname = str(extra.recipient?.vorname) || "Hallo";
+      const vorname = str(extra.recipient?.vorname);
       const recipient = extra.recipient?.email ?? "";
       const taskTitle = str(p.title) || "Aufgabe";
       const by = str(p.assigned_by_name) || "Jemand aus dem Vorstand";
       const coAssignees = Array.isArray(p.co_assignees) ? p.co_assignees.map(str).filter(Boolean) : [];
       const description = truncate(str(p.description), 1500);
       const title = `Neue Aufgabe für dich: ${taskTitle}`;
-      const intro = `Hallo ${vorname}, ${by} hat dir im Aufgaben-Board eine Aufgabe zugeteilt.`;
+      const intro = `${greeting(vorname)} ${by} hat dir im Aufgaben-Board eine Aufgabe zugeteilt.`;
       const rows: Array<[string, string]> = [
         ["Aufgabe", taskTitle],
         ["Zugeteilt von", by],

@@ -9,7 +9,6 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { isCancelledProfile } from "@/lib/profile-status";
 import { MemberSecretsConflictError, saveMemberSecrets } from "@/lib/member-secrets-server";
 import { CANCELLATION_TEXT_MAX, isCancellationReason } from "@/lib/cancellation-reasons";
-import { nextFeeStop } from "@/components/profile/profile-format";
 import {
   FIELD_LIMITS,
   checkBic,
@@ -134,14 +133,14 @@ export async function cancelMembership(input?: {
   // 1) Zielprofil robust auflösen (RLS-unabhängig via Service-Role).
   let { data: profileRow, error: profileLookupError } = await admin
     .from("profiles")
-    .select('id, "Rolle", "Status"')
+    .select("id")
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (!profileRow && !profileLookupError) {
     const fallback = await admin
       .from("profiles")
-      .select('id, "Rolle", "Status"')
+      .select("id")
       .eq("id", user.id)
       .maybeSingle();
     profileRow = fallback.data;
@@ -163,25 +162,28 @@ export async function cancelMembership(input?: {
     };
   }
 
-  // Ab wann kein Beitrag mehr eingezogen wird (gleiche Stichtage wie die Mitgliedschaftsseite);
-  // Alumni zahlen keinen Beitrag.
-  const rolle = String(row?.Rolle ?? "").trim().toLowerCase();
-  const status = String(row?.Status ?? "").trim().toLowerCase();
-  const feeStop = rolle !== "alumni" && status !== "alumni" ? nextFeeStop() : null;
-
-  // 2) In einem Schritt: Grund speichern, Status/Datum setzen, Bestätigungsmail einreihen.
-  //    Die Vorstandsmail (mit Grund) und die Sperre des Kontos lösen Trigger aus.
+  // 2) In einem Schritt: Grund speichern, Status/Datum setzen, Bestätigungsmail einreihen (Datum und
+  //    Beitragsstopp rechnet die Datenbank aus dem Berliner Datum). Vorstandsmail und Sperre des Kontos
+  //    lösen Trigger aus.
   const { error: cancelError } = await admin.rpc("cancel_membership", {
     p_profile_id: profileId,
     p_reason: reason,
     p_reason_text: reasonText,
-    p_fee_semester: feeStop?.semester ?? null,
-    p_fee_stichtag: feeStop?.stichtag ?? null,
   });
 
   if (cancelError) {
-    console.error("cancelMembership:", cancelError.code);
-    return { success: false, error: "Die Kündigung konnte nicht gespeichert werden." };
+    const message = String(cancelError.message ?? "");
+    if (message.includes("letztes Vorstandsmitglied")) {
+      return {
+        success: false,
+        error: "Du bist das letzte aktive Vorstandsmitglied. Bitte übergib das Amt, bevor du kündigst.",
+      };
+    }
+    // Bereits gekündigt (z. B. Doppelklick): wie erfolgreich behandeln und abmelden.
+    if (!message.includes("bereits gekündigt")) {
+      console.error("cancelMembership:", cancelError.code);
+      return { success: false, error: "Die Kündigung konnte nicht gespeichert werden." };
+    }
   }
 
   // 3) Session beenden

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole, roleOf } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isUuid } from "@/lib/validation";
+import { berlinToday } from "@/lib/berlin-date";
 
 export type AdminMemberRow = {
   id: string;
@@ -63,9 +64,9 @@ export type CancellationRow = {
   reasonText: string | null;
 };
 
-/** Kündigungen mit freiwilligem Grund (Selbstkündigung im Intranet), neueste zuerst. */
+/** Kündigungen mit freiwilligem Grund (Selbstkündigung im Intranet), neueste zuerst. Nur Vorstand. */
 export async function getCancellations(): Promise<CancellationRow[]> {
-  const auth = await requireRole(["admin", "board"]);
+  const auth = await requireRole(["board"]);
   if (!auth.ok) return [];
 
   const admin = createServiceClient();
@@ -146,7 +147,7 @@ export async function updateMemberRole(
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = berlinToday();
 
   const update =
     roleValue === CANCELLED_UI
