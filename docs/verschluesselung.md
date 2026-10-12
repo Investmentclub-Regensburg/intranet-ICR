@@ -1,6 +1,6 @@
 # Verschlüsselung der Mitgliedsdaten
 
-Stand: 12.10.2026. Phase 0 und Phase 1 sind umgesetzt, Phase 2 und 3 sind geplant.
+Stand: 12.10.2026. Phase 0 und 1 sind umgesetzt, Phase 2a ist in Arbeit (Datenbank, Profil, Registrierung), Phase 2b und 3 sind geplant.
 
 ## Ziel und Schutzumfang
 
@@ -120,6 +120,35 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
    Browser zu schicken.
 8. **Mail „Neues Mitglied“:** Der Ort fehlt dann in der Payload, die App liefert ihn nach.
 9. **`utils/supabase/cached-auth.ts`:** feste Spaltenliste statt `select("*")`.
+
+## Phase 2a: Was gilt (umgesetzt)
+
+- **Dual Write:** `member_secrets` ist die maßgebliche Fassung. Die Klartextspalten in `profiles` werden
+  bis Phase 3 mitgeschrieben, damit Finanzexport, BVH-Export und Admin-Tabelle bis Phase 2b weiter
+  funktionieren.
+- **Sperre im Dashboard:** Bei Mitgliedern mit `member_secrets`-Zeile lassen sich IBAN, BIC,
+  Geburtsdatum, Straße, Hausnummer, PLZ, Ort und Handynummer **nicht mehr im Supabase-Dashboard oder per
+  SQL ändern**, nur noch über das Intranet. Sonst wäre die verschlüsselte Fassung veraltet und würde beim
+  nächsten Speichern die Korrektur überschreiben.
+  - **Offen:** Das Geburtsdatum kann im Intranet niemand ändern. Eine Korrekturmöglichkeit für den
+    Vorstand kommt mit Phase 2b.
+- **Altbestand:** Mitglieder ohne `member_secrets`-Zeile bleiben wie bisher. Eine IBAN-Änderung im
+  Dashboard meldet der alte Trigger weiterhin.
+- **Registrierung ohne Key:** Ist kein Master Key konfiguriert oder registriert, läuft die Registrierung
+  nur mit Klartext weiter. Phase 3 verschlüsselt dann nach. Profiländerungen werden dagegen abgelehnt
+  (fail closed).
+
+### Rollout in die Produktion (Reihenfolge)
+
+1. Den Prod-Master-Key erzeugen und offline hinterlegen, die Wiederherstellungsprobe machen.
+2. In Vercel nur für **Production** `MEMBER_DATA_MASTER_KEY` und `MEMBER_DATA_MASTER_KEY_ID` setzen.
+3. Release-PR mergen. Die Migration läuft dadurch über die Supabase-Integration.
+4. Den Key registrieren: Prüfwert per `scripts/key-check-value.mjs` ermitteln (mit Prod-Env, nur
+   lokal), dann `insert into public.member_crypto_keys …` im SQL-Editor.
+   - Bis dahin schlagen Profiländerungen fehl, und Registrierungen laufen nur mit Klartext.
+   - Diese Schritte deshalb direkt nacheinander ausführen.
+5. Testen: Profil eines Testkontos speichern. Erwartet wird eine `member_secrets`-Zeile und kein
+   `iban_changed`-Event.
 
 ## Phase 3: Bestandsdaten umstellen (geplant)
 

@@ -47,8 +47,21 @@ export default async function ProfilePage() {
   // Verschlüsselte Daten haben Vorrang; ohne member_secrets-Zeile gilt (Übergangsphase) der Klartext.
   // Nur die eigene Zeile (Profil-ID aus der eigenen, per RLS gelesenen Profilzeile).
   const profileId = String((profile as { id?: unknown } | null)?.id ?? "");
-  const secrets = profileId ? await readMemberSecrets(createServiceClient(), profileId) : null;
-  const sensitive = secrets ?? plainToSecretValues(profile as Record<string, unknown> | null);
+  // Kann eine vorhandene Zeile nicht gelesen werden, KEIN Rückgriff auf den Klartext (der würde beim
+  // Speichern die verschlüsselte Fassung überschreiben) – stattdessen Hinweis statt Formular.
+  let secrets: Awaited<ReturnType<typeof readMemberSecrets>> = null;
+  let secretsUnavailable = false;
+  if (profileId) {
+    try {
+      secrets = await readMemberSecrets(createServiceClient(), profileId);
+    } catch (err) {
+      console.error("ProfilePage: member_secrets", err instanceof Error ? err.message : "unbekannt");
+      secretsUnavailable = true;
+    }
+  }
+  const sensitive = secretsUnavailable
+    ? plainToSecretValues(null)
+    : (secrets ?? plainToSecretValues(profile as Record<string, unknown> | null));
 
   const p = {
     vorname: ((profile?.["Vorname"] as string) ?? "").trim(),
@@ -102,7 +115,12 @@ export default async function ProfilePage() {
               }}
             />
           ),
-          daten: (
+          daten: secretsUnavailable ? (
+            <p role="alert" className="rounded-2xl border border-destructive/25 bg-card p-5 text-sm">
+              Deine Adresse und Bankverbindung können gerade nicht angezeigt werden. Bitte versuche es später
+              erneut oder wende dich an den Vorstand.
+            </p>
+          ) : (
             <ProfileDataSections
               profile={{
                 vorname: p.vorname,

@@ -45,7 +45,8 @@ export const PLAIN_COLUMNS: Record<SecretField, string> = {
   handynummer: "Handynummer",
 };
 
-let verifiedKey: string | null = null;
+let verifiedKey: { marker: string; until: number } | null = null;
+const KEY_CHECK_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Pflichtprüfung vor dem Verschlüsseln: Der aktuelle Master Key muss mit Key-ID und Prüfwert in
@@ -55,7 +56,7 @@ let verifiedKey: string | null = null;
 export async function assertKeyRegistered(admin: SupabaseClient): Promise<void> {
   const keyring = getKeyring();
   const marker = `${keyring.currentId}:${keyCheckValue(keyring)}`;
-  if (verifiedKey === marker) return;
+  if (verifiedKey && verifiedKey.marker === marker && verifiedKey.until > Date.now()) return;
   const { data, error } = await admin
     .from("member_crypto_keys")
     .select("kcv, retired_at")
@@ -69,7 +70,8 @@ export async function assertKeyRegistered(admin: SupabaseClient): Promise<void> 
   if (row.kcv !== keyCheckValue(keyring)) {
     throw new MemberCryptoError(`Master Key ${keyring.currentId} passt nicht zum registrierten Prüfwert`);
   }
-  verifiedKey = marker;
+  // Nach Ablauf erneut prüfen (z. B. Key in der Datenbank zurückgezogen).
+  verifiedKey = { marker, until: Date.now() + KEY_CHECK_TTL_MS };
 }
 
 async function loadRow(admin: SupabaseClient, profileId: string): Promise<SecretsRow | null> {
@@ -208,6 +210,7 @@ export async function saveMemberSecrets(
     });
     if (!error) return;
     if (!String(error.message ?? "").includes("member_secrets_conflict")) {
+      console.error("saveMemberSecrets:", error.code);
       throw new MemberCryptoError("Verschlüsselte Daten konnten nicht gespeichert werden");
     }
   }

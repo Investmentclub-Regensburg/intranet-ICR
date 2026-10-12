@@ -9,8 +9,11 @@
 --  3) save_member_secrets(): Speichern mit optimistischer Sperre (version) und – in dieser Übergangsphase –
 --     gleichzeitigem Schreiben der Klartextspalten in profiles (Dual Write). IBAN-Änderung entscheidet
 --     die App (ibanChanged) und übergibt sie; die Funktion setzt iban_changed_at und das Event.
---  4) Der Trigger profiles_track_iban_change entfällt (sonst doppelte Events und falsche Änderungen,
---     sobald Klartext geleert wird).
+--  4) Schutz des Dual Write: Die 8 Klartextspalten eines Mitglieds mit member_secrets-Zeile lassen sich
+--     nur noch über save_member_secrets ändern (sonst wäre die verschlüsselte Fassung veraltet und würde
+--     beim nächsten Speichern die Änderung überschreiben). Änderungen am Klartext ohne member_secrets-Zeile
+--     (Altbestand, Dashboard) meldet profiles_track_iban_change weiter als IBAN-Änderung; Speichern über
+--     save_member_secrets überspringt ihn (dort entscheidet die App).
 --  5) Registrierung: pending_registrations.secrets (Chiffrate). Bei der Bestätigung übernimmt die
 --     Datenbank den GANZEN Satz in member_secrets – nur für neu angelegte Profile (id = user_id), nie
 --     entschlüsselt. Ein Fehler dabei blockiert die Bestätigung nicht; der Eintrag bleibt dann liegen.
@@ -97,7 +100,8 @@ create trigger member_secrets_guard
 -- ---------------------------------------------------------------------------
 -- p_expected_version: null = neue Zeile anlegen (scheitert, wenn es schon eine gibt), sonst die zuletzt
 -- gelesene Version (scheitert, wenn inzwischen jemand anderes gespeichert hat). p_wrapped_dek muss beim
--- Ändern dem gespeicherten entsprechen. p_plain: Klartextwerte für profiles (nur enthaltene Schlüssel).
+-- Ändern dem gespeicherten entsprechen. p_secrets: alle 8 Felder (null = leer). p_plain: Klartextwerte
+-- für profiles (nur enthaltene Schlüssel; Geburtsdatum wird hier nie geschrieben).
 -- Rückgabe: neue Version. Konflikt → Fehler 'member_secrets_conflict' (App liest neu und versucht erneut).
 create or replace function public.save_member_secrets(
   p_profile_id       uuid,
@@ -122,6 +126,13 @@ declare
   s            jsonb := coalesce(p_secrets, '{}'::jsonb);
   pl           jsonb := coalesce(p_plain, '{}'::jsonb);
 begin
+  -- Alle 8 Felder müssen übergeben werden (fehlende würden sonst still geleert).
+  if not (s ?& array['iban', 'bic', 'geburtsdatum', 'strasse', 'hausnummer', 'plz', 'ort', 'handynummer']) then
+    raise exception 'member_secrets: p_secrets muss alle 8 Felder enthalten';
+  end if;
+  -- Kennzeichen für die Trigger auf profiles: Schreiben über diese Funktion (nur diese Transaktion).
+  perform set_config('app.member_secrets_write', 'on', true);
+
   select * into v_profile from public.profiles where id = p_profile_id for update;
   if not found then
     raise exception 'member_secrets: Profil % nicht gefunden', p_profile_id;
@@ -188,6 +199,8 @@ begin
     );
   end if;
 
+  -- Kennzeichen zurücksetzen: gilt nur für die Schreibvorgänge dieser Funktion.
+  perform set_config('app.member_secrets_write', '', true);
   return v_version;
 end;
 $$;
@@ -198,9 +211,82 @@ grant execute on function public.save_member_secrets(uuid, integer, text, jsonb,
   to service_role;
 
 -- ---------------------------------------------------------------------------
--- 4) Alter IBAN-Trigger entfällt (Änderung erkennt jetzt die App)
+-- 4) Schutz des Dual Write
 -- ---------------------------------------------------------------------------
+-- Bisheriger IBAN-Trigger bleibt für Änderungen außerhalb von save_member_secrets (Altbestand ohne
+-- member_secrets-Zeile, Dashboard); beim Speichern über die App entscheidet die App.
+create or replace function public.profiles_track_iban_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_old text := upper(regexp_replace(coalesce(old."IBAN", ''), '\s', '', 'g'));
+  v_new text := upper(regexp_replace(coalesce(new."IBAN", ''), '\s', '', 'g'));
+begin
+  if current_setting('app.member_secrets_write', true) = 'on' then
+    return new;
+  end if;
+  -- Erstmals hinterlegte IBAN ist keine Mandatsänderung.
+  if v_old <> '' and v_old is distinct from v_new then
+    new.iban_changed_at := now();
+    insert into public.notification_events (type, profile_id, payload)
+    values (
+      'iban_changed',
+      new.id,
+      jsonb_build_object(
+        'profile_id',     new.id,
+        'vorname',        new."Vorname",
+        'nachname',       new."Nachname",
+        'email',          new."E-Mail",
+        'iban_last4',     right(v_new, 4),
+        'old_iban_last4', right(v_old, 4),
+        'changed_at',     now()
+      )
+    );
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.profiles_track_iban_change() from public, anon, authenticated;
+
 drop trigger if exists profiles_track_iban_change on public.profiles;
+create trigger profiles_track_iban_change
+  before update of "IBAN" on public.profiles
+  for each row
+  execute function public.profiles_track_iban_change();
+
+-- Klartext eines Mitglieds mit member_secrets-Zeile nur über save_member_secrets ändern.
+create or replace function public.profiles_guard_sensitive_plain()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if current_setting('app.member_secrets_write', true) = 'on' then
+    return new;
+  end if;
+  if (new."IBAN", new."BIC", new."Geburtsdatum", new."Straße", new."Hausnummer", new."PLZ", new."Ort", new."Handynummer")
+     is distinct from
+     (old."IBAN", old."BIC", old."Geburtsdatum", old."Straße", old."Hausnummer", old."PLZ", old."Ort", old."Handynummer")
+     and exists (select 1 from public.member_secrets ms where ms.profile_id = new.id) then
+    raise exception 'Sensible Felder dieses Mitglieds sind verschlüsselt – Änderung nur über das Intranet (Profil)';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.profiles_guard_sensitive_plain() from public, anon, authenticated;
+
+drop trigger if exists profiles_guard_sensitive_plain on public.profiles;
+create trigger profiles_guard_sensitive_plain
+  before update of "IBAN", "BIC", "Geburtsdatum", "Straße", "Hausnummer", "PLZ", "Ort", "Handynummer"
+  on public.profiles
+  for each row
+  execute function public.profiles_guard_sensitive_plain();
 
 -- ---------------------------------------------------------------------------
 -- 5) Registrierung: Chiffrate aus pending_registrations übernehmen
@@ -248,8 +334,9 @@ $$;
 
 revoke execute on function public.adopt_pending_secrets(uuid) from public, anon, authenticated;
 
--- Eintrag nur löschen, wenn das Profil alle Klartextangaben enthält UND (falls Chiffrate vorhanden)
--- member_secrets genau diesen Datenschlüssel übernommen hat.
+-- Eintrag nur löschen, wenn das Profil alle Klartextangaben enthält UND (falls Chiffrate vorhanden) für
+-- das Profil eine member_secrets-Zeile existiert (übernommen oder schon vorher vorhanden – eine
+-- vorhandene Zeile wird nie überschrieben, die Daten stehen dann im Klartext des Profils).
 create or replace function public.finish_pending_registration(p_user_id uuid)
 returns void
 language plpgsql
@@ -266,13 +353,53 @@ begin
      and public.registration_meta_is_redundant(r.data, p.id)
      and (
        r.secrets is null
-       or exists (
-         select 1 from public.member_secrets ms
-          where ms.profile_id = p.id
-            and ms.wrapped_dek = r.secrets->>'wrapped_dek'
-       )
+       or exists (select 1 from public.member_secrets ms where ms.profile_id = p.id)
      );
 end;
 $$;
 
 revoke execute on function public.finish_pending_registration(uuid) from public, anon, authenticated;
+
+-- Nachfüllen ohne E-Mail-Bestätigung: nur, solange es keine member_secrets-Zeile gibt (sonst wäre der
+-- Klartext anders als die verschlüsselte Fassung; der Schutz-Trigger würde die Bestätigung abbrechen).
+create or replace function public.handle_pending_registration()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  d jsonb := new.data;
+begin
+  if exists (select 1 from auth.users u where u.id = new.user_id and u.email_confirmed_at is not null) then
+    perform public.provision_profile_for_auth_user(new.user_id, false);
+
+    update public.profiles p
+       set "Geburtsdatum"       = coalesce(p."Geburtsdatum",
+                                    public.registration_date(d->>'Geburtsdatum')),
+           "Straße"             = coalesce(nullif(p."Straße", ''), left(d->>'Straße', 100)),
+           "Hausnummer"         = coalesce(nullif(p."Hausnummer", ''), left(d->>'Hausnr', 20)),
+           "Ort"                = coalesce(nullif(p."Ort", ''), left(d->>'Ort', 100)),
+           "PLZ"                = coalesce(nullif(p."PLZ", ''), left(d->>'PLZ', 10)),
+           "Handynummer"        = coalesce(nullif(p."Handynummer", ''), left(d->>'Handynummer', 40)),
+           "Studiengang / Fach" = coalesce(nullif(p."Studiengang / Fach", ''), left(d->>'Fach', 150)),
+           "Abschluss"          = coalesce(nullif(p."Abschluss", ''), left(d->>'Abschluss', 150)),
+           "Semester"           = coalesce(p."Semester",
+                                    case when (d->>'Semester') ~ '^\d{1,2}$' then (d->>'Semester')::integer end),
+           "Hochschulart"       = coalesce(nullif(p."Hochschulart", ''), left(d->>'Uni/OTH', 150)),
+           "IBAN"               = coalesce(nullif(p."IBAN", ''), left(d->>'IBAN', 34)),
+           "BIC"                = coalesce(nullif(p."BIC", ''), left(d->>'BIC', 11)),
+           "Sepa-Bestätigung"   = coalesce(p."Sepa-Bestätigung", false)
+                                  or lower(coalesce(d->>'Sepa-Bestätigung', 'false')) in ('true', 't', '1', 'yes', 'on')
+     where p.user_id = new.user_id
+       and p.id = new.user_id
+       and p."Datum_Antrag" = current_date
+       and not exists (select 1 from public.member_secrets ms where ms.profile_id = p.id);
+
+    perform public.finish_pending_registration(new.user_id);
+  end if;
+  return null;
+end;
+$$;
+
+revoke execute on function public.handle_pending_registration() from public, anon, authenticated;
