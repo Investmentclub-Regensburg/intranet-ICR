@@ -105,6 +105,31 @@ export async function readMemberSecrets(
   return row ? decryptRow(row) : null;
 }
 
+/**
+ * Wie readMemberSecrets, zusätzlich Version und Metadaten der Zeile aus DERSELBEN Abfrage (für Schritte, die
+ * sich auf genau den entschlüsselten Stand beziehen, z. B. Klartext leeren). null ohne Zeile.
+ */
+export async function readMemberSecretsWithMeta(
+  admin: SupabaseClient,
+  profileId: string,
+): Promise<{
+  values: MemberSecretValues;
+  version: number;
+  wrapped_dek: string;
+  iban_hash: string | null;
+  iban_last4: string | null;
+} | null> {
+  const row = await loadRow(admin, profileId);
+  if (!row) return null;
+  return {
+    values: decryptRow(row),
+    version: row.version,
+    wrapped_dek: row.wrapped_dek,
+    iban_hash: row.iban_hash,
+    iban_last4: row.iban_last4,
+  };
+}
+
 /** Ergebnis je Mitglied beim Lesen mehrerer Mitglieder: Werte oder "unreadable" (Zeile nicht entschlüsselbar). */
 export type MemberSecretsResult = MemberSecretValues | "unreadable";
 
