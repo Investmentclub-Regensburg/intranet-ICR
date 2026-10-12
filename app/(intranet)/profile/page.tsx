@@ -15,6 +15,8 @@ import {
   nextFeeStop,
 } from "@/components/profile/profile-format";
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
+import { createServiceClient } from "@/utils/supabase/service";
+import { plainToSecretValues, readMemberSecrets } from "@/lib/member-secrets-server";
 
 export default async function ProfilePage() {
   const { user } = await getCachedAuth();
@@ -28,7 +30,7 @@ export default async function ProfilePage() {
     supabase
       .from("profiles")
       .select(
-        '"Vorname", "Nachname", "Rolle", "Status", "Datum_Antrag", "Datum_Mandat", "Straße", "Hausnummer", "PLZ", "Ort", "Handynummer", "IBAN", "BIC"',
+        'id, "Vorname", "Nachname", "Rolle", "Status", "Datum_Antrag", "Datum_Mandat", "Straße", "Hausnummer", "PLZ", "Ort", "Handynummer", "IBAN", "BIC"',
       )
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -42,6 +44,12 @@ export default async function ProfilePage() {
       .maybeSingle(),
   ]);
 
+  // Verschlüsselte Daten haben Vorrang; ohne member_secrets-Zeile gilt (Übergangsphase) der Klartext.
+  // Nur die eigene Zeile (Profil-ID aus der eigenen, per RLS gelesenen Profilzeile).
+  const profileId = String((profile as { id?: unknown } | null)?.id ?? "");
+  const secrets = profileId ? await readMemberSecrets(createServiceClient(), profileId) : null;
+  const sensitive = secrets ?? plainToSecretValues(profile as Record<string, unknown> | null);
+
   const p = {
     vorname: ((profile?.["Vorname"] as string) ?? "").trim(),
     nachname: ((profile?.["Nachname"] as string) ?? "").trim(),
@@ -50,13 +58,13 @@ export default async function ProfilePage() {
     status: ((profile?.["Status"] as string) ?? "").trim().toLowerCase(),
     datumAntrag: (profile?.["Datum_Antrag"] as string | null) ?? null,
     datumMandat: (profile?.["Datum_Mandat"] as string | null) ?? null,
-    strasse: ((profile?.["Straße"] as string) ?? "").trim(),
-    hausnummer: ((profile?.["Hausnummer"] as string) ?? "").trim(),
-    plz: ((profile?.["PLZ"] as string) ?? "").trim(),
-    ort: ((profile?.["Ort"] as string) ?? "").trim(),
-    mobil: ((profile?.["Handynummer"] as string) ?? "").trim(),
-    iban: ((profile?.["IBAN"] as string) ?? "").trim(),
-    bic: ((profile?.["BIC"] as string) ?? "").trim(),
+    strasse: sensitive.strasse ?? "",
+    hausnummer: sensitive.hausnummer ?? "",
+    plz: sensitive.plz ?? "",
+    ort: sensitive.ort ?? "",
+    mobil: sensitive.handynummer ?? "",
+    iban: sensitive.iban ?? "",
+    bic: sensitive.bic ?? "",
   };
 
   const alumniStatus = String((alumniRow as { status?: unknown } | null)?.status ?? "").trim().toLowerCase();

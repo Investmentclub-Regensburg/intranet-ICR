@@ -7,6 +7,7 @@ import { getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isCancelledProfile } from "@/lib/profile-status";
+import { MemberSecretsConflictError, saveMemberSecrets } from "@/lib/member-secrets-server";
 import {
   FIELD_LIMITS,
   checkBic,
@@ -89,21 +90,23 @@ export async function updateProfile(
     };
   }
 
-  const { error } = await admin
-    .from("profiles")
-    .update({
-      "Straße": strasse,
-      Hausnummer: hausnummer,
-      PLZ: plz,
-      Ort: ort,
-      Handynummer: mobil,
-      IBAN: iban,
-      BIC: bic,
-    })
-    .eq("id", profileId);
-
-  if (error) {
-    console.error("updateProfile:", error);
+  // Verschlüsselt speichern (member_secrets) und in der Übergangsphase Klartext mitschreiben.
+  // IBAN-Änderungen erkennt saveMemberSecrets selbst und meldet sie dem Vorstand.
+  try {
+    await saveMemberSecrets(admin, profileId, {
+      strasse,
+      hausnummer,
+      plz,
+      ort,
+      handynummer: mobil,
+      iban,
+      bic,
+    });
+  } catch (err) {
+    if (err instanceof MemberSecretsConflictError) {
+      return { success: false, error: "Deine Daten wurden gerade an anderer Stelle geändert. Bitte lade die Seite neu." };
+    }
+    console.error("updateProfile:", err instanceof Error ? err.message : "unbekannt");
     return { success: false, error: "Änderungen konnten nicht gespeichert werden." };
   }
 

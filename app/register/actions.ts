@@ -1,6 +1,7 @@
 "use server";
 import { createClient } from "@/utils/supabase/server";
 import { createServiceClient } from "@/utils/supabase/service";
+import { buildRegistrationSecrets } from "@/lib/member-secrets-server";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import {
   FIELD_LIMITS,
@@ -290,20 +291,27 @@ export async function registerAction(
 
 /**
  * Registrierungsdaten bis zur E-Mail-Bestätigung in pending_registrations ablegen (nur Service Role;
- * die user_id stammt aus dem gerade erfolgten signUp, nicht aus dem Formular).
- * Rückfall, falls das scheitert (z. B. Migration noch nicht eingespielt): wie früher als Zusatzdaten
- * am Konto. Die Datenbank entfernt sie dort wieder, sobald das Profil alles enthält.
+ * die user_id stammt aus dem gerade erfolgten signUp, nicht aus dem Formular). Die sensiblen Felder
+ * zusätzlich verschlüsselt (secrets); die Datenbank übernimmt sie bei der Bestätigung nach member_secrets.
+ * Kein Rückfall mehr auf Zusatzdaten am Konto (die stünden im Klartext im Session-Cookie).
  */
 async function storePendingRegistration(userId: string, data: Record<string, unknown>): Promise<boolean> {
   try {
     const admin = createServiceClient();
-    const { error } = await admin.from("pending_registrations").upsert({ user_id: userId, data });
-    if (!error) return true;
-
-    console.error("registerAction: pending_registrations", error.code);
-    const { error: metaError } = await admin.auth.admin.updateUserById(userId, { user_metadata: data });
-    if (metaError) {
-      console.error("registerAction: user_metadata", metaError.code ?? metaError.status);
+    const text = (key: string) => (typeof data[key] === "string" ? (data[key] as string) : null);
+    const secrets = await buildRegistrationSecrets(admin, userId, {
+      iban: text("IBAN"),
+      bic: text("BIC"),
+      geburtsdatum: text("Geburtsdatum"),
+      strasse: text("Straße"),
+      hausnummer: text("Hausnr"),
+      plz: text("PLZ"),
+      ort: text("Ort"),
+      handynummer: text("Handynummer"),
+    });
+    const { error } = await admin.from("pending_registrations").upsert({ user_id: userId, data, secrets });
+    if (error) {
+      console.error("registerAction: pending_registrations", error.code);
       return false;
     }
     return true;
