@@ -132,6 +132,12 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
   nächsten Speichern die Korrektur überschreiben.
   - **Offen:** Das Geburtsdatum kann im Intranet niemand ändern. Eine Korrekturmöglichkeit für den
     Vorstand kommt mit Phase 2b.
+  - **Notfall-Korrektur durch den Vorstand, gilt nur bis Phase 3:**
+    1. `delete from public.member_secrets where profile_id = '<id>';`. Das ist sicher, weil der Klartext
+       garantiert identisch ist.
+    2. Dann den Klartext korrigieren. Beim nächsten Speichern im Profil entsteht die Zeile neu.
+  - **Nie** `app.member_secrets_write` von Hand setzen. Dann wäre die verschlüsselte Fassung veraltet, und
+    die Korrektur ginge beim nächsten Speichern verloren.
 - **Altbestand:** Mitglieder ohne `member_secrets`-Zeile bleiben wie bisher. Eine IBAN-Änderung im
   Dashboard meldet der alte Trigger weiterhin.
 - **Registrierung ohne Key:** Ist kein Master Key konfiguriert oder registriert, läuft die Registrierung
@@ -140,15 +146,29 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
 
 ### Rollout in die Produktion (Reihenfolge)
 
-1. Den Prod-Master-Key erzeugen und offline hinterlegen, die Wiederherstellungsprobe machen.
-2. In Vercel nur für **Production** `MEMBER_DATA_MASTER_KEY` und `MEMBER_DATA_MASTER_KEY_ID` setzen.
-3. Release-PR mergen. Die Migration läuft dadurch über die Supabase-Integration.
-4. Den Key registrieren: Prüfwert per `scripts/key-check-value.mjs` ermitteln (mit Prod-Env, nur
-   lokal), dann `insert into public.member_crypto_keys …` im SQL-Editor.
+0. **Probelauf im Test-Projekt:** Test-Key registrieren und den ganzen Ablauf durchspielen:
+   - Registrieren und bestätigen
+   - zweimal speichern
+   - IBAN wechseln: genau ein Event
+   - Änderung im Dashboard: wird abgewiesen
+1. **Prod-Master-Key erzeugen**, auf einem vertrauenswürdigen Rechner: Key und Prüfwert
+   (`scripts/key-check-value.mjs` mit dem frisch erzeugten Key) **zusammen** offline hinterlegen und die
+   Wiederherstellungsprobe machen. Danach liegt der Key nur noch in der Hinterlegung und in Vercel, nicht
+   auf einem Laptop.
+2. **Vercel:** In Vercel nur für **Production** `MEMBER_DATA_MASTER_KEY` und `MEMBER_DATA_MASTER_KEY_ID`
+   setzen. Prüfen, dass Preview und Development den Key **nicht** haben.
+3. **Release-PR mergen**, mit dem Label `destructive-ok` (Treffer `delete from` in
+   `finish_pending_registration`). Die Migration läuft über die Supabase-Integration.
+4. **Den hinterlegten Prüfwert registrieren:** `insert into public.member_crypto_keys (key_id, kcv) …` im
+   SQL-Editor.
    - Bis dahin schlagen Profiländerungen fehl, und Registrierungen laufen nur mit Klartext.
-   - Diese Schritte deshalb direkt nacheinander ausführen.
-5. Testen: Profil eines Testkontos speichern. Erwartet wird eine `member_secrets`-Zeile und kein
+   - Die Schritte 3 und 4 deshalb direkt nacheinander ausführen.
+5. **Testen:** Profil eines Testkontos speichern. Erwartet wird eine `member_secrets`-Zeile und kein
    `iban_changed`-Event.
+
+**Instant Rollback in Vercel:** Die alte App schreibt `profiles` direkt. Bei Mitgliedern mit
+`member_secrets`-Zeile weist der Datenbank-Schutz das ab, Profiländerungen schlagen dann fehl. Das ist
+gewollt (fail closed).
 
 ## Phase 3: Bestandsdaten umstellen (geplant)
 
@@ -165,6 +185,10 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
    - Der IBAN-Trigger ist entschärft.
 4. **Klartext leeren:**
    - Nur mit der Bedingung, dass die Werte noch dem gelesenen Stand entsprechen.
+   - Mit gesetztem Kennzeichen `app.member_secrets_write` innerhalb einer Datenbankfunktion. Sonst blockiert
+     der Schutz-Trigger, und der alte IBAN-Trigger würde das Leeren als Änderung melden.
+   - Vorher muss die Korrekturfunktion für den Vorstand aus Phase 2b stehen, denn danach geht die
+     Notfall-Korrektur nicht mehr.
    - Danach blockiert ein Trigger neue Klartext-Schreibvorgänge (Schutz gegen alte Deployments).
    - Die Migration läuft mit dem Label `destructive-ok`.
 5. **Altlasten:** `raw_user_meta_data` und verwaiste `pending_registrations` bereinigen.

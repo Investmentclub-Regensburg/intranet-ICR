@@ -273,7 +273,7 @@ begin
      is distinct from
      (old."IBAN", old."BIC", old."Geburtsdatum", old."Straße", old."Hausnummer", old."PLZ", old."Ort", old."Handynummer")
      and exists (select 1 from public.member_secrets ms where ms.profile_id = new.id) then
-    raise exception 'Sensible Felder dieses Mitglieds sind verschlüsselt – Änderung nur über das Intranet (Profil)';
+    raise exception 'Sensible Felder dieses Mitglieds sind verschlüsselt – Änderung nur über das Intranet. Korrektur durch den Vorstand: docs/verschluesselung.md (Notfall-Korrektur)';
   end if;
   return new;
 end;
