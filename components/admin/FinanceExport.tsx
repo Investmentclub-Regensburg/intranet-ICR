@@ -115,6 +115,7 @@ export function FinanceExport() {
     setError(null);
     try {
       const result = await getFinanceExportData(semester, year);
+      if (result.error) throw new Error(result.error);
       setValidMembers(result.validMembers);
       setPreviewRows(result.rows);
       setOverridesAvailable(result.overridesAvailable);
@@ -149,6 +150,10 @@ export function FinanceExport() {
         return;
       }
       const result = await getFinanceExportData(loadedPeriod.semester, loadedPeriod.year);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
       setValidMembers(result.validMembers);
       setPreviewRows(result.rows);
       setStats(result.stats);
@@ -199,12 +204,13 @@ export function FinanceExport() {
       }
     }
     try {
-      const { validMembers: rows, creditor } = await getFinanceExportData(
+      const { validMembers: rows, creditor, error: exportError } = await getFinanceExportData(
         loadedPeriod.semester,
         loadedPeriod.year,
         "export",
         { format, collectionDate: format === "xml" ? collectionDate : null }
       );
+      if (exportError) throw new Error(exportError);
       return rows.length ? { rows, creditor, period: loadedPeriod } : null;
     } catch (err) {
       console.error("Fehler beim Laden der Exportdaten:", err);

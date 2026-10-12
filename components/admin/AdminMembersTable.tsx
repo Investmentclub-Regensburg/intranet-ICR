@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MemberRoleSelect } from "./MemberRoleSelect";
+import { MemberCorrectionDialog } from "./MemberCorrectionDialog";
 import { StatusPill } from "@/components/kit/StatusCard";
 import { ROLE_LABELS, statusGroup } from "./format";
 import type { AdminMemberRow } from "@/app/(intranet)/admin/members/actions";
@@ -35,6 +36,7 @@ export function AdminMembersTable({ members, canEditRole }: Props) {
           <TableHead>Handynummer</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>{canEditRole ? "Rolle ändern" : "Rolle"}</TableHead>
+          {canEditRole && <TableHead className="text-right">Daten</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -45,7 +47,13 @@ export function AdminMembersTable({ members, canEditRole }: Props) {
               <TableCell className="font-medium whitespace-nowrap">{member.name}</TableCell>
               <TableCell className="text-muted-foreground">{member.studiengang || "—"}</TableCell>
               <TableCell className="whitespace-nowrap">{member.email || "—"}</TableCell>
-              <TableCell className="whitespace-nowrap tabular-nums">{member.handynummer || "—"}</TableCell>
+              <TableCell className="whitespace-nowrap tabular-nums">
+                {member.secretsUnreadable ? (
+                  <span className="text-destructive">nicht lesbar</span>
+                ) : (
+                  member.handynummer || "—"
+                )}
+              </TableCell>
               <TableCell>
                 <StatusPill status={pill.status}>{pill.label}</StatusPill>
               </TableCell>
@@ -56,6 +64,11 @@ export function AdminMembersTable({ members, canEditRole }: Props) {
                   <span>{ROLE_LABELS[member.rolle] ?? member.rolle}</span>
                 )}
               </TableCell>
+              {canEditRole && (
+                <TableCell className="text-right">
+                  <MemberCorrectionDialog profileId={member.id} name={member.name} />
+                </TableCell>
+              )}
             </TableRow>
           );
         })}

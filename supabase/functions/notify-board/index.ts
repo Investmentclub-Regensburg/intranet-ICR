@@ -565,7 +565,9 @@ function buildMail(
       const r = renderRows(rows);
       const title = `Bankverbindung geändert: ${name}`;
       const intro =
-        "Ein Mitglied hat seine IBAN im Profil geändert. Der nächste SEPA-Export kennzeichnet die Lastschrift als Mandatsänderung. Falls die Änderung unerwartet ist, bitte beim Mitglied nachfragen.";
+        p.by_board === true
+          ? "Der Vorstand hat die IBAN dieses Mitglieds im Admin-Bereich korrigiert. Der nächste SEPA-Export kennzeichnet die Lastschrift als Mandatsänderung."
+          : "Ein Mitglied hat seine IBAN im Profil geändert. Der nächste SEPA-Export kennzeichnet die Lastschrift als Mandatsänderung. Falls die Änderung unerwartet ist, bitte beim Mitglied nachfragen.";
       return {
         subject: title,
         html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),

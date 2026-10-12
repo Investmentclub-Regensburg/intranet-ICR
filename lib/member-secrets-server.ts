@@ -105,6 +105,50 @@ export async function readMemberSecrets(
   return row ? decryptRow(row) : null;
 }
 
+/** Ergebnis je Mitglied beim Lesen mehrerer Mitglieder: Werte oder "unreadable" (Zeile nicht entschlüsselbar). */
+export type MemberSecretsResult = MemberSecretValues | "unreadable";
+
+const BULK_CHUNK = 100;
+
+/**
+ * Entschlüsselte Werte mehrerer Mitglieder (Admin-Tabelle, Exporte). `profiles` muss die Klartextspalten
+ * (PLAIN_COLUMNS) enthalten, soweit der Aufrufer sie braucht: Für Mitglieder ohne member_secrets-Zeile
+ * gelten sie (Übergangsphase), für Mitglieder mit Zeile NUR die Zeile. Eine nicht entschlüsselbare Zeile
+ * ergibt "unreadable" – nie ein Rückgriff auf den Klartext. Wirft, wenn member_secrets nicht lesbar ist.
+ */
+export async function readMemberSecretsMany(
+  admin: SupabaseClient,
+  profiles: ReadonlyArray<Record<string, unknown> & { id: string }>,
+): Promise<Map<string, MemberSecretsResult>> {
+  const ids = [...new Set(profiles.map((p) => p.id).filter(Boolean))];
+  const rows = new Map<string, SecretsRow>();
+  for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+    const { data, error } = await admin
+      .from("member_secrets")
+      .select(ROW_COLUMNS)
+      .in("profile_id", ids.slice(i, i + BULK_CHUNK));
+    if (error) throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
+    for (const row of (data ?? []) as unknown as SecretsRow[]) rows.set(row.profile_id, row);
+  }
+
+  // Fehlender Master Key betrifft alle Zeilen: werfen statt jede Zeile als "unreadable" zu melden.
+  if (rows.size > 0) getKeyring();
+  const result = new Map<string, MemberSecretsResult>();
+  for (const profile of profiles) {
+    const row = rows.get(profile.id);
+    if (!row) {
+      result.set(profile.id, plainToSecretValues(profile));
+      continue;
+    }
+    try {
+      result.set(profile.id, decryptRow(row));
+    } catch {
+      result.set(profile.id, "unreadable");
+    }
+  }
+  return result;
+}
+
 /** Klartextspalten aus profiles in das Format der verschlüsselten Felder bringen (Übergangsphase). */
 export function plainToSecretValues(profile: Record<string, unknown> | null | undefined): MemberSecretValues {
   const values = {} as MemberSecretValues;
@@ -128,11 +172,13 @@ export class MemberSecretsConflictError extends Error {
  * `changes` enthält nur die geänderten Felder; alle übrigen bleiben erhalten. Legt die Zeile bei Bedarf an
  * und übernimmt dabei die vorhandenen Klartextwerte, damit kein Feld verloren geht.
  * Erkennt IBAN-Änderungen (ibanChanged) und meldet sie über die Datenbank.
+ * `correctedBy`: Profil-ID des Vorstandsmitglieds bei einer Korrektur im Admin-Bereich (wird protokolliert).
  */
 export async function saveMemberSecrets(
   admin: SupabaseClient,
   profileId: string,
   changes: Partial<MemberSecretValues>,
+  options: { correctedBy?: string } = {},
 ): Promise<void> {
   await assertKeyRegistered(admin);
   const keyring = getKeyring();
@@ -192,10 +238,10 @@ export async function saveMemberSecrets(
       secrets = withDataKey(keyring, profileId, wrapped, encrypt);
     }
 
-    // Klartext nur für die geänderten Felder mitschreiben (Geburtsdatum ist hier nie dabei).
+    // Klartext nur für die geänderten Felder mitschreiben.
     const plain: Record<string, string> = {};
     for (const field of SECRET_FIELDS) {
-      if (field in changes && field !== "geburtsdatum") plain[field] = next[field] ?? "";
+      if (field in changes) plain[field] = next[field] ?? "";
     }
 
     const { error } = await admin.rpc("save_member_secrets", {
@@ -207,6 +253,9 @@ export async function saveMemberSecrets(
       p_iban_last4: next.iban ? next.iban.slice(-4) : null,
       p_iban_changed: changed,
       p_plain: plain,
+      // Nur bei Korrekturen mitsenden: So funktioniert das Profil auch, wenn die App vor der Migration
+      // 20261013100000 live geht (die alte Funktion kennt den Parameter nicht).
+      ...(options.correctedBy ? { p_corrected_by: options.correctedBy } : {}),
     });
     if (!error) return;
     if (!String(error.message ?? "").includes("member_secrets_conflict")) {

@@ -5,6 +5,7 @@ import { buildRegistrationSecrets } from "@/lib/member-secrets-server";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import {
   FIELD_LIMITS,
+  checkBirthDate,
   checkDialCode,
   checkPhone,
   checkPlz,
@@ -43,18 +44,6 @@ export type RegisterActionState = {
   saved?: RegisterSavedState;
   confirmationMessage?: string;
 };
-
-/**
- * Validiert Datum im ISO-Format YYYY-MM-DD (vom Date-Picker).
- */
-function isValidDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  // Ungültige Tage wie 2000-02-30 rollt Date in den Folgemonat – das muss auffallen.
-  if (isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return false;
-  const year = date.getUTCFullYear();
-  return year >= 1900 && year <= new Date().getUTCFullYear();
-}
 
 export async function registerAction(
   _prevState: RegisterActionState,
@@ -170,7 +159,7 @@ export async function registerAction(
     return { error: passwordError, saved };
   }
 
-  if (!isValidDate(geburtstagRaw!)) {
+  if (checkBirthDate(geburtstagRaw!)) {
     return { error: "Bitte wähle ein gültiges Geburtsdatum im Picker aus.", saved };
   }
 

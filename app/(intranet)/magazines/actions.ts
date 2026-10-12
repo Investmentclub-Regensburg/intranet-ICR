@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isUuid } from "@/lib/validation";
+import { readMemberSecretsMany, type MemberSecretValues } from "@/lib/member-secrets-server";
 import {
   BVH_MITGLIEDER_CSV_HEADER,
   formatBirthdayIso,
@@ -218,7 +219,7 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     const { data: profData, error: profErr } = await admin
       .from("profiles")
       .select(
-        'user_id, Vorname, Nachname, "E-Mail", Handynummer, Geburtsdatum, Anrede, "Straße", Hausnummer, PLZ, Ort, Rolle'
+        'id, user_id, Vorname, Nachname, "E-Mail", Handynummer, Geburtsdatum, Anrede, "Straße", Hausnummer, PLZ, Ort, Rolle'
       )
       .in("user_id", userIds);
     if (profErr) {
@@ -226,6 +227,25 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
       return { csv: null, error: "Profile konnten nicht geladen werden." };
     }
     profiles = (profData ?? []) as Record<string, unknown>[];
+  }
+
+  // Adresse, Telefon, Geburtsdatum aus member_secrets (verschlüsselt); ohne Zeile aus dem Klartext.
+  let secrets: Awaited<ReturnType<typeof readMemberSecretsMany>>;
+  try {
+    secrets = await readMemberSecretsMany(
+      admin,
+      profiles.map((p) => ({ ...p, id: String(p.id ?? "") }))
+    );
+  } catch (err) {
+    console.error("buildBvhUnhandledRequestsCsv (member_secrets):", err instanceof Error ? err.message : "unbekannt");
+    return { csv: null, error: "Verschlüsselte Mitgliedsdaten konnten nicht gelesen werden." };
+  }
+  const unreadable = [...secrets.values()].filter((v) => v === "unreadable").length;
+  if (unreadable > 0) {
+    return {
+      csv: null,
+      error: `Daten von ${unreadable} ${unreadable === 1 ? "Mitglied" : "Mitgliedern"} nicht entschlüsselbar. Bitte IT-Vorstand informieren.`,
+    };
   }
 
   const byUserId = new Map<string, Record<string, unknown>>();
@@ -247,15 +267,16 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     const email = String(prof["E-Mail"] ?? prof["e-mail"] ?? "").trim();
     const firstName = String(prof.Vorname ?? prof.vorname ?? "").trim();
     const lastName = String(prof.Nachname ?? prof.nachname ?? "").trim();
-    const phone = String(prof?.Handynummer ?? prof?.handynummer ?? "").trim();
-    const birthday = formatBirthdayIso(prof?.Geburtsdatum ?? prof?.geburtsdatum);
+    const sv = secrets.get(String(prof.id ?? "")) as MemberSecretValues | undefined;
+    const phone = (sv?.handynummer ?? "").trim();
+    const birthday = formatBirthdayIso(sv?.geburtsdatum);
     const gender = genderFromAnrede(
       String(prof?.Anrede ?? prof?.anrede ?? "").trim() || undefined
     );
-    const pcode = String(prof?.PLZ ?? prof?.plz ?? "").trim();
-    const place = String(prof?.Ort ?? prof?.ort ?? "").trim();
-    const street = String(prof?.["Straße"] ?? prof?.Strasse ?? "").trim();
-    const snumber = String(prof?.Hausnummer ?? prof?.hausnummer ?? "").trim();
+    const pcode = (sv?.plz ?? "").trim();
+    const place = (sv?.ort ?? "").trim();
+    const street = (sv?.strasse ?? "").trim();
+    const snumber = (sv?.hausnummer ?? "").trim();
     const addition = "";
     const vorstand = vorstandFromRolle(
       String(prof?.Rolle ?? prof?.rolle ?? "member")

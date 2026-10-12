@@ -5,6 +5,7 @@ import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { berlinToday, checkCollectionDate, sanitizeForSEPA } from "@/lib/sepa";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
+import { readMemberSecretsMany } from "@/lib/member-secrets-server";
 
 export type Semester = "SoSe" | "WiSe";
 
@@ -73,6 +74,11 @@ export type FinanceExportResult = {
   creditor: SepaCreditor | null;
   /** Zeitpunkt des letzten SEPA-XML-Exports (Bezug für Mandatsänderungen), sonst null. */
   lastXmlExportAt: string | null;
+  /**
+   * Abbruch mit Meldung für den Vorstand (z. B. verschlüsselte Bankdaten nicht lesbar). Als Rückgabe statt
+   * als Exception, weil Next.js Fehlertexte geworfener Exceptions im Produktionsbuild nicht weitergibt.
+   */
+  error?: string;
 };
 
 /** Angaben zum Download (nur Export-Modus); landen im Protokoll finance_exports. */
@@ -204,6 +210,32 @@ export async function getFinanceExportData(
   if (error || !profiles) {
     throw new Error("Fehler beim Laden der Profile aus der Datenbank.");
   }
+
+  // Bankdaten aus member_secrets (verschlüsselt); ohne Zeile aus dem Klartext (Übergangsphase).
+  // Nicht entschlüsselbare Zeilen brechen ab – sonst fehlten Mitglieder still im Einzug.
+  const abort = (message: string): FinanceExportResult => ({
+    validMembers: [],
+    rows: [],
+    stats: { total: 0, debit: 0, alumni: 0, cancelled: 0, free_semester: 0, no_iban: 0, invalid: 0, removed: 0 },
+    overridesAvailable: !overridesRes.error,
+    creditor: null,
+    lastXmlExportAt,
+    error: message,
+  });
+  let secrets: Awaited<ReturnType<typeof readMemberSecretsMany>>;
+  try {
+    secrets = await readMemberSecretsMany(supabase, profiles as unknown as { id: string }[]);
+  } catch (err) {
+    console.error("getFinanceExportData: member_secrets", err instanceof Error ? err.message : "unbekannt");
+    return abort("Verschlüsselte Bankdaten konnten nicht gelesen werden. Bitte IT-Vorstand informieren.");
+  }
+  const unreadable = [...secrets.values()].filter((v) => v === "unreadable").length;
+  if (unreadable > 0) {
+    console.error("getFinanceExportData: nicht entschlüsselbare Zeilen", unreadable);
+    return abort(
+      `Bankdaten von ${unreadable} ${unreadable === 1 ? "Mitglied" : "Mitgliedern"} nicht entschlüsselbar – Vorschau und Export abgebrochen. Bitte IT-Vorstand informieren.`
+    );
+  }
   // Fehlt die Tabelle noch (Migration nicht ausgeführt), läuft der Export ohne Anpassungen.
   const overridesAvailable = !overridesRes.error;
   const overrides = new Map<string, FinanceOverrideAction>();
@@ -231,8 +263,10 @@ export async function getFinanceExportData(
     const override = overrides.get(id) ?? null;
     const status = text(profile["Status"]).toLowerCase();
     const role = text(profile["Rolle"]).toLowerCase();
-    const ibanClean = text(profile["IBAN"]).replace(/\s/g, "").toUpperCase();
-    const bicClean = text(profile["BIC"]).replace(/\s/g, "").toUpperCase();
+    const bank = secrets.get(id);
+    const bankValues = bank && bank !== "unreadable" ? bank : null;
+    const ibanClean = text(bankValues?.iban).replace(/\s/g, "").toUpperCase();
+    const bicClean = text(bankValues?.bic).replace(/\s/g, "").toUpperCase();
     const joinedAt = day(profile["Datum_Antrag"]);
     const cancelledAt = day(profile["Datum_Kündigung"]);
     const ibanChangedAt = typeof profile["iban_changed_at"] === "string" ? profile["iban_changed_at"] : null;
