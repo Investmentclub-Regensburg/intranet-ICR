@@ -13,6 +13,7 @@ import {
   plainToSecretValues,
   readMemberSecrets,
   readMemberSecretsMany,
+  readMemberSecretsWithMeta,
   saveMemberSecrets,
   type MemberSecretValues,
 } from "@/lib/member-secrets-server";
@@ -27,7 +28,13 @@ const PROFILE_COLUMNS = ["id", ...Object.values(PLAIN_COLUMNS).map((c) => `"${c}
 const PAGE = 500;
 
 type PlainProfile = Record<string, unknown> & { id: string };
-type SecretMeta = { profile_id: string; wrapped_dek: string; iban_hash: string | null; iban_last4: string | null };
+type SecretMeta = {
+  profile_id: string;
+  wrapped_dek: string;
+  iban_hash: string | null;
+  iban_last4: string | null;
+  plain_cleared_at: string | null;
+};
 
 /** Vergleichsform: leer = null, IBAN normalisiert (wie beim Verschlüsseln), sonst getrimmt. */
 function comparable(field: SecretField, value: string | null | undefined): string | null {
@@ -55,8 +62,16 @@ export function ibanNeedsReview(plainIban: string | null): boolean {
   return compact !== normalizeIban(text) || !IBAN_SHAPE.test(compact);
 }
 
-function hasSensitivePlain(profile: PlainProfile): boolean {
-  return Object.values(plainToSecretValues(profile)).some((v) => v !== null);
+/**
+ * Hat das Profil sensiblen Klartext? Jeder nicht leere Wert zählt – auch nur Leerzeichen oder Tabs –, gleiche
+ * Regel wie in der Datenbank (finish_plain_clearing). So wird auch so ein Rest geleert statt das Abschließen
+ * zu blockieren.
+ */
+function hasSensitivePlain(profile: Record<string, unknown>): boolean {
+  return Object.values(PLAIN_COLUMNS).some((column) => {
+    const raw = profile[column];
+    return raw !== null && raw !== undefined && String(raw) !== "";
+  });
 }
 
 /** Alle Zeilen einer Abfrage seitenweise laden; bricht ab, wenn die Zahl nicht zur Gesamtzahl passt. */
@@ -90,7 +105,7 @@ async function loadSecretMeta(admin: SupabaseClient): Promise<Map<string, Secret
     (from, to) =>
       admin
         .from("member_secrets")
-        .select("profile_id, wrapped_dek, iban_hash, iban_last4", { count: "exact" })
+        .select("profile_id, wrapped_dek, iban_hash, iban_last4, plain_cleared_at", { count: "exact" })
         .order("profile_id")
         .range(from, to),
     "member_secrets",
@@ -113,8 +128,18 @@ export type VerifyReport = {
   /** Profile mit mindestens einem sensiblen Klartextwert. */
   withSensitivePlain: number;
   secretsRows: number;
+  /** Profile, deren Klartext geleert ist. */
+  cleared: number;
+  /** Endzustand (Klartext geleert, keine Klartext-Schreibvorgänge mehr) seit, sonst null. */
+  finishedAt: string | null;
   /** Profile mit sensiblem Klartext, aber ohne member_secrets-Zeile (Backfill fehlt). */
   missing: number;
+  /** Konten (user_id) mit sensiblen Registrierungsangaben in auth.users-Metadaten – blockiert Abschließen. */
+  authMeta: string[];
+  /** Offene Registrierungen nur mit Klartext – blockiert Abschließen. */
+  pendingPlainOnly: string[];
+  /** Offene Registrierungen mit nicht übernommenen Chiffraten (z. B. verknüpftes Altprofil) – nur Hinweis. */
+  pendingUnadopted: string[];
   /** Klartext-IBAN, die vor dem Verschlüsseln geprüft werden muss (ibanNeedsReview). */
   ibanReview: string[];
   unreadable: string[];
@@ -128,22 +153,84 @@ export type VerifyReport = {
  * gelten: missing = 0 und alle Listen leer. Gilt nur für den Zeitpunkt der Prüfung – das Leeren prüft
  * jedes Profil selbst noch einmal.
  */
-export async function verifyMemberSecrets(admin: SupabaseClient): Promise<VerifyReport> {
-  const [profiles, meta] = await Promise.all([loadProfiles(admin), loadSecretMeta(admin)]);
-  const { data: keys, error: keyError } = await admin.from("member_crypto_keys").select("key_id, retired_at");
-  if (keyError) throw new Error("member_crypto_keys nicht lesbar");
-  const activeKeys = new Set(
-    (keys ?? []).filter((k) => !(k as { retired_at: string | null }).retired_at).map((k) => String(k.key_id)),
+async function loadActiveKeys(admin: SupabaseClient): Promise<Set<string>> {
+  const { data, error } = await admin.from("member_crypto_keys").select("key_id, retired_at");
+  if (error) throw new Error("member_crypto_keys nicht lesbar");
+  return new Set(
+    (data ?? []).filter((k) => !(k as { retired_at: string | null }).retired_at).map((k) => String(k.key_id)),
   );
+}
 
+/**
+ * Probleme einer Zeile: Key, IBAN-Fingerabdruck, letzte 4 Stellen und – solange Klartext da ist – Gleichheit
+ * mit dem Klartext. Ein geleertes Profil bzw. eines im Endzustand ohne Klartext wird nicht mehr verglichen.
+ */
+function rowProblems(
+  row: Pick<SecretMeta, "wrapped_dek" | "iban_hash" | "iban_last4" | "plain_cleared_at">,
+  secret: MemberSecretValues,
+  profile: PlainProfile,
+  activeKeys: Set<string>,
+  finishedAt: string | null,
+): string[] {
+  const plain = plainToSecretValues(profile);
+  // Ohne Klartext und geleert (bzw. Endzustand, z. B. neue Registrierung): nichts zu vergleichen.
+  const cleared = (Boolean(row.plain_cleared_at) || Boolean(finishedAt)) && !hasSensitivePlain(profile);
+  const fields: string[] = cleared ? [] : differingFields(secret, plain);
+  let keyId = "";
+  try {
+    keyId = wrappedKeyId(row.wrapped_dek);
+  } catch {
+    // Unlesbares Format: als Key-Abweichung melden.
+  }
+  if (!activeKeys.has(keyId)) fields.push("key");
+  if (secret.iban) {
+    if (!row.iban_hash || ibanChanged(getKeyring(), row.iban_hash, secret.iban)) fields.push("iban_hash");
+    if (row.iban_last4 !== normalizeIban(secret.iban).slice(-4)) fields.push("iban_last4");
+  } else if (row.iban_hash || row.iban_last4) {
+    fields.push("iban_hash");
+  }
+  return fields;
+}
+
+async function loadLeftovers(
+  admin: SupabaseClient,
+): Promise<Pick<VerifyReport, "authMeta" | "pendingPlainOnly" | "pendingUnadopted">> {
+  const { data, error } = await admin.rpc("member_plain_leftovers");
+  if (error) throw new Error("member_plain_leftovers nicht lesbar");
+  const d = (data ?? {}) as Record<string, unknown>;
+  const ids = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+  return {
+    authMeta: ids(d.auth_meta),
+    pendingPlainOnly: ids(d.pending_plain_only),
+    pendingUnadopted: ids(d.pending_unadopted),
+  };
+}
+
+/** Endzustand gesetzt (Klartext geleert, keine Klartext-Schreibvorgänge mehr)? */
+export async function plainClearedAt(admin: SupabaseClient): Promise<string | null> {
+  const { data, error } = await admin.from("member_crypto_state").select("plain_cleared_at").maybeSingle();
+  if (error) throw new Error("member_crypto_state nicht lesbar");
+  return (data as { plain_cleared_at: string | null } | null)?.plain_cleared_at ?? null;
+}
+
+export async function verifyMemberSecrets(admin: SupabaseClient): Promise<VerifyReport> {
+  const [profiles, meta, activeKeys, finishedAt, leftovers] = await Promise.all([
+    loadProfiles(admin),
+    loadSecretMeta(admin),
+    loadActiveKeys(admin),
+    plainClearedAt(admin),
+    loadLeftovers(admin),
+  ]);
   const withRow = profiles.filter((p) => meta.has(p.id));
   const decrypted = await readMemberSecretsMany(admin, withRow);
-  const keyring = withRow.length ? getKeyring() : null;
 
   const report: VerifyReport = {
     profiles: profiles.length,
     withSensitivePlain: profiles.filter(hasSensitivePlain).length,
     secretsRows: meta.size,
+    cleared: 0,
+    finishedAt,
+    ...leftovers,
     missing: 0,
     ibanReview: [],
     unreadable: [],
@@ -157,25 +244,13 @@ export async function verifyMemberSecrets(admin: SupabaseClient): Promise<Verify
       if (ibanNeedsReview(plain.iban)) report.ibanReview.push(profile.id);
       continue;
     }
+    if (row.plain_cleared_at && !hasSensitivePlain(profile)) report.cleared++;
     const secret = decrypted.get(profile.id);
     if (!secret || secret === "unreadable") {
       report.unreadable.push(profile.id);
       continue;
     }
-    const fields: string[] = differingFields(secret, plain);
-    let keyId = "";
-    try {
-      keyId = wrappedKeyId(row.wrapped_dek);
-    } catch {
-      // Unlesbares Format: als Key-Abweichung melden.
-    }
-    if (!activeKeys.has(keyId)) fields.push("key");
-    if (secret.iban) {
-      if (!row.iban_hash || ibanChanged(keyring!, row.iban_hash, secret.iban)) fields.push("iban_hash");
-      if (row.iban_last4 !== normalizeIban(secret.iban).slice(-4)) fields.push("iban_last4");
-    } else if (row.iban_hash || row.iban_last4) {
-      fields.push("iban_hash");
-    }
+    const fields = rowProblems(row, secret, profile, activeKeys, finishedAt);
     if (ibanNeedsReview(plain.iban)) report.ibanReview.push(profile.id);
     if (fields.length) report.mismatches.push({ id: profile.id, fields });
   }
@@ -266,4 +341,106 @@ export async function backfillMemberSecrets(
     }
   }
   return report;
+}
+
+export type ClearReport = {
+  cleared: number;
+  remaining: number;
+  cursor: string | null;
+  /** Nicht geleert: Zeile weicht ab, IBAN-Format offen, nicht lesbar oder Klartext inzwischen geändert. */
+  skipped: { id: string; reason: string }[];
+};
+
+/** Klartextwerte genau so, wie die Datenbank sie liefert (für den Abgleich in clear_member_plaintext). */
+function rawPlain(profile: Record<string, unknown>): Record<SecretField, string | null> {
+  const out = {} as Record<SecretField, string | null>;
+  for (const field of SECRET_FIELDS) {
+    const raw = profile[PLAIN_COLUMNS[field]];
+    out[field] = raw === null || raw === undefined ? null : String(raw);
+  }
+  return out;
+}
+
+/**
+ * Phase 3b: Klartext in Portionen leeren. Nur Profile mit member_secrets-Zeile, deren Zeile in Ordnung ist
+ * und exakt dem Klartext entspricht (gleiche Prüfung wie der Prüflauf, hier je Profil frisch). Die Datenbank
+ * leert nur, wenn der Klartext noch genau dem hier gelesenen Stand entspricht. Profile ohne Zeile werden nie
+ * geleert.
+ */
+export async function clearPlaintextBatch(
+  admin: SupabaseClient,
+  batchSize: number,
+  cursor: string | null,
+): Promise<ClearReport> {
+  const [profiles, meta, activeKeys, pendingIds] = await Promise.all([
+    loadProfiles(admin),
+    loadSecretMeta(admin),
+    loadActiveKeys(admin),
+    loadPendingIds(admin),
+  ]);
+  const todo = profiles.filter((p) => (!cursor || p.id > cursor) && meta.has(p.id) && hasSensitivePlain(p));
+  const batch = todo.slice(0, batchSize);
+  const report: ClearReport = {
+    cleared: 0,
+    remaining: todo.length - batch.length,
+    cursor: todo.length > batch.length ? batch[batch.length - 1].id : null,
+    skipped: [],
+  };
+
+  for (const profile of batch) {
+    if (pendingIds.has(profile.id)) {
+      report.skipped.push({ id: profile.id, reason: "Registrierung noch offen" });
+      continue;
+    }
+    if (ibanNeedsReview(plainToSecretValues(profile).iban)) {
+      report.skipped.push({ id: profile.id, reason: "IBAN-Format prüfen" });
+      continue;
+    }
+    // Zeile frisch lesen: entschlüsselte Werte, Fingerabdruck und Version aus derselben Abfrage.
+    let current: Awaited<ReturnType<typeof readMemberSecretsWithMeta>>;
+    try {
+      current = await readMemberSecretsWithMeta(admin, profile.id);
+    } catch {
+      report.skipped.push({ id: profile.id, reason: "nicht lesbar" });
+      continue;
+    }
+    if (!current) {
+      report.skipped.push({ id: profile.id, reason: "keine verschlüsselte Fassung" });
+      continue;
+    }
+    const problems = rowProblems(
+      { ...current, plain_cleared_at: meta.get(profile.id)!.plain_cleared_at },
+      current.values,
+      profile,
+      activeKeys,
+      null,
+    );
+    if (problems.length) {
+      report.skipped.push({ id: profile.id, reason: `abweichend: ${problems.join(", ")}` });
+      continue;
+    }
+    const { error } = await admin.rpc("clear_member_plaintext", {
+      p_profile_id: profile.id,
+      p_expected: rawPlain(profile),
+      p_expected_version: current.version,
+    });
+    if (error) {
+      const changed = String(error.message ?? "").includes("member_plain_changed");
+      if (!changed) console.error("clearPlaintextBatch:", profile.id, error.code);
+      report.skipped.push({ id: profile.id, reason: changed ? "inzwischen geändert, erneut versuchen" : "Fehler" });
+      continue;
+    }
+    report.cleared++;
+  }
+  return report;
+}
+
+/** Endzustand setzen (Datenbank prüft selbst, dass kein Klartext mehr übrig ist). */
+export async function finishPlainClearing(admin: SupabaseClient): Promise<{ error?: string }> {
+  const { error } = await admin.rpc("finish_plain_clearing");
+  if (!error) return {};
+  const message = String(error.message ?? "");
+  const match = message.match(/finish_plain_clearing: ([^\n]*)/);
+  console.error("finishPlainClearing:", error.code);
+  return { error: match ? match[1] : "Abschließen fehlgeschlagen." };
 }

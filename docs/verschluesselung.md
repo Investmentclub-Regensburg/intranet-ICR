@@ -1,6 +1,6 @@
 # Verschlüsselung der Mitgliedsdaten
 
-Stand: 13.10.2026. Phase 0, 1 und 2a sind umgesetzt, Phase 2b ist in Arbeit (Lesen aus `member_secrets`, Korrektur durch den Vorstand), Phase 3 ist geplant.
+Stand: 13.10.2026. Phase 0 bis 3 sind gebaut und im Test-Projekt geprüft; in der Produktion ist noch nichts davon ausgerollt (Rollout siehe unten).
 
 ## Ziel und Schutzumfang
 
@@ -164,6 +164,11 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
    - Die Schritte 3 und 4 deshalb direkt nacheinander ausführen.
 5. **Testen:** Profil eines Testkontos speichern. Erwartet wird eine `member_secrets`-Zeile und kein
    `iban_changed`-Event.
+6. **IBAN-Problemfälle korrigieren:** Verwaltung → Verschlüsselung → „Prüfen“ listet sie; je Profil über
+   Verwaltung → Mitglieder → Stift die richtige IBAN eintragen (Stand 12.10.2026: 3 Fälle).
+7. **Backfill:** „Verschlüsseln“, danach „Prüfen“ bis „Bereit zum Leeren des Klartexts“.
+8. **Backup notieren**, Hinterlegung des Keys prüfen.
+9. **„Klartext leeren“**, dann „Abschließen“. Danach einmal „Prüfen“: „Abgeschlossen, alles in Ordnung“.
 
 **Instant Rollback in Vercel:** Die alte App schreibt `profiles` direkt. Bei Mitgliedern mit
 `member_secrets`-Zeile weist der Datenbank-Schutz das ab, Profiländerungen schlagen dann fehl. Das ist
@@ -201,7 +206,7 @@ gewollt (fail closed).
   `p_corrected_by` nur bei Korrekturen; Profiländerungen funktionieren also auch, falls die App kurz vor der
   Migration live geht. Korrekturen erst nach der Migration.
 
-## Phase 3: Bestandsdaten umstellen (Backfill umgesetzt, Leeren geplant)
+## Phase 3: Bestandsdaten umstellen (umgesetzt)
 
 1. **Backfill** (umgesetzt, Verwaltung → Verschlüsselung, nur Vorstand, `lib/member-secrets-backfill.ts`):
    - Läuft in der App in der Produktion; der Key verlässt Vercel nie. Portionen zu 25 Profilen ab dem zuletzt
@@ -222,23 +227,53 @@ gewollt (fail closed).
      entfernter Fingerabdruck – alles erkannt; Klartext unverändert, keine Events.
    - Prod (12.10.2026, nur Zählung): 446 Profile, 390 mit IBAN, 3 IBANs mit Format zum Prüfen.
 3. **Vor dem Leeren der Klartextspalten:**
-   - Die Prüfwert-Kontrolle ist grün.
-   - Die Hinterlegung des Keys ist geprüft.
-   - Ein frisches Backup ist notiert.
-   - Der IBAN-Trigger ist entschärft.
-4. **Klartext leeren:**
-   - Nur mit der Bedingung, dass die Werte noch dem gelesenen Stand entsprechen.
-   - Mit gesetztem Kennzeichen `app.member_secrets_write` innerhalb einer Datenbankfunktion. Sonst blockiert
-     der Schutz-Trigger, und der alte IBAN-Trigger würde das Leeren als Änderung melden.
-   - Vorher muss die Korrekturfunktion für den Vorstand aus Phase 2b stehen, denn danach geht die
-     Notfall-Korrektur nicht mehr.
-   - Danach blockiert ein Trigger neue Klartext-Schreibvorgänge (Schutz gegen alte Deployments).
+   - Prüflauf meldet „bereit“ (inkl. Fingerabdruck und Key).
+   - Die Hinterlegung des Keys samt Prüfwert ist geprüft.
+   - Ein frisches Backup ist notiert (Supabase → Database → Backups, Zeitpunkt festhalten).
+4. **Klartext leeren** (umgesetzt, Phase 3b, Migration `20261014100000_member_plaintext_clearing.sql`):
+   - Schaltfläche „Klartext leeren“ (nur bei „bereit“, Bestätigung mit Häkchen). Je Profil frisch geprüft
+     (Zeile lesbar, gleich dem Klartext, Fingerabdruck, Key, IBAN-Format), dann `clear_member_plaintext`:
+     leert nur mit vorhandener Zeile und nur, wenn der Klartext noch exakt dem geprüften Stand entspricht.
+     Setzt `member_secrets.plain_cleared_at` und entfernt die Klartext-Kopie aus übernommenen
+     `pending_registrations`.
+   - Bis zum Abschließen gilt für noch nicht geleerte Profile weiter der Dual Write; ein bereits geleertes
+     Profil bekommt keinen Klartext mehr. Profile mit offener Registrierung werden übersprungen.
+   - Offene Registrierungen werden nur gelöscht, wenn genau ihre Chiffrate übernommen wurden (gleicher
+     Datenschlüssel, eigenes Profil). Verknüpfte Altprofile (id ≠ user_id) bleiben liegen – deren Chiffrate
+     sind die einzige Kopie; der Prüflauf zeigt sie als „Registrierung nicht übernommen“.
+   - **Konto-Metadaten:** Ältere Konten können sensible Registrierungsangaben noch in
+     `auth.users.raw_user_meta_data` tragen (Prod 12.10.2026: 2). Sie blockieren „Abschließen“. Vorgehen je
+     Konto im SQL-Editor:
+     1. Nur die Schlüssel ansehen: `select id, array(select k from jsonb_object_keys(raw_user_meta_data) k
+        where k in ('IBAN','BIC','Geburtsdatum','Straße','Hausnr','PLZ','Ort','Handynummer')) from auth.users
+        where raw_user_meta_data ?| array['IBAN','BIC','Geburtsdatum','Straße','Hausnr','PLZ','Ort','Handynummer'];`
+     2. Werte mit den Daten des Mitglieds vergleichen (Korrekturdialog); fehlt dort etwas, über den Dialog
+        nachtragen.
+     3. Dann entfernen: `update auth.users set raw_user_meta_data = raw_user_meta_data - array['IBAN','BIC',
+        'Geburtsdatum','Straße','Hausnr','PLZ','Ort','Handynummer'] where id = '<id>';`
+   - **Deploy-Reihenfolge:** Migration vor der App (beim Release-Merge läuft die Migration über die
+     Integration). Läuft die neue App kurz ohne Migration, schlagen nur Prüflauf und Leeren fehl.
+   - **„Abschließen“** (`finish_plain_clearing`): nur wenn kein Profil mehr sensiblen Klartext hat und keine
+     offene Registrierung nur Klartext trägt (sperrt dazu `profiles` kurz gegen Schreibvorgänge). Setzt
+     `member_crypto_state.plain_cleared_at`. Ab dann:
+     - `save_member_secrets` schreibt keinen Klartext mehr (auch nicht für ein zurückgerolltes altes Deployment),
+     - Registrierung: Profil ohne sensible Klartextwerte, `pending_registrations` nur mit Chiffraten
+       (sensible Schlüssel werden entfernt; ohne Chiffrate wird die Registrierung abgewiesen),
+     - `profiles_block_sensitive_plain` weist jeden neuen sensiblen Klartextwert ab (App, Dashboard, SQL).
+   - Mail „Neues Mitglied“ enthält keinen Ort mehr; gespeicherte Payloads werden bereinigt.
+   - Zurück (nur im Notfall, per SQL-Editor): `update public.member_crypto_state set plain_cleared_at = null;`
+     hebt den Endzustand auf; die geleerten Werte kommen nur aus dem Backup zurück.
+   - Im Test-Projekt geprüft: 68 Profile geleert, Chiffrate byte-gleich vor/nach dem Leeren, 0 Profile mit
+     Klartext, Klartext-Update/-Insert abgewiesen, Registrierung ohne Chiffrate abgewiesen, mit Chiffraten ohne
+     sensible Schlüssel abgelegt, Profil speichern, Korrektur und Finanzexport im Endzustand ohne Klartext.
    - Die Migration läuft mit dem Label `destructive-ok`.
 5. **Altlasten:** `raw_user_meta_data` und verwaiste `pending_registrations` bereinigen.
    - Offene `pending_registrations`: `registration_meta_is_redundant` vergleicht mit dem Klartext. Nach einer
      Korrektur (oder nach dem Leeren) bleiben solche Einträge liegen und müssen gezielt bereinigt werden.
-   - Mail „Neues Mitglied“: `enqueue_member_registered` liest den Ort aus dem Klartext. Vor dem Leeren den
-     Ort aus der Payload nehmen (oder aus der App nachliefern).
+   - Erledigt mit 3b: Mail „Neues Mitglied“ ohne Ort.
+   - Später aufräumen (eigener PR): Klartext-Rückgriffe in den Lesern, Dual-Write-Zweig in
+     `save_member_secrets`, `profiles_guard_sensitive_plain`/`profiles_track_iban_change`, ggf. die leeren
+     Klartextspalten selbst.
 6. **Recht auf Löschung:**
    - Die ganze `member_secrets`-Zeile löschen, nicht nur den Datenschlüssel, und die zugehörigen
      Events bereinigen.

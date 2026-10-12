@@ -1,7 +1,8 @@
 "use server";
 import { createClient } from "@/utils/supabase/server";
 import { createServiceClient } from "@/utils/supabase/service";
-import { buildRegistrationSecrets } from "@/lib/member-secrets-server";
+import { assertKeyRegistered, buildRegistrationSecrets } from "@/lib/member-secrets-server";
+import { plainClearedAt } from "@/lib/member-secrets-backfill";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import {
   FIELD_LIMITS,
@@ -191,6 +192,16 @@ export async function registerAction(
   const captcha = await checkTurnstile(formData);
   if (!captcha.ok) return { error: captcha.error, saved };
 
+  // Nach dem Abschluss der Verschlüsselung nimmt die Datenbank Registrierungsdaten nur noch verschlüsselt an.
+  // Deshalb VOR dem Anlegen des Kontos prüfen, dass verschlüsselt werden kann – sonst entstünde ein Konto
+  // ohne Angaben.
+  if (!(await canStoreRegistrationData())) {
+    return {
+      error: "Die Registrierung ist gerade nicht möglich. Bitte versuche es später erneut oder melde dich beim Vorstand.",
+      saved,
+    };
+  }
+
   const supabase = await createClient();
 
   // Keys exakt wie vom SQL-Trigger erwartet (provision_profile_for_auth_user). Geprüfte, getrimmte
@@ -276,6 +287,22 @@ export async function registerAction(
   }
 
   return { error: "", redirect: "/dashboard" };
+}
+
+/** Verschlüsselung möglich – oder (Übergangsphase, Klartext noch erlaubt) nicht nötig. */
+async function canStoreRegistrationData(): Promise<boolean> {
+  try {
+    const admin = createServiceClient();
+    try {
+      await assertKeyRegistered(admin);
+      return true;
+    } catch {
+      return !(await plainClearedAt(admin));
+    }
+  } catch (err) {
+    console.error("registerAction: Verschlüsselung prüfen", err instanceof Error ? err.message : "unbekannt");
+    return false;
+  }
 }
 
 /**

@@ -369,7 +369,6 @@ function buildMail(
         ["Abschluss", str(p.abschluss)],
         ["Semester", str(p.semester)],
         ["Hochschulart", str(p.hochschulart)],
-        ["Ort", str(p.ort)],
         ["Antragsdatum", formatDate(p.datum_antrag)],
         ["Zeitpunkt", formatDateTime(ev.created_at)],
       ];
