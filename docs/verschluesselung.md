@@ -1,6 +1,6 @@
 # Verschlüsselung der Mitgliedsdaten
 
-Stand: 12.10.2026. Phase 0 und 1 sind umgesetzt, Phase 2a ist in Arbeit (Datenbank, Profil, Registrierung), Phase 2b und 3 sind geplant.
+Stand: 13.10.2026. Phase 0, 1 und 2a sind umgesetzt, Phase 2b ist in Arbeit (Lesen aus `member_secrets`, Korrektur durch den Vorstand), Phase 3 ist geplant.
 
 ## Ziel und Schutzumfang
 
@@ -130,8 +130,7 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
   Geburtsdatum, Straße, Hausnummer, PLZ, Ort und Handynummer **nicht mehr im Supabase-Dashboard oder per
   SQL ändern**, nur noch über das Intranet. Sonst wäre die verschlüsselte Fassung veraltet und würde beim
   nächsten Speichern die Korrektur überschreiben.
-  - **Offen:** Das Geburtsdatum kann im Intranet niemand ändern. Eine Korrekturmöglichkeit für den
-    Vorstand kommt mit Phase 2b.
+  - Korrekturen macht der Vorstand ab Phase 2b im Intranet (siehe unten), auch beim Geburtsdatum.
   - **Notfall-Korrektur durch den Vorstand, gilt nur bis Phase 3:**
     1. `delete from public.member_secrets where profile_id = '<id>';`. Das ist sicher, weil der Klartext
        garantiert identisch ist.
@@ -170,6 +169,38 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
 `member_secrets`-Zeile weist der Datenbank-Schutz das ab, Profiländerungen schlagen dann fehl. Das ist
 gewollt (fail closed).
 
+## Phase 2b: Was gilt
+
+- **Lesen:** Finanzexport, BVH-Export und Mitgliedertabelle lesen über `readMemberSecretsMany`:
+  - Mitglied mit `member_secrets`-Zeile: nur die Zeile, nie der Klartext.
+  - Mitglied ohne Zeile: Klartext (Übergangsphase bis zum Backfill).
+  - Nicht entschlüsselbare Zeile: Finanzexport und BVH-Export brechen mit Meldung ab (sonst fehlten
+    Mitglieder still im Einzug), auch wenn das betroffene Mitglied gar nicht eingezogen würde. Bewusst
+    streng: Eine solche Zeile bedeutet falscher Key oder Manipulation. Die Mitgliedertabelle zeigt
+    „nicht lesbar“.
+- **Korrektur durch den Vorstand:** Verwaltung → Mitglieder → Stift-Symbol (nur Rolle `board`).
+  - Straße, Hausnummer, PLZ, Ort, Handynummer, Geburtsdatum, BIC; die IBAN wird nur gekürzt angezeigt und
+    durch Neueingabe ersetzt.
+  - Gleiche Prüfregeln wie Profil und Registrierung, aber nur für geänderte Felder. Gespeichert werden nur
+    Felder, die gegenüber dem Stand beim Öffnen geändert wurden; hat sich ein solches Feld inzwischen in der
+    Datenbank geändert (z. B. durch das Mitglied), bricht die Korrektur ab. Das Geburtsdatum lässt sich nicht
+    löschen.
+  - Umgekehrt speichert das Profilformular nur die Felder des bearbeiteten Abschnitts (Persönliche Daten
+    oder Bankverbindung).
+  - Speichern über `save_member_secrets` mit `p_corrected_by`: Eintrag in `member_data_corrections` (wer,
+    wann, welche Felder, nie Werte). Eine neue IBAN erzeugt das übliche IBAN-Event mit `by_board = true`;
+    die Vorstandsmail nennt dann die Korrektur durch den Vorstand.
+  - Das Geburtsdatum wird jetzt ebenfalls in den Klartext mitgeschrieben, damit beide Fassungen bis Phase 3
+    gleich bleiben.
+- **Finanzexport im Browser:** Die Vorschau zeigt nur gekürzte IBANs. Vollständige IBANs gehen nur beim
+  Download an den Browser und jeder solche Abruf steht in `finance_exports`. CSV und XML weiter im Browser
+  zu erzeugen ist eine bewusste Entscheidung: Die Datei landet ohnehin beim Vorstand, ein serverseitiger
+  Aufbau brächte keinen zusätzlichen Schutz.
+- **Release:** Die Migration `20261013100000_member_secrets_board_correction.sql` ersetzt
+  `save_member_secrets` (`drop function`), daher braucht der PR das Label `destructive-ok`. Die App sendet
+  `p_corrected_by` nur bei Korrekturen; Profiländerungen funktionieren also auch, falls die App kurz vor der
+  Migration live geht. Korrekturen erst nach der Migration.
+
 ## Phase 3: Bestandsdaten umstellen (geplant)
 
 1. **Backfill:**
@@ -192,6 +223,10 @@ gewollt (fail closed).
    - Danach blockiert ein Trigger neue Klartext-Schreibvorgänge (Schutz gegen alte Deployments).
    - Die Migration läuft mit dem Label `destructive-ok`.
 5. **Altlasten:** `raw_user_meta_data` und verwaiste `pending_registrations` bereinigen.
+   - Offene `pending_registrations`: `registration_meta_is_redundant` vergleicht mit dem Klartext. Nach einer
+     Korrektur (oder nach dem Leeren) bleiben solche Einträge liegen und müssen gezielt bereinigt werden.
+   - Mail „Neues Mitglied“: `enqueue_member_registered` liest den Ort aus dem Klartext. Vor dem Leeren den
+     Ort aus der Payload nehmen (oder aus der App nachliefern).
 6. **Recht auf Löschung:**
    - Die ganze `member_secrets`-Zeile löschen, nicht nur den Datenschlüssel, und die zugehörigen
      Events bereinigen.

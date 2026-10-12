@@ -94,15 +94,16 @@ export async function updateProfile(
   // Verschlüsselt speichern (member_secrets) und in der Übergangsphase Klartext mitschreiben.
   // IBAN-Änderungen erkennt saveMemberSecrets selbst und meldet sie dem Vorstand.
   try {
-    await saveMemberSecrets(admin, profileId, {
-      strasse,
-      hausnummer,
-      plz,
-      ort,
-      handynummer: mobil,
-      iban,
-      bic,
-    });
+    // Nur die Felder des bearbeiteten Abschnitts speichern (ohne Angabe: alle, wie bisher). Sonst würde
+    // ein offenes Formular eine zwischenzeitliche Korrektur des Vorstands im anderen Abschnitt zurückdrehen.
+    const section = formData.get("section");
+    const personal = { strasse, hausnummer, plz, ort, handynummer: mobil };
+    const bank = { iban, bic };
+    await saveMemberSecrets(
+      admin,
+      profileId,
+      section === "personal" ? personal : section === "bank" ? bank : { ...personal, ...bank }
+    );
   } catch (err) {
     if (err instanceof MemberSecretsConflictError) {
       return { success: false, error: "Deine Daten wurden gerade an anderer Stelle geändert. Bitte lade die Seite neu." };

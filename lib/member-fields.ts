@@ -54,6 +54,17 @@ export function checkBic(value: string): string | null {
   return validateBICFormat(value) ? null : "Die BIC ist ungültig (8 oder 11 Zeichen).";
 }
 
+/** Geburtsdatum im ISO-Format YYYY-MM-DD (Date-Picker), echtes Kalenderdatum zwischen 1900 und heute. */
+export function checkBirthDate(value: string): string | null {
+  const error = "Bitte ein gültiges Geburtsdatum angeben.";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return error;
+  const date = new Date(`${value}T00:00:00Z`);
+  // Ungültige Tage wie 2000-02-30 rollt Date in den Folgemonat – das muss auffallen.
+  if (isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) return error;
+  const year = date.getUTCFullYear();
+  return year >= 1900 && year <= new Date().getUTCFullYear() ? null : error;
+}
+
 /** Erste Fehlermeldung aus einer Liste von Prüfungen (null = alles in Ordnung). */
 export function firstError(...results: (string | null)[]): string | null {
   return results.find((r) => r !== null) ?? null;

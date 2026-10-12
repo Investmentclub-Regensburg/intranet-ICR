@@ -35,9 +35,10 @@ export type ProfileContactData = {
 /**
  * Persönliche Daten und Bankverbindung: erst Lesesicht (ReadSection), der Stift öffnet
  * das Formular des jeweiligen Abschnitts. Gespeichert wird über dieselbe Server Action
- * wie bisher (updateProfile, gleiche Prüfung inkl. IBAN/BIC). Die Action schreibt immer
- * alle Felder, deshalb trägt jedes Formular die Werte des anderen Abschnitts unverändert
- * als versteckte Felder mit.
+ * wie bisher (updateProfile, gleiche Prüfung inkl. IBAN/BIC). Jedes Formular trägt die Werte
+ * des anderen Abschnitts als versteckte Felder mit (Prüfung); gespeichert werden über `section`
+ * nur die Felder des eigenen Abschnitts – eine zwischenzeitliche Korrektur des Vorstands im
+ * anderen Abschnitt bleibt so erhalten.
  */
 export function ProfileDataSections({ profile }: { profile: ProfileContactData }) {
   return (
@@ -60,6 +61,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
       {editor.editing ? (
         <EditCard title="Persönliche Daten" Icon={UserRound}>
           <EditForm editor={editor}>
+            <input type="hidden" name="section" value="personal" />
             <input type="hidden" name="iban" value={profile.iban} />
             <input type="hidden" name="bic" value={profile.bic} />
             <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:gap-4">
@@ -115,6 +117,7 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
       {editor.editing ? (
         <EditCard title="Bankverbindung" Icon={Landmark}>
           <EditForm editor={editor}>
+            <input type="hidden" name="section" value="bank" />
             <input type="hidden" name="strasse" value={profile.strasse} />
             <input type="hidden" name="hausnummer" value={profile.hausnummer} />
             <input type="hidden" name="plz" value={profile.plz} />
