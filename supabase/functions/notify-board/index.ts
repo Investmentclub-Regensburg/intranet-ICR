@@ -424,7 +424,10 @@ function buildMail(
       const intro =
         `${greeting(vorname)} wir bestätigen dir hiermit die Kündigung deiner Mitgliedschaft im Investmentclub Regensburg.${feeLine} ` +
         "Dein Zugang zum Intranet ist damit beendet. Schade, dass du gehst – danke für deine Zeit im ICR und alles Gute für deinen weiteren Weg! " +
-        "War die Kündigung ein Versehen oder hast du Fragen, antworte einfach auf diese Mail.";
+        (p.reason_given === false
+          ? "Magst du uns noch sagen, warum du gehst? Antworte einfach auf diese Mail – das hilft uns, den ICR besser zu machen. "
+          : "") +
+        "War die Kündigung ein Versehen oder hast du Fragen, antworte ebenfalls einfach auf diese Mail.";
       const rows: Array<[string, string]> = [
         ["Eingegangen am", formatDate(p.datum_kuendigung)],
         ["Kein Beitrag mehr ab", feeSemester ? `${feeSemester} (Stichtag ${str(p.fee_stichtag)})` : "– (bisher beitragsfrei)"],

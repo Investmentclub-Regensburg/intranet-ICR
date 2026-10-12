@@ -171,6 +171,7 @@ begin
         'profile_id',       p_profile_id,
         'user_id',          v_profile.user_id,
         'datum_kuendigung', v_today,
+        'reason_given',     nullif(trim(p_reason), '') is not null or nullif(trim(p_reason_text), '') is not null,
         'fee_semester',     case when v_pays then v_semester end,
         'fee_stichtag',     case when v_pays then to_char(v_stichtag, 'DD.MM.YYYY') end
       )
