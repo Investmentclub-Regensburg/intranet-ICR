@@ -201,14 +201,26 @@ gewollt (fail closed).
   `p_corrected_by` nur bei Korrekturen; Profiländerungen funktionieren also auch, falls die App kurz vor der
   Migration live geht. Korrekturen erst nach der Migration.
 
-## Phase 3: Bestandsdaten umstellen (geplant)
+## Phase 3: Bestandsdaten umstellen (Backfill umgesetzt, Leeren geplant)
 
-1. **Backfill:**
-   - Läuft über eine admin-geschützte Server-Action in der Produktion; der Key verlässt Vercel nie.
-   - Pro Mitglied eine Transaktion mit `FOR UPDATE`.
-   - Erst schreiben, zurücklesen und entschlüsseln, dann mit dem Klartext vergleichen.
-2. **Getrennter Verifikationslauf:** Alle Zeilen entschlüsseln und feldweise vergleichen. Erwartet
-   werden 0 Abweichungen. Die Zahl der Zeilen muss zur Zahl der Profile mit sensiblen Werten passen.
+1. **Backfill** (umgesetzt, Verwaltung → Verschlüsselung, nur Vorstand, `lib/member-secrets-backfill.ts`):
+   - Läuft in der App in der Produktion; der Key verlässt Vercel nie. Portionen zu 25 Profilen ab dem zuletzt
+     bearbeiteten (Cursor), bis keines übrig ist. Mehrfach ausführbar.
+   - Pro Mitglied: Zeile aus dem Klartext anlegen (`saveMemberSecrets` ohne Änderungen – schreibt keinen
+     Klartext, kein IBAN-Event), zurücklesen, entschlüsseln, mit dem frisch gelesenen Klartext vergleichen.
+   - Abweichung: Die neue Zeile (Version 1) wird wieder gelöscht, der Klartext bleibt maßgeblich.
+   - Übersprungen und aufgelistet (nur Profil-IDs): IBAN mit verlustbehaftetem Format (Freitext, Bindestriche,
+     keine IBAN-Form – vorher im Mitglied korrigieren) und Profile mit offener Registrierung.
+   - Alle Abfragen seitenweise mit Gesamtzahl-Abgleich (PostgREST liefert sonst still höchstens 1000 Zeilen).
+2. **Prüflauf** (umgesetzt, Schaltfläche „Prüfen“, ändert nichts): alle Zeilen entschlüsseln und feldweise mit
+   dem Klartext vergleichen (leer = leer, IBAN normalisiert), dazu IBAN-Fingerabdruck, letzte 4 Stellen und
+   registrierten, nicht zurückgezogenen Key. Bereit erst bei 0 ohne Verschlüsselung und leeren Listen
+   (nicht lesbar, Abweichungen, IBAN prüfen).
+   - „Bereit“ gilt nur für den Zeitpunkt der Prüfung. Das Leeren (Phase 3b) prüft jedes Profil selbst noch
+     einmal und leert nie ein Profil ohne Zeile.
+   - Test-Projekt: 1174 Profile (über der 1000er-Grenze), gemischte Formate, 3 IBAN-Problemfälle, ein
+     entfernter Fingerabdruck – alles erkannt; Klartext unverändert, keine Events.
+   - Prod (12.10.2026, nur Zählung): 446 Profile, 390 mit IBAN, 3 IBANs mit Format zum Prüfen.
 3. **Vor dem Leeren der Klartextspalten:**
    - Die Prüfwert-Kontrolle ist grün.
    - Die Hinterlegung des Keys ist geprüft.
