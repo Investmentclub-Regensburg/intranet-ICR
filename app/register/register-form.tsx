@@ -671,8 +671,7 @@ export function RegisterForm() {
             <Info className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
             <p>
               Dein erstes Semester ist kostenlos, dafür wird nichts eingezogen. Ab dem zweiten
-              Semester buchen wir 15&nbsp;€ je Semester per SEPA-Lastschrift ab, halbjährlich im
-              Voraus zum 01.04. und 01.10.
+              Semester buchen wir 15&nbsp;€ je Semester per SEPA-Lastschrift ab.
             </p>
           </div>
           <IbanBicFields initialIban={v.iban} initialBic={v.bic} />
