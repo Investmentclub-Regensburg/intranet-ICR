@@ -16,23 +16,27 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cancelMembership } from "@/app/(intranet)/profile/actions";
+import { CANCELLATION_REASONS, CANCELLATION_TEXT_MAX } from "@/lib/cancellation-reasons";
 import type { FeeStop } from "@/components/profile/profile-format";
 
 /**
  * Kündigung als abgesetzter Gefahrenbereich am Seitenende (wie „Danger Zone“ in SaaS-Einstellungen).
- * Bestätigung im Modal erst nach Häkchen. Logik wie bisher (cancelMembership: Status gekündigt,
- * Kündigungsdatum heute, Abmeldung, Weiterleitung zum Login).
+ * Bestätigung im Modal erst nach Häkchen; davor freiwillig der Grund (Auswahl + Freitext), den der
+ * Vorstand unter Verwaltung → Mitglieder sieht. cancelMembership: Grund speichern, Status gekündigt,
+ * Kündigungsdatum heute, Bestätigungsmail an das Mitglied, Abmeldung, Weiterleitung zum Login.
  * `feeStop` kommt aus denselben Stichtagen wie der Finanzexport; null = kein Beitrag (Alumni).
  */
 export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [understood, setUnderstood] = useState(false);
+  const [reason, setReason] = useState<string>("");
+  const [reasonText, setReasonText] = useState("");
 
   async function handleConfirm() {
     setLoading(true);
     try {
-      const result = await cancelMembership();
+      const result = await cancelMembership({ reason: reason || null, reasonText: reasonText || null });
       if (result.success) {
         toast.success("Austritt im System vermerkt.");
       } else {
@@ -62,6 +66,7 @@ export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
     feeStop
       ? `Ab ${feeStop.semester} wird kein Beitrag mehr eingezogen (Stichtag ${feeStop.stichtag}).`
       : null,
+    "Du bekommst eine Bestätigung per E-Mail.",
     "Rückgängig machen kann das nur der Vorstand.",
   ].filter((c): c is string => Boolean(c));
 
@@ -84,7 +89,11 @@ export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
           onOpenChange={(next) => {
             if (loading) return;
             setOpen(next);
-            if (!next) setUnderstood(false);
+            if (!next) {
+              setUnderstood(false);
+              setReason("");
+              setReasonText("");
+            }
           }}
         >
           <AlertDialogTrigger asChild>
@@ -95,7 +104,7 @@ export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
               Kündigen
             </Button>
           </AlertDialogTrigger>
-          <AlertDialogContent>
+          <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
             <AlertDialogHeader>
               <AlertDialogTitle>Mitgliedschaft kündigen?</AlertDialogTitle>
               <AlertDialogDescription asChild>
@@ -106,6 +115,50 @@ export function CancelMembership({ feeStop }: { feeStop: FeeStop | null }) {
                 </ul>
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <fieldset className="space-y-2" disabled={loading}>
+              <legend className="mb-1 text-sm font-medium">
+                Magst du uns sagen, warum du gehst? <span className="font-normal text-muted-foreground">(freiwillig)</span>
+              </legend>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {CANCELLATION_REASONS.map((r) => (
+                  <label
+                    key={r.value}
+                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5"
+                  >
+                    <input
+                      type="radio"
+                      name="cancel-reason"
+                      value={r.value}
+                      checked={reason === r.value}
+                      onChange={() => setReason(r.value)}
+                      className="accent-primary"
+                    />
+                    {r.label}
+                  </label>
+                ))}
+              </div>
+              {reason && (
+                <button
+                  type="button"
+                  onClick={() => setReason("")}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  Auswahl zurücksetzen
+                </button>
+              )}
+              <textarea
+                value={reasonText}
+                onChange={(e) => setReasonText(e.target.value.slice(0, CANCELLATION_TEXT_MAX))}
+                maxLength={CANCELLATION_TEXT_MAX}
+                rows={3}
+                placeholder="Möchtest du uns noch etwas mitgeben? (optional)"
+                aria-label="Anmerkung zur Kündigung (optional)"
+                className="w-full resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-base outline-none md:text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              />
+              <p className="text-right text-xs text-muted-foreground tabular-nums">
+                {reasonText.length}/{CANCELLATION_TEXT_MAX}
+              </p>
+            </fieldset>
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm">
               <Checkbox
                 checked={understood}

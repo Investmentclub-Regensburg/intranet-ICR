@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole, roleOf } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isUuid } from "@/lib/validation";
+import { berlinToday } from "@/lib/berlin-date";
 
 export type AdminMemberRow = {
   id: string;
@@ -50,6 +51,45 @@ export async function getAdminMembers(): Promise<AdminMemberRow[]> {
       handynummer: String(hn ?? "").trim(),
       rolle: String(rl ?? "member").trim().toLowerCase(),
       status: String(st ?? "active").trim().toLowerCase(),
+    };
+  });
+}
+
+export type CancellationRow = {
+  id: string;
+  name: string;
+  /** ISO-Zeitpunkt */
+  cancelledAt: string;
+  reason: string | null;
+  reasonText: string | null;
+};
+
+/** Kündigungen mit freiwilligem Grund (Selbstkündigung im Intranet), neueste zuerst. Nur Vorstand. */
+export async function getCancellations(): Promise<CancellationRow[]> {
+  const auth = await requireRole(["board"]);
+  if (!auth.ok) return [];
+
+  const admin = createServiceClient();
+  const { data, error } = await admin
+    .from("membership_cancellations")
+    .select('id, cancelled_at, reason, reason_text, profiles("Vorname", "Nachname")')
+    .order("cancelled_at", { ascending: false })
+    .limit(500);
+  if (error) {
+    console.error("getCancellations:", error.code);
+    return [];
+  }
+
+  return (data ?? []).map((row) => {
+    const r = row as Record<string, unknown>;
+    const p = (Array.isArray(r.profiles) ? r.profiles[0] : r.profiles) as Record<string, unknown> | null;
+    const name = [p?.Vorname, p?.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
+    return {
+      id: String(r.id ?? ""),
+      name,
+      cancelledAt: String(r.cancelled_at ?? ""),
+      reason: r.reason ? String(r.reason) : null,
+      reasonText: r.reason_text ? String(r.reason_text) : null,
     };
   });
 }
@@ -107,7 +147,7 @@ export async function updateMemberRole(
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = berlinToday();
 
   const update =
     roleValue === CANCELLED_UI

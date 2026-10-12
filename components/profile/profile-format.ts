@@ -3,6 +3,7 @@
  * Läuft auf dem Server: Datumswerte werden dort fertig formatiert an die Client-
  * Komponenten gegeben, damit Server- und Browser-Zeitzone nichts verschieben.
  */
+import { berlinToday } from "@/lib/berlin-date";
 
 const TIME_ZONE = "Europe/Berlin";
 
@@ -78,21 +79,21 @@ export type FeeStop = {
 
 /**
  * Ab welchem Semester nach einer Kündigung heute kein Beitrag mehr eingezogen wird.
- * Gleiche Stichtage wie der Finanzexport (getPeriodStart in
- * app/(intranet)/admin/actions/finance.ts): SoSe ab 15.03., WiSe ab 01.10.; wer vor
- * dem Stichtag gekündigt hat, fällt aus dem Einzug dieses Semesters heraus. Gesucht
- * ist also der erste Stichtag nach heute.
+ * Gleiche Regel wie Finanzexport (getPeriodStartDay in app/(intranet)/admin/actions/finance.ts)
+ * und cancel_membership() in der Datenbank: SoSe ab 15.03., WiSe ab 01.10., Vergleich des Berliner
+ * Datums; wer vor dem Stichtag gekündigt hat, fällt aus dem Einzug dieses Semesters heraus.
+ * Gesucht ist also der erste Stichtag nach heute.
  */
 export function nextFeeStop(now = new Date()): FeeStop {
-  const y = now.getFullYear();
-  const candidates: { start: Date; semester: string }[] = [
-    { start: new Date(y, 2, 15), semester: `SoSe ${y}` },
-    { start: new Date(y, 9, 1), semester: `WiSe ${y}/${String((y + 1) % 100).padStart(2, "0")}` },
-    { start: new Date(y + 1, 2, 15), semester: `SoSe ${y + 1}` },
+  // Berliner Datum als Text vergleichen – gleiche Regel wie Finanzexport und cancel_membership().
+  const today = berlinToday(now);
+  const y = Number(today.slice(0, 4));
+  const candidates: { start: string; semester: string }[] = [
+    { start: `${y}-03-15`, semester: `SoSe ${y}` },
+    { start: `${y}-10-01`, semester: `WiSe ${y}/${String((y + 1) % 100).padStart(2, "0")}` },
+    { start: `${y + 1}-03-15`, semester: `SoSe ${y + 1}` },
   ];
-  const next = candidates.find((c) => now < c.start) ?? candidates[candidates.length - 1];
-  return {
-    semester: next.semester,
-    stichtag: next.start.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }),
-  };
+  const next = candidates.find((c) => today < c.start) ?? candidates[candidates.length - 1];
+  const [yy, mm, dd] = next.start.split("-");
+  return { semester: next.semester, stichtag: `${dd}.${mm}.${yy}` };
 }

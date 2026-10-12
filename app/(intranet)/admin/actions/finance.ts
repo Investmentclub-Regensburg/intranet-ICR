@@ -111,11 +111,9 @@ function maskIban(iban: string): string {
  */
 export type FinanceExportMode = "preview" | "export";
 
-function getPeriodStart(semester: Semester, year: number): Date {
-  if (semester === "SoSe") {
-    return new Date(year, 2, 15); // 15.03.YYYY (Monat 2, 0-basiert)
-  }
-  return new Date(year, 9, 1); // 01.10.YYYY (Monat 9, 0-basiert)
+/** Semesterbeginn als YYYY-MM-DD – Vergleich mit Datumsspalten als Text, unabhängig von der Zeitzone. */
+function getPeriodStartDay(semester: Semester, year: number): string {
+  return semester === "SoSe" ? `${year}-03-15` : `${year}-10-01`;
 }
 
 const FEE_PER_SEMESTER = MEMBERSHIP_FEE_PER_SEMESTER;
@@ -174,7 +172,7 @@ export async function getFinanceExportData(
   }
 
   const supabase = createServiceClient();
-  const periodStart = getPeriodStart(semester, year);
+  const periodStartDay = getPeriodStartDay(semester, year);
 
   const [profilesRes, overridesRes, lastXmlRes] = await Promise.all([
     supabase
@@ -248,9 +246,9 @@ export async function getFinanceExportData(
       category = "free_semester";
     } else if (override !== "include" && (role === "alumni" || status === "alumni")) {
       category = "alumni";
-    } else if (override !== "include" && cancelledAt && new Date(cancelledAt) < periodStart) {
+    } else if (override !== "include" && cancelledAt && cancelledAt < periodStartDay) {
       category = "cancelled";
-    } else if (override !== "include" && joinedAt && new Date(joinedAt) >= periodStart) {
+    } else if (override !== "include" && joinedAt && joinedAt >= periodStartDay) {
       category = "free_semester";
     } else if (!ibanClean) {
       category = "no_iban";

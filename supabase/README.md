@@ -29,8 +29,13 @@ Supabase-GitHub-Integration spielt neue Migrationen in die Produktion ein.
   CI nur mit dem PR-Label `destructive-ok` durch. Vorher Daten der Produktion sichern.
 - Abwärtskompatibel bauen: Vercel und Supabase deployen gleichzeitig. Erst hinzufügen, Code umstellen,
   Altes in einem späteren Release entfernen.
-- Vor dem PR gegen das Test-Projekt testen: `supabase db push` (die CLI ist mit dem Test-Projekt
-  verknüpft; `cat supabase/.temp/project-ref` muss `rkegvieoejmyutkowwwf` zeigen). Die CLI **nie** mit der
+- Vor dem PR gegen das Test-Projekt testen – **per `psql -1 -f <datei>` direkt, nicht per
+  `supabase db push`** (Verbindung: `supabase/.temp/pooler-url`, Passwort im Schlüsselbund).
+  Ein `db push` trägt die Migration in den Verlauf des Test-Projekts ein; solange sie noch nicht auf
+  `dev` ist, bricht dann der Workflow „Test-DB“ ab („Remote migration versions not found“). Migrationen
+  müssen ohnehin mehrfach ausführbar sein; nach dem Merge trägt der Workflow sie regulär ein.
+  Prüfen, dass die CLI mit dem Test-Projekt verknüpft ist: `cat supabase/.temp/project-ref` muss
+  `rkegvieoejmyutkowwwf` zeigen. Die CLI **nie** mit der
   Produktion verknüpfen – `supabase db reset --linked` würde dort alles löschen.
 
 **Test-Projekt neu aufbauen:** `supabase db reset --linked` (nur mit Link auf das Test-Projekt). Danach
@@ -94,6 +99,7 @@ select vault.create_secret('<zufälliges Secret, z. B. openssl rand -hex 32>', '
 | `NOTIFY_BOARD_SECRET` | ja | identisch mit dem Vault-Secret `notify_board_secret` |
 | `RESEND_API_KEY` | ja | Resend API-Key |
 | `NOTIFY_TO_EMAIL` | nein | Empfänger, kommasepariert (Default `info@investmentclubregensburg.com`) |
+| `NOTIFY_CANCELLATION_EMAIL` | nein | Empfänger der Kündigungsmails und Antwortadresse der Kündigungsbestätigung an das Mitglied (Default `kuendigung@investmentclubregensburg.com`) |
 | `NOTIFY_FROM_EMAIL` | nein | Absender, Domain muss in Resend verifiziert sein (Default `ICR Intranet <intranet@myicr.investmentclubregensburg.com>`) |
 | `INTRANET_URL` | nein | Basis-URL des Intranets für Links in der Mail (Default `https://myicr.investmentclubregensburg.com`) |
 

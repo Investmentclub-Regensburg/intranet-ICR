@@ -8,6 +8,7 @@ import { requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isCancelledProfile } from "@/lib/profile-status";
 import { MemberSecretsConflictError, saveMemberSecrets } from "@/lib/member-secrets-server";
+import { CANCELLATION_TEXT_MAX, isCancellationReason } from "@/lib/cancellation-reasons";
 import {
   FIELD_LIMITS,
   checkBic,
@@ -114,13 +115,19 @@ export async function updateProfile(
   return { success: true, error: "" };
 }
 
-export async function cancelMembership(): Promise<ProfileActionState> {
+export async function cancelMembership(input?: {
+  reason?: string | null;
+  reasonText?: string | null;
+}): Promise<ProfileActionState> {
   const auth = await requireUser();
   if (!auth.ok) return { success: false, error: auth.error };
   const user = auth.user;
   const supabase = await getCachedSupabase();
 
-  const cancelledAt = new Date().toISOString();
+  // Grund ist freiwillig; nur bekannte Werte, Freitext gekürzt.
+  const reason = isCancellationReason(input?.reason) ? input.reason : null;
+  const reasonText = String(input?.reasonText ?? "").trim().slice(0, CANCELLATION_TEXT_MAX) || null;
+
   const admin = createServiceClient();
 
   // 1) Zielprofil robust auflösen (RLS-unabhängig via Service-Role).
@@ -141,11 +148,12 @@ export async function cancelMembership(): Promise<ProfileActionState> {
   }
 
   if (profileLookupError) {
-    console.error("Profil laden:", profileLookupError);
+    console.error("Profil laden:", profileLookupError.code);
     return { success: false, error: "Profil konnte nicht geladen werden." };
   }
 
-  const profileId = String((profileRow as { id?: unknown } | null)?.id ?? "").trim();
+  const row = (profileRow ?? null) as Record<string, unknown> | null;
+  const profileId = String(row?.id ?? "").trim();
   if (!profileId) {
     return {
       success: false,
@@ -154,44 +162,34 @@ export async function cancelMembership(): Promise<ProfileActionState> {
     };
   }
 
-  // 2) Datenbank-Update: explizit auf den gefundenen Datensatz.
-  const { data: updatedRow, error: updateError } = await admin
-    .from("profiles")
-    .update({
-      Status: "cancelled",
-      "Datum_Kündigung": cancelledAt,
-    })
-    .eq("id", profileId)
-    .select('"Status", "Datum_Kündigung"')
-    .maybeSingle();
+  // 2) In einem Schritt: Grund speichern, Status/Datum setzen, Bestätigungsmail einreihen (Datum und
+  //    Beitragsstopp rechnet die Datenbank aus dem Berliner Datum). Vorstandsmail und Sperre des Kontos
+  //    lösen Trigger aus.
+  const { error: cancelError } = await admin.rpc("cancel_membership", {
+    p_profile_id: profileId,
+    p_reason: reason,
+    p_reason_text: reasonText,
+  });
 
-  if (updateError) {
-    console.error("cancelMembership:", updateError);
-    return { success: false, error: "Die Kündigung konnte nicht gespeichert werden." };
+  if (cancelError) {
+    const message = String(cancelError.message ?? "");
+    if (message.includes("letztes Vorstandsmitglied")) {
+      return {
+        success: false,
+        error: "Du bist das letzte aktive Vorstandsmitglied. Bitte übergib das Amt, bevor du kündigst.",
+      };
+    }
+    // Bereits gekündigt (z. B. Doppelklick): wie erfolgreich behandeln und abmelden.
+    if (!message.includes("bereits gekündigt")) {
+      console.error("cancelMembership:", cancelError.code);
+      return { success: false, error: "Die Kündigung konnte nicht gespeichert werden." };
+    }
   }
 
-  const updatedStatus = String(
-    ((updatedRow as Record<string, unknown> | null)?.Status as string | undefined) ?? ""
-  )
-    .trim()
-    .toLowerCase();
-  const updatedCancelDate = String(
-    ((updatedRow as Record<string, unknown> | null)?.["Datum_Kündigung"] as string | undefined) ??
-      ""
-  ).trim();
-
-  if (updatedStatus !== "cancelled" || !updatedCancelDate) {
-    return {
-      success: false,
-      error:
-        "Kündigung konnte nicht bestätigt werden (Status/Datum nicht gesetzt). Bitte erneut versuchen.",
-    };
-  }
-
-  // 3) Session killen
+  // 3) Session beenden
   const { error: signOutError } = await supabase.auth.signOut();
   if (signOutError) {
-    console.error("cancelMembership (Abmeldung):", signOutError);
+    console.error("cancelMembership (Abmeldung):", signOutError.code ?? signOutError.status);
     return {
       success: false,
       error: "Kündigung gespeichert, aber Abmeldung fehlgeschlagen. Bitte melde dich manuell ab.",
