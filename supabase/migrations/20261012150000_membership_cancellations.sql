@@ -127,7 +127,9 @@ begin
   if lower(trim(coalesce(v_profile."Status", ''))) = 'cancelled' then
     raise exception 'cancel_membership: bereits gekündigt';
   end if;
-  -- Wie im Admin-Bereich: mindestens ein aktives Vorstandsmitglied muss bleiben.
+  -- Wie im Admin-Bereich: mindestens ein aktives Vorstandsmitglied muss bleiben. Sperre, damit sich
+  -- die letzten beiden nicht gleichzeitig kündigen können.
+  perform pg_advisory_xact_lock(hashtext('icr_board_guard'));
   if v_profile."Rolle"::text = 'board' and not exists (
     select 1 from public.profiles p
      where p.id <> p_profile_id
@@ -139,7 +141,7 @@ begin
 
   -- Beitragsstopp: erstes Semester, dessen Beginn nach dem heutigen Berliner Datum liegt.
   -- Alumni zahlen keinen Beitrag.
-  v_pays := v_profile."Rolle"::text <> 'alumni' and lower(trim(coalesce(v_profile."Status", ''))) <> 'alumni';
+  v_pays := coalesce(v_profile."Rolle"::text, '') <> 'alumni' and lower(trim(coalesce(v_profile."Status", ''))) <> 'alumni';
   if v_today < make_date(v_year, 3, 15) then
     v_semester := 'Sommersemester ' || v_year;
     v_stichtag := make_date(v_year, 3, 15);
