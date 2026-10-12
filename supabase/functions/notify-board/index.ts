@@ -33,6 +33,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 type EventType =
   | "member_registered"
   | "member_cancelled"
+  | "member_cancellation_confirmed"
   | "alumni_requested"
   | "alumni_decided"
   | "event_announcement"
@@ -270,7 +271,7 @@ function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
 type MemberRecipient = { email: string; vorname: string };
 
 /**
- * Empfänger für Mails an ein Mitglied (alumni_decided): ausschließlich aus dem Profil bzw.
+ * Empfänger für Mails an ein Mitglied (alumni_decided, member_cancellation_confirmed): ausschließlich aus dem Profil bzw.
  * Auth-Konto zu payload.user_id – nie aus frei befüllbaren Feldern des Ereignisses.
  */
 async function resolveMemberRecipient(
@@ -318,6 +319,17 @@ async function resolveAssigneeRecipient(
   const email = str(p["E-Mail"]).toLowerCase();
   return EMAIL_RE.test(email) ? { email, vorname: str(p["Vorname"]) } : null;
 }
+
+// Gleiche Schlüssel wie lib/cancellation-reasons.ts (App) und die Datenbank-Prüfung.
+const CANCELLATION_REASONS: Record<string, string> = {
+  studium_beendet: "Studium beendet / Wegzug",
+  keine_zeit: "Keine Zeit mehr",
+  zu_wenig_inhalte: "Zu wenig Inhalte / Angebote",
+  inhalte_passen_nicht: "Inhalte/Events passen nicht zu mir",
+  beitrag: "Mitgliedsbeitrag",
+  anderes_angebot: "Wechsel zu anderem Verein/Angebot",
+  sonstiges: "Sonstiges",
+};
 
 const PRIORITY_LABELS: Record<string, string> = { low: "Niedrig", normal: "Normal", high: "Hoch" };
 const STATUS_LABELS: Record<string, string> = { planned: "Geplant", in_progress: "In Arbeit", done: "Erledigt" };
@@ -368,6 +380,8 @@ function buildMail(
         ["Studiengang", str(p.studiengang)],
         ["Mitglied seit", formatDate(p.datum_antrag)],
         ["Kündigungsdatum", formatDate(p.datum_kuendigung)],
+        ["Grund", CANCELLATION_REASONS[str(p.reason)] ?? (str(p.reason) ? str(p.reason) : "nicht angegeben")],
+        ["Anmerkung", str(p.reason_text)],
         ["Zeitpunkt", formatDateTime(ev.created_at)],
       ];
       const r = renderRows(rows);
@@ -379,6 +393,35 @@ function buildMail(
         html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
         to: TO_EMAILS,
+      };
+    }
+    case "member_cancellation_confirmed": {
+      const vorname = str(extra.recipient?.vorname) || "Hallo";
+      // Empfänger nur aus dem Profil des kündigenden Kontos (siehe resolveMemberRecipient).
+      const recipient = extra.recipient?.email ?? "";
+      const title = "Deine Kündigung beim ICR ist eingegangen";
+      const feeSemester = str(p.fee_semester);
+      const feeLine = feeSemester
+        ? ` Ab dem ${feeSemester} wird kein Mitgliedsbeitrag mehr eingezogen.`
+        : "";
+      const intro =
+        `Hallo ${vorname}, wir bestätigen dir hiermit die Kündigung deiner Mitgliedschaft im Investmentclub Regensburg.${feeLine} ` +
+        "Dein Zugang zum Intranet ist damit beendet. Schade, dass du gehst – danke für deine Zeit im ICR und alles Gute für deinen weiteren Weg! " +
+        "War die Kündigung ein Versehen oder hast du Fragen, antworte einfach auf diese Mail.";
+      const rows: Array<[string, string]> = [
+        ["Kündigung zum", formatDate(p.datum_kuendigung)],
+        ["Kein Beitrag mehr ab", feeSemester ? `${feeSemester} (Stichtag ${str(p.fee_stichtag)})` : "– (bisher beitragsfrei)"],
+        ["Rückfragen", TO_EMAILS[0] ?? ""],
+      ];
+      const r = renderRows(rows);
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, undefined, {
+          footer: "Automatische Nachricht aus dem ICR Intranet. Antworten auf diese E-Mail gehen an den Vorstand.",
+        }),
+        text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: recipient ? [recipient] : [],
+        replyTo: TO_EMAILS[0],
       };
     }
     case "alumni_requested": {
@@ -643,7 +686,7 @@ async function processEvents(
       }
 
       const recipient =
-        ev.type === "alumni_decided"
+        ev.type === "alumni_decided" || ev.type === "member_cancellation_confirmed"
           ? await resolveMemberRecipient(supabase, ev)
           : ev.type === "task_deadline" || ev.type === "task_assigned"
             ? await resolveAssigneeRecipient(supabase, ev)

@@ -54,6 +54,45 @@ export async function getAdminMembers(): Promise<AdminMemberRow[]> {
   });
 }
 
+export type CancellationRow = {
+  id: string;
+  name: string;
+  /** ISO-Zeitpunkt */
+  cancelledAt: string;
+  reason: string | null;
+  reasonText: string | null;
+};
+
+/** Kündigungen mit freiwilligem Grund (Selbstkündigung im Intranet), neueste zuerst. */
+export async function getCancellations(): Promise<CancellationRow[]> {
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return [];
+
+  const admin = createServiceClient();
+  const { data, error } = await admin
+    .from("membership_cancellations")
+    .select('id, cancelled_at, reason, reason_text, profiles("Vorname", "Nachname")')
+    .order("cancelled_at", { ascending: false })
+    .limit(500);
+  if (error) {
+    console.error("getCancellations:", error.code);
+    return [];
+  }
+
+  return (data ?? []).map((row) => {
+    const r = row as Record<string, unknown>;
+    const p = (Array.isArray(r.profiles) ? r.profiles[0] : r.profiles) as Record<string, unknown> | null;
+    const name = [p?.Vorname, p?.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
+    return {
+      id: String(r.id ?? ""),
+      name,
+      cancelledAt: String(r.cancelled_at ?? ""),
+      reason: r.reason ? String(r.reason) : null,
+      reasonText: r.reason_text ? String(r.reason_text) : null,
+    };
+  });
+}
+
 /** UI-Wert fuer "ausgetreten" - kein Rollenwert, setzt Status + Datum_Kündigung. */
 const CANCELLED_UI = "cancelled";
 const ALLOWED_ROLES = ["member", "admin", "board", "alumni"];
