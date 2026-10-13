@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+  <body style="margin:0;padding:24px;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
+    <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:24px">
+      <p style="margin:0 0 4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280">ICR Intranet</p>
+      <h1 style="margin:0 0 12px;font-size:20px">E-Mail-Adresse ändern</h1>
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.5">
+        Für dein Konto im Intranet des Investmentclub Regensburg wurde eine Änderung der E-Mail-Adresse angefordert.
+        Bitte bestätige die Änderung über den Button.
+      </p>
+      <table style="border-collapse:collapse;font-size:14px;width:100%">
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top">Bisher</td>
+          <td style="padding:6px 0;vertical-align:top">{{ .Email }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top">Neu</td>
+          <td style="padding:6px 0;vertical-align:top">{{ .NewEmail }}</td>
+        </tr>
+      </table>
+      <p style="margin:20px 0 0">
+        <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&amp;type=email_change" style="display:inline-block;padding:10px 16px;background:#a30101;color:#ffffff;text-decoration:none;border-radius:6px;font-size:14px">Änderung bestätigen</a>
+      </p>
+      <p style="margin:16px 0 0;font-size:13px;line-height:1.5;color:#374151">
+        Der Link ist eine Stunde gültig. Erst nach der Bestätigung gilt die neue Adresse, auch für den Login.
+      </p>
+      <p style="margin:12px 0 0;font-size:13px;line-height:1.5;color:#374151">
+        Du hast die Änderung nicht angefordert? Dann klicke nicht auf den Link und melde dich bitte beim Vorstand
+        (info@investmentclubregensburg.com). Deine bisherige Adresse bleibt so lange gültig.
+      </p>
+      <p style="margin:24px 0 0;font-size:12px;color:#9ca3af">Automatische Nachricht aus dem ICR Intranet. Antworten auf diese E-Mail werden nicht gelesen.</p>
+    </div>
+  </body>
+</html>

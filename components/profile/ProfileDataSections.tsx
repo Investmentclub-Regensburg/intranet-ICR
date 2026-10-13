@@ -10,19 +10,21 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Landmark, UserRound, type LucideIcon } from "lucide-react";
+import { Landmark, MailCheck, UserRound, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ReadField, ReadSection } from "@/components/kit/ReadSection";
-import { updateProfile } from "@/app/(intranet)/profile/actions";
+import { requestEmailChange, updateProfile } from "@/app/(intranet)/profile/actions";
 import { maskIban } from "@/components/profile/profile-format";
 
 export type ProfileContactData = {
   vorname: string;
   nachname: string;
   email: string;
+  /** Neue Adresse, deren Bestätigung noch aussteht (auth.users.new_email), sonst null. */
+  pendingEmail: string | null;
   strasse: string;
   hausnummer: string;
   plz: string;
@@ -83,13 +85,13 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
             <Field id={`${id}-mobil`} label="Handynummer">
               <Input id={`${id}-mobil`} name="mobil" type="tel" defaultValue={profile.mobil} autoComplete="tel" />
             </Field>
-            <p className="text-xs text-muted-foreground">Name und E-Mail ändert der Vorstand.</p>
+            <p className="text-xs text-muted-foreground">Den Namen ändert der Vorstand.</p>
           </EditForm>
         </EditCard>
       ) : (
         <ReadSection title="Persönliche Daten" Icon={UserRound} onEdit={editor.open}>
           <ReadField label="Name" value={name} />
-          <ReadField label="E-Mail" value={profile.email} />
+          <EmailField email={profile.email} pendingEmail={profile.pendingEmail} />
           <ReadField
             label="Anschrift"
             value={
@@ -105,6 +107,106 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
         </ReadSection>
       )}
     </div>
+  );
+}
+
+/**
+ * E-Mail mit eigenem kleinen Formular: Die Änderung gilt erst nach dem Klick auf den Link in der
+ * Bestätigungsmail (Supabase); bis dahin steht die neue Adresse als „ausstehend“ darunter.
+ */
+function EmailField({ email, pendingEmail }: { email: string; pendingEmail: string | null }) {
+  const id = useId();
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState("");
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const waitingFor = sentTo ?? (pendingEmail && pendingEmail !== email ? pendingEmail : null);
+
+  function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    setError("");
+    startTransition(async () => {
+      try {
+        const result = await requestEmailChange(formData);
+        if (result.success) {
+          setSentTo(result.pendingEmail ?? null);
+          setEditing(false);
+          toast.success("Bestätigungslink verschickt. Bitte prüfe dein Postfach.");
+        } else {
+          setError(result.error || "Die Änderung konnte nicht gestartet werden.");
+        }
+      } catch {
+        setError("Die Änderung konnte nicht gestartet werden. Bitte versuch es noch einmal.");
+      }
+    });
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLFormElement>) {
+    if (e.key === "Escape" && !pending) {
+      e.preventDefault();
+      setEditing(false);
+    }
+  }
+
+  return (
+    <ReadField label="E-Mail">
+      <span className="block break-all">{email}</span>
+      {waitingFor && !editing && (
+        <span className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+          <MailCheck className="mt-px size-3.5 shrink-0" aria-hidden />
+          <span className="min-w-0">
+            Neue Adresse <span className="font-medium break-all text-foreground">{waitingFor}</span> wartet auf Bestätigung.
+            Bitte den Link in der E-Mail anklicken.
+          </span>
+        </span>
+      )}
+      {editing ? (
+        <form onSubmit={submit} onKeyDown={onKeyDown} noValidate className="mt-2 space-y-2">
+          <Label htmlFor={`${id}-email`} className="sr-only">
+            Neue E-Mail-Adresse
+          </Label>
+          <Input
+            id={`${id}-email`}
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="neue@adresse.de"
+            required
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground">
+            Wir schicken dir einen Bestätigungslink. Erst danach gilt die neue Adresse, auch für den Login.
+          </p>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)} disabled={pending}>
+              Abbrechen
+            </Button>
+            <Button type="submit" size="sm" disabled={pending}>
+              {pending ? "Wird gesendet…" : "Bestätigungslink senden"}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="mt-1 h-auto p-0 text-xs"
+          onClick={() => {
+            setError("");
+            setEditing(true);
+          }}
+        >
+          E-Mail ändern
+        </Button>
+      )}
+    </ReadField>
   );
 }
 
