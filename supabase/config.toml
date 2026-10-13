@@ -256,6 +256,13 @@ content_path = "./supabase/templates/email_change.html"
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Hinweis an die bisherige Adresse nach einer E-Mail-Änderung. Gilt nur lokal; im Dashboard unter
+# Authentication → Notifications → „Email address changed“ einschalten und die Vorlage eintragen.
+[auth.email.notification.email_changed]
+enabled = true
+subject = "Deine E-Mail-Adresse wurde geändert – ICR Intranet"
+content_path = "./supabase/templates/email_changed_notification.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true
