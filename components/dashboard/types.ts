@@ -13,6 +13,8 @@ export type DashboardEvent = {
   /** „19:00 – 22:00 Uhr“ oder leer. */
   timeLabel: string;
   location: string | null;
+  /** Titelbild aus dem Storage oder null (dann Platzhalter mit Logo). */
+  imageUrl: string | null;
   /** „Heute“, „Morgen“, „In 3 Tagen“, „In 2 Wochen“ … */
   relative: string;
   /** Heute oder morgen: Hinweis betont. */

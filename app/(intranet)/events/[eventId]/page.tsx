@@ -9,6 +9,7 @@ import { roleOf } from "@/utils/supabase/guards";
 import { getEvent } from "../actions";
 import { PageHeader } from "@/components/kit/PageHeader";
 import { IconLink } from "@/components/kit/IconButton";
+import { LinkifiedText } from "@/components/kit/LinkifiedText";
 import { RegistrationButton } from "@/components/events/RegistrationButton";
 import { ShareEventButton } from "@/components/events/ShareEventButton";
 import { registrationCountLabel } from "@/components/events/EventTile";
@@ -160,7 +161,9 @@ export default async function EventDetailPage({ params }: Props) {
           {paragraphs.length > 0 ? (
             <div className="max-w-2xl space-y-4 text-[0.9375rem] leading-relaxed whitespace-pre-line text-foreground/85">
               {paragraphs.map((p, i) => (
-                <p key={i}>{p}</p>
+                <p key={i}>
+                  <LinkifiedText text={p} />
+                </p>
               ))}
             </div>
           ) : (

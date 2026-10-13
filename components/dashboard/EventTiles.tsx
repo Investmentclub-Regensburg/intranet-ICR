@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { toggleRegistration } from "@/app/(intranet)/events/actions";
+import { EventImageFallback } from "@/components/events/EventTile";
 import { eventPath } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { DASH_FOCUS, DASH_TILE, DateBlock, TileIn } from "./parts";
@@ -51,87 +52,98 @@ function EventTile({ event }: { event: DashboardEvent }) {
     <motion.article
       whileHover={{ y: -3 }}
       transition={{ duration: 0.25, ease: EASE }}
-      className={cn(DASH_TILE, "flex h-full flex-col gap-4 p-5")}
+      className={cn(DASH_TILE, "flex h-full flex-col")}
     >
-      <div className="flex items-start gap-4">
-        <DateBlock day={event.day} month={event.month} weekday={event.weekday} label={event.dateLabel} />
-        <div className="min-w-0 flex-1 space-y-2 pt-0.5">
-          {event.relative && (
-            <p
-              className={cn(
-                "text-xs font-semibold",
-                event.soon ? "text-primary" : "text-muted-foreground",
-              )}
-            >
-              {event.relative}
-            </p>
-          )}
-          <h3 className="line-clamp-2 text-base leading-snug font-bold tracking-[-0.02em]">
-            {/* Ganze Kachel klickbar (Link über die Fläche gespannt), der Anmelde-Knopf liegt darüber. */}
-            <Link
-              href={eventPath(event.id)}
-              className="outline-none after:absolute after:inset-0 after:rounded-2xl focus-visible:after:ring-[3px] focus-visible:after:ring-ring/40"
-            >
-              {event.title}
-            </Link>
-          </h3>
-          {(event.timeLabel || event.location) && (
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {event.timeLabel && (
-                <li className="flex items-center gap-1.5">
-                  <Clock className="size-3.5 shrink-0" aria-hidden />
-                  <span>{event.timeLabel}</span>
-                </li>
-              )}
-              {event.location && (
-                <li className="flex min-w-0 items-center gap-1.5">
-                  <MapPin className="size-3.5 shrink-0" aria-hidden />
-                  <span className="truncate">{event.location}</span>
-                </li>
-              )}
-            </ul>
-          )}
-        </div>
+      {/* Titelbild wie in der Event-Liste, etwas flacher. */}
+      <div className="relative aspect-[2/1] overflow-hidden rounded-t-[calc(1rem-1px)] bg-muted">
+        {event.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element -- Supabase-Storage
+          <img src={event.imageUrl} alt="" className="size-full object-cover" loading="lazy" />
+        ) : (
+          <EventImageFallback />
+        )}
       </div>
+      <div className="flex flex-1 flex-col gap-4 p-5">
+        <div className="flex items-start gap-4">
+          <DateBlock day={event.day} month={event.month} weekday={event.weekday} label={event.dateLabel} />
+          <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+            {event.relative && (
+              <p
+                className={cn(
+                  "text-xs font-semibold",
+                  event.soon ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                {event.relative}
+              </p>
+            )}
+            <h3 className="line-clamp-2 text-base leading-snug font-bold tracking-[-0.02em]">
+              {/* Ganze Kachel klickbar (Link über die Fläche gespannt), der Anmelde-Knopf liegt darüber. */}
+              <Link
+                href={eventPath(event.id)}
+                className="outline-none after:absolute after:inset-0 after:rounded-2xl focus-visible:after:ring-[3px] focus-visible:after:ring-ring/40"
+              >
+                {event.title}
+              </Link>
+            </h3>
+            {(event.timeLabel || event.location) && (
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {event.timeLabel && (
+                  <li className="flex items-center gap-1.5">
+                    <Clock className="size-3.5 shrink-0" aria-hidden />
+                    <span>{event.timeLabel}</span>
+                  </li>
+                )}
+                {event.location && (
+                  <li className="flex min-w-0 items-center gap-1.5">
+                    <MapPin className="size-3.5 shrink-0" aria-hidden />
+                    <span className="truncate">{event.location}</span>
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
+        </div>
 
-      <div className="mt-auto flex min-h-11 items-center justify-between gap-3 border-t border-border pt-3">
-        <AnimatePresence mode="wait" initial={false}>
-          {registered ? (
-            <motion.span
-              key="registered"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: "spring", stiffness: 520, damping: 28 }}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"
-            >
-              <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                <Check className="size-3" strokeWidth={3} aria-hidden />
+        <div className="mt-auto flex min-h-11 items-center justify-between gap-3 border-t border-border pt-3">
+          <AnimatePresence mode="wait" initial={false}>
+            {registered ? (
+              <motion.span
+                key="registered"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: "spring", stiffness: 520, damping: 28 }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary"
+              >
+                <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Check className="size-3" strokeWidth={3} aria-hidden />
+                </span>
+                Angemeldet
+              </motion.span>
+            ) : event.requiresRegistration ? (
+              <motion.div
+                key="register"
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.15 }}
+                className="relative z-10"
+              >
+                <RegisterButton
+                  eventId={event.id}
+                  eventTitle={event.title}
+                  onRegistered={() => setJustRegistered(true)}
+                />
+              </motion.div>
+            ) : (
+              <span key="open" className="text-xs text-muted-foreground">
+                Ohne Anmeldung
               </span>
-              Angemeldet
-            </motion.span>
-          ) : event.requiresRegistration ? (
-            <motion.div
-              key="register"
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.15 }}
-              className="relative z-10"
-            >
-              <RegisterButton
-                eventId={event.id}
-                eventTitle={event.title}
-                onRegistered={() => setJustRegistered(true)}
-              />
-            </motion.div>
-          ) : (
-            <span key="open" className="text-xs text-muted-foreground">
-              Ohne Anmeldung
-            </span>
-          )}
-        </AnimatePresence>
-        <ArrowRight
-          className="size-4 shrink-0 text-muted-foreground transition-[translate,color] duration-300 group-hover:translate-x-0.5 group-hover:text-primary"
-          aria-hidden
-        />
+            )}
+          </AnimatePresence>
+          <ArrowRight
+            className="size-4 shrink-0 text-muted-foreground transition-[translate,color] duration-300 group-hover:translate-x-0.5 group-hover:text-primary"
+            aria-hidden
+          />
+        </div>
       </div>
     </motion.article>
   );
