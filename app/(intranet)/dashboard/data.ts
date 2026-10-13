@@ -115,7 +115,7 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
   const [eventsRes, regsRes] = await Promise.all([
     supabase
       .from("events")
-      .select("id, title, event_date, event_time, end_time, location, requires_registration")
+      .select("id, title, event_date, event_time, end_time, location, requires_registration, image_url")
       .gte("event_date", from)
       .order("event_date", { ascending: true })
       .order("event_time", { ascending: true, nullsFirst: true })
@@ -151,6 +151,7 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
       weekday: stripDot(formatEventDate(e.event_date, { weekday: "short" })),
       timeLabel: formatTimeRange(e.event_time, e.end_time),
       location: str(row.location),
+      imageUrl: str(row.image_url),
       relative: relativeLabel(days),
       soon: days <= 1,
       requiresRegistration: !!row.requires_registration,
