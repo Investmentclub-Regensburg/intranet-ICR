@@ -139,12 +139,15 @@ jobs:
             "select string_agg(relname, ', ') from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity")
           echo "Tabellen ohne RLS: ${missing:-keine}"
           test -z "$missing"
-      - name: Keine Funktion in public für anon ausführbar
+      # Ausnahme (bewusst, Entscheidung Verein 13.10.2026): website_events() liefert die öffentlichen Termine
+      # für die Website, feste Spaltenliste, siehe Migration 20261016120000_website_events.sql. Jede weitere
+      # Ausnahme gehört hier ausdrücklich in die Liste.
+      - name: Keine Funktion in public für anon ausführbar (außer erlaubten)
         run: |
-          count=$(docker exec supabase_db_intranet-icr psql -U postgres -At -c \
-            "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')")
-          echo "Für anon ausführbare Funktionen: $count"
-          test "$count" = "0"
+          found=$(docker exec supabase_db_intranet-icr psql -U postgres -At -c \
+            "select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute') and p.oid::regprocedure::text not in ('website_events()') order by 1")
+          echo "Für anon ausführbare Funktionen (ohne Ausnahmen): ${found:-keine}"
+          test -z "$found"
       # Aufräumen auch nach Fehlern – aber nur, wenn die CLI überhaupt installiert wurde.
       - if: always()
         run: if command -v supabase >/dev/null; then supabase stop --no-backup; fi
