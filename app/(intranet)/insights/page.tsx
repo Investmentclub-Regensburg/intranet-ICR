@@ -5,8 +5,6 @@ import { KeyMetricsCards } from "@/components/board/KeyMetricsCards";
 import { BarList } from "@/components/board/BarList";
 import { EmptyState } from "@/components/kit/PageHeader";
 
-const FEE_PER_MEMBER = 15;
-
 export default async function InsightsPage() {
   const { user, profile } = await getCachedAuth();
 
@@ -25,17 +23,16 @@ export default async function InsightsPage() {
   }
 
   const status = [
-    { name: "Aktiv", value: data.statusCounts.active },
-    { name: "Alumni", value: data.statusCounts.alumni },
-    { name: "Ausgetreten", value: data.statusCounts.cancelled },
+    { name: "Aktiv", value: data.activeTotal },
+    { name: "Alumni", value: data.alumniTotal },
+    { name: "Ausgetreten", value: data.cancelledTotal },
   ];
   const statusTotal = status.reduce((s, i) => s + i.value, 0);
-  const cashflow = data.payingMembersCount * FEE_PER_MEMBER;
 
   return (
     <div className="space-y-10">
       <KeyMetricsCards
-        cashflow={cashflow}
+        cashflow={data.expectedFees}
         activeTotal={data.activeTotal}
         newInLast6Months={data.newInLast6Months}
         cancellationsInLast6Months={data.cancellationsInLast6Months}
@@ -55,13 +52,13 @@ export default async function InsightsPage() {
         <section className="space-y-5 rounded-2xl border border-border bg-card p-6" aria-labelledby="insights-fach">
           <div className="flex items-baseline justify-between gap-3">
             <h2 id="insights-fach" className="text-lg font-bold tracking-[-0.02em]">
-              Studiengang / Fach
+              Studiengang
             </h2>
             <span className="text-xs text-muted-foreground tabular-nums">
-              {data.demographics.length} {data.demographics.length === 1 ? "Fach" : "Fächer"}
+              {data.fach.items.length} {data.fach.items.length === 1 ? "Fach" : "Fächer"}
             </span>
           </div>
-          <BarList items={data.demographics.map((d) => ({ name: d.name, value: d.count }))} />
+          <BarList items={data.fach.items} />
         </section>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 // Kennzahlen im Stil der Website (Abschnitt „Der ICR in Zahlen“): große, enge Zahlen,
 // Beschriftung in Kapitälchen darunter, auf hellem Grund statt Aurora (keine dunklen
-// Flächen in der App). Einheit in Markenrot, Erklärung als Tooltip.
+// Flächen in der App). Einheit in derselben Farbe wie die Zahl, Erklärung als Tooltip.
 
 type Props = {
   cashflow: number;
@@ -19,7 +19,7 @@ export function KeyMetricsCards({ cashflow, activeTotal, newInLast6Months, cance
       label: "Erwarteter Umsatz",
       value: cashflow,
       suffix: "€",
-      hint: "Zahlende Mitglieder × 15 € im laufenden Semester",
+      hint: "Beitragspflichtige × 15 € im laufenden Semester (Regeln wie im Finanzexport)",
     },
     { label: "Aktive Mitglieder", value: activeTotal, hint: "Status aktiv, ohne Alumni" },
     { label: "Neuzugänge · 6 Monate", value: newInLast6Months, hint: "Nach Datum des Antrags" },
@@ -43,7 +43,7 @@ export function KeyMetricsCards({ cashflow, activeTotal, newInLast6Months, cance
           <dd className="text-5xl leading-none font-bold tracking-[-0.05em] text-foreground tabular-nums sm:text-6xl">
             {m.value.toLocaleString("de-DE")}
             {m.suffix && " "}
-            {m.suffix && <span className="text-primary">{m.suffix}</span>}
+            {m.suffix && <span>{m.suffix}</span>}
           </dd>
         </div>
       ))}
