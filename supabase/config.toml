@@ -244,24 +244,15 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# E-Mail-Änderung (Mein Profil → Meine Daten). Gilt nur lokal; in Test-Projekt und Produktion im Dashboard
-# unter Authentication → Emails → „Change Email Address“ eintragen (die GitHub-Integration übernimmt keine
-# Auth-Einstellungen).
-[auth.email.template.email_change]
-subject = "Bestätige deine neue E-Mail-Adresse – ICR Intranet"
-content_path = "./supabase/templates/email_change.html"
+# Mail-Vorlagen (E-Mail ändern, Hinweis „E-Mail geändert“) liegen in supabase/templates/ und werden im
+# Dashboard eingetragen (Authentication → Emails bzw. Notifications). Bewusst NICHT hier verknüpft: Die
+# GitHub-Integration prüft config.toml und löst content_path anders auf als die CLI (Lauf am 13.10.2026
+# scheiterte daran); lokal nutzen wir ohnehin das Test-Projekt statt eines lokalen Stacks.
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
-
-# Hinweis an die bisherige Adresse nach einer E-Mail-Änderung. Gilt nur lokal; im Dashboard unter
-# Authentication → Notifications → „Email address changed“ einschalten und die Vorlage eintragen.
-[auth.email.notification.email_changed]
-enabled = true
-subject = "Deine E-Mail-Adresse wurde geändert – ICR Intranet"
-content_path = "./supabase/templates/email_changed_notification.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
