@@ -18,7 +18,8 @@ import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
 import { plainToSecretValues, readMemberSecrets } from "@/lib/member-secrets-server";
 
-export default async function ProfilePage() {
+export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
+  const emailNotice = (await searchParams).email;
   const { user } = await getCachedAuth();
 
   if (!user) {
@@ -99,6 +100,13 @@ export default async function ProfilePage() {
 
   return (
     <div className="space-y-6 sm:space-y-8">
+      {(emailNotice === "geaendert" || emailNotice === "ausstehend") && (
+        <p role="status" className="rounded-2xl border border-border bg-card p-4 text-sm">
+          {emailNotice === "geaendert"
+            ? `Deine E-Mail-Adresse ist geändert. Ab sofort meldest du dich mit ${p.email} an.`
+            : "Danke, ein Link ist bestätigt. Bitte bestätige die Änderung auch über den Link, den wir an deine andere Adresse geschickt haben."}
+        </p>
+      )}
       <ProfileTabs
         panels={{
           ueberblick: (
@@ -126,6 +134,7 @@ export default async function ProfilePage() {
                 vorname: p.vorname,
                 nachname: p.nachname,
                 email: p.email,
+                pendingEmail: user.new_email ?? null,
                 strasse: p.strasse,
                 hausnummer: p.hausnummer,
                 plz: p.plz,

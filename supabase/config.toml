@@ -244,6 +244,13 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# E-Mail-Änderung (Mein Profil → Meine Daten). Gilt nur lokal; in Test-Projekt und Produktion im Dashboard
+# unter Authentication → Emails → „Change Email Address“ eintragen (die GitHub-Integration übernimmt keine
+# Auth-Einstellungen).
+[auth.email.template.email_change]
+subject = "Bestätige deine neue E-Mail-Adresse – ICR Intranet"
+content_path = "./supabase/templates/email_change.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"

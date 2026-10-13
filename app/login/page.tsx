@@ -9,7 +9,9 @@ export default async function LoginPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const next = safeNextPath((await searchParams).next) ?? undefined;
+  const params = await searchParams;
+  const next = safeNextPath(params.next) ?? undefined;
+  const emailPending = params.email === "ausstehend";
 
   return (
     <AuthFrame
@@ -17,6 +19,12 @@ export default async function LoginPage({
     >
       <div className="fly-stack space-y-8">
         <h2 className="text-2xl font-bold tracking-[-0.03em]">Anmelden</h2>
+        {emailPending && (
+          <p role="status" className="rounded-xl border border-border bg-muted/60 p-4 text-sm leading-relaxed">
+            Danke, ein Link ist bestätigt. Bitte bestätige die Änderung deiner E-Mail-Adresse auch über den Link, den
+            wir an deine andere Adresse geschickt haben.
+          </p>
+        )}
         <LoginForm next={next} />
         <div className="border-t border-border pt-6 text-sm text-muted-foreground">
           Noch kein Konto?{" "}
