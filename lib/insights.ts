@@ -17,7 +17,6 @@ export type InsightsProfile = {
   datumAntrag: string | null;
   datumKuendigung: string | null;
   fach: string | null;
-  hochschule: string | null;
 };
 
 export type FeeOverride = "include" | "exclude" | "free_semester";
@@ -37,14 +36,9 @@ export type InsightsData = {
   expectedFees: number;
   newInLast6Months: number;
   cancellationsInLast6Months: number;
-  /** Neuzugänge je Semester, älteste zuerst, das letzte ist das laufende. */
-  joinsBySemester: CountItem[];
   /** Nur aktive Mitglieder; ohne Angabe separat. */
   fach: { items: CountItem[]; missing: number };
-  hochschule: { items: CountItem[]; missing: number };
 };
-
-const SEMESTERS_SHOWN = 8;
 
 function day(value: string | null | undefined): string | null {
   const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(value ?? ""));
@@ -64,18 +58,8 @@ export function periodStart(p: Period): string {
   return p.semester === "SoSe" ? `${p.year}-03-15` : `${p.year}-10-01`;
 }
 
-export function periodLabel(p: Period, short = false): string {
-  if (p.semester === "SoSe") return short ? `SoSe ${String(p.year).slice(-2)}` : `SoSe ${p.year}`;
-  const next = String(p.year + 1).slice(-2);
-  return short ? `WiSe ${String(p.year).slice(-2)}/${next}` : `WiSe ${p.year}/${next}`;
-}
-
-function previousPeriod(p: Period): Period {
-  return p.semester === "WiSe" ? { semester: "SoSe", year: p.year } : { semester: "WiSe", year: p.year - 1 };
-}
-
-function periodKey(p: Period): string {
-  return `${p.year}-${p.semester}`;
+export function periodLabel(p: Period): string {
+  return p.semester === "SoSe" ? `SoSe ${p.year}` : `WiSe ${p.year}/${String(p.year + 1).slice(-2)}`;
 }
 
 /** Tag vor genau sechs Monaten (YYYY-MM-DD), Monatsende abgefangen. */
@@ -89,20 +73,6 @@ export function sixMonthsBefore(today: string): string {
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const d = Math.min(Number(today.slice(8, 10)), lastDay);
   return `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-}
-
-/** Hochschulangabe vereinheitlichen (Altdaten enthalten u. a. serialisierte PHP-Arrays). */
-export function normalizeHochschule(raw: string | null | undefined): string | null {
-  let v = String(raw ?? "").trim();
-  const serialized = /s:\d+:"([^"]*)"/.exec(v);
-  if (serialized) v = serialized[1];
-  const l = v.toLowerCase();
-  if (!l || l === "-") return null;
-  // Nur die Regensburger Hochschulen zusammenfassen (Optionen der Registrierung und Altdaten),
-  // alles andere ist „Sonstige“.
-  if (/\both\b/.test(l) || l.includes("ostbayerische technische hochschule")) return "OTH Regensburg";
-  if (/^(uni|universität)( regensburg)?$/.test(l) || l === "ur") return "Universität Regensburg";
-  return "Sonstige";
 }
 
 const FACH_ALIASES: Record<string, string> = {
@@ -164,10 +134,6 @@ export function computeInsights(
   const start = periodStart(period);
   const sixAgo = sixMonthsBefore(today);
 
-  const shown: Period[] = [period];
-  while (shown.length < SEMESTERS_SHOWN) shown.unshift(previousPeriod(shown[0]));
-  const joins = new Map(shown.map((p) => [periodKey(p), 0]));
-
   let activeTotal = 0;
   let alumniTotal = 0;
   let cancelledTotal = 0;
@@ -175,7 +141,6 @@ export function computeInsights(
   let newInLast6Months = 0;
   let cancellationsInLast6Months = 0;
   const fachValues: (string | null)[] = [];
-  const hochschuleValues: (string | null)[] = [];
 
   for (const p of profiles) {
     const status = p.status.trim().toLowerCase();
@@ -189,14 +154,9 @@ export function computeInsights(
     else if (status === "active") {
       activeTotal++;
       fachValues.push(normalizeFach(p.fach));
-      hochschuleValues.push(normalizeHochschule(p.hochschule));
     }
 
-    if (joinedAt) {
-      if (joinedAt >= sixAgo && joinedAt <= today) newInLast6Months++;
-      const key = periodKey(periodOf(joinedAt));
-      if (joins.has(key)) joins.set(key, joins.get(key)! + 1);
-    }
+    if (joinedAt && joinedAt >= sixAgo && joinedAt <= today) newInLast6Months++;
     if (status === "cancelled" && cancelledAt && cancelledAt >= sixAgo && cancelledAt <= today) {
       cancellationsInLast6Months++;
     }
@@ -222,8 +182,6 @@ export function computeInsights(
     expectedFees: payingCount * FEE_PER_SEMESTER,
     newInLast6Months,
     cancellationsInLast6Months,
-    joinsBySemester: shown.map((p) => ({ name: periodLabel(p, true), value: joins.get(periodKey(p)) ?? 0 })),
     fach: countItems(fachValues),
-    hochschule: countItems(hochschuleValues),
   };
 }

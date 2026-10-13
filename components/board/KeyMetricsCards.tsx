@@ -1,26 +1,50 @@
-// Kennzahlen oben auf der Insights-Seite: große Zahl, Beschriftung darüber, eine ruhige
-// Erläuterung darunter. Zahl und Einheit in derselben Textfarbe (keine Markenfarbe im Text),
-// Erklärung zusätzlich als Tooltip.
+import { cn } from "@/lib/utils";
 
-export type Metric = {
-  label: string;
-  value: number;
-  unit?: string;
-  detail: string;
-  hint: string;
+// Kennzahlen im Stil der Website (Abschnitt „Der ICR in Zahlen“): große, enge Zahlen,
+// Beschriftung in Kapitälchen darunter, auf hellem Grund statt Aurora (keine dunklen
+// Flächen in der App). Einheit in derselben Farbe wie die Zahl, Erklärung als Tooltip.
+
+type Props = {
+  cashflow: number;
+  activeTotal: number;
+  newInLast6Months: number;
+  cancellationsInLast6Months: number;
 };
 
-export function KeyMetricsCards({ metrics }: { metrics: Metric[] }) {
+type Metric = { label: string; value: number; suffix?: string; hint: string };
+
+export function KeyMetricsCards({ cashflow, activeTotal, newInLast6Months, cancellationsInLast6Months }: Props) {
+  const metrics: Metric[] = [
+    {
+      label: "Erwarteter Umsatz",
+      value: cashflow,
+      suffix: "€",
+      hint: "Beitragspflichtige × 15 € im laufenden Semester (Regeln wie im Finanzexport)",
+    },
+    { label: "Aktive Mitglieder", value: activeTotal, hint: "Status aktiv, ohne Alumni" },
+    { label: "Neuzugänge · 6 Monate", value: newInLast6Months, hint: "Nach Datum des Antrags" },
+    {
+      label: "Abgänge · 6 Monate",
+      value: cancellationsInLast6Months,
+      hint: "Status ausgetreten, nach Datum der Kündigung",
+    },
+  ];
+
   return (
-    <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border lg:grid-cols-4">
-      {metrics.map((m) => (
-        <div key={m.label} title={m.hint} className="flex min-w-0 flex-col gap-2 bg-card px-4 py-5 sm:px-6 sm:py-6">
-          <dt className="text-xs font-medium text-muted-foreground">{m.label}</dt>
-          <dd className="flex items-baseline gap-1.5 text-3xl leading-none font-semibold sm:text-4xl tracking-[-0.03em] text-foreground tabular-nums">
+    <dl className="grid grid-cols-2 gap-x-6 gap-y-10 rounded-2xl border border-border bg-card px-6 py-8 sm:px-8 lg:grid-cols-4 lg:gap-0 lg:py-10">
+      {metrics.map((m, i) => (
+        <div key={m.label} className={cn("flex min-w-0 flex-col", i > 0 && "lg:border-l lg:border-border lg:pl-8")}>
+          <dt
+            title={m.hint}
+            className="order-2 mt-3 text-[0.6875rem] font-semibold tracking-[0.16em] text-muted-foreground uppercase sm:text-xs"
+          >
+            {m.label}
+          </dt>
+          <dd className="text-5xl leading-none font-bold tracking-[-0.05em] text-foreground tabular-nums sm:text-6xl">
             {m.value.toLocaleString("de-DE")}
-            {m.unit && <span className="text-xl font-medium tracking-normal sm:text-2xl">{m.unit}</span>}
+            {m.suffix && " "}
+            {m.suffix && <span>{m.suffix}</span>}
           </dd>
-          <dd className="text-sm text-muted-foreground tabular-nums">{m.detail}</dd>
         </div>
       ))}
     </dl>
