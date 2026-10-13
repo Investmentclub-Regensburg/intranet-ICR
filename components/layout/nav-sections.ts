@@ -73,7 +73,6 @@ export const VERWALTUNG_SECTIONS: SubNavItem[] = [
   { key: "bvh", label: "BVH", href: "/admin/bvh-login" },
   { key: "alumni", label: "Alumni", href: "/admin/alumni-requests" },
   { key: "insights", label: "Insights", href: "/insights", roles: ["board"] },
-  { key: "verschluesselung", label: "Verschlüsselung", href: "/admin/encryption", roles: ["board"] },
 ];
 
 export function sectionsForRole(items: SubNavItem[], role: string): SubNavItem[] {
