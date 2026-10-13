@@ -9,6 +9,9 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { isCancelledProfile } from "@/lib/profile-status";
 import { MemberSecretsConflictError, saveMemberSecrets } from "@/lib/member-secrets-server";
 import { CANCELLATION_TEXT_MAX, isCancellationReason } from "@/lib/cancellation-reasons";
+import { authErrorMessage } from "@/lib/auth-messages";
+import { RATE_LIMITED_MESSAGE, withinRateLimits } from "@/lib/bot-protection";
+import { isValidEmail } from "@/lib/events";
 import {
   FIELD_LIMITS,
   checkBic,
@@ -298,3 +301,67 @@ export async function requestAlumniStatus(): Promise<ProfileActionState> {
   revalidatePath("/admin/alumni-requests");
   return { success: true, error: "" };
 }
+
+export type EmailChangeState = ProfileActionState & {
+  /** Neue Adresse, an die die Bestätigung ging (bis zur Bestätigung „ausstehend“). */
+  pendingEmail?: string;
+};
+
+/**
+ * E-Mail-Adresse ändern: startet die Änderung im Auth-Konto. Supabase schickt die Bestätigungsmail
+ * (Vorlage „Change Email Address“, bei „Secure email change“ an alte und neue Adresse); erst nach der
+ * Bestätigung ändert sich die Adresse. Das Profil zieht der Trigger on_auth_user_email_changed nach.
+ */
+export async function requestEmailChange(formData: FormData): Promise<EmailChangeState> {
+  const auth = await requireUser();
+  if (!auth.ok) return { success: false, error: auth.error };
+  const user = auth.user;
+
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    return { success: false, error: "Bitte eine gültige E-Mail-Adresse angeben." };
+  }
+  if (email === (user.email ?? "").toLowerCase()) {
+    return { success: false, error: "Das ist bereits deine aktuelle E-Mail-Adresse." };
+  }
+
+  const allowed = await withinRateLimits([
+    { scope: "email-change", value: user.id, max: 5, windowSeconds: 60 * 60 },
+  ]);
+  if (!allowed) return { success: false, error: RATE_LIMITED_MESSAGE };
+
+  // Adresse eines anderen Profils: sonst könnte das Profil nach der Bestätigung nicht nachziehen.
+  const admin = createServiceClient();
+  // Groß-/Kleinschreibung egal (ilike, Platzhalter maskiert); „*“ ist für PostgREST ebenfalls ein Platzhalter,
+  // dann exakt vergleichen (Supabase speichert Adressen klein).
+  const byEmail = admin.from("profiles").select("id");
+  const { data: taken, error: takenError } = await (email.includes("*")
+    ? byEmail.eq("E-Mail", email)
+    : byEmail.ilike("E-Mail", email.replace(/([\\%_])/g, "\\$1"))
+  )
+    .neq("user_id", user.id)
+    .limit(1);
+  if (takenError) {
+    console.error("requestEmailChange: Prüfung", takenError.code);
+    return { success: false, error: "Die Änderung konnte gerade nicht gestartet werden. Bitte versuch es später erneut." };
+  }
+  if (taken && taken.length > 0) {
+    return { success: false, error: EMAIL_TAKEN_MESSAGE };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.updateUser({ email });
+  if (error) {
+    if (error.code === "email_exists") return { success: false, error: EMAIL_TAKEN_MESSAGE };
+    console.error("requestEmailChange:", error.code ?? error.status);
+    return {
+      success: false,
+      error: authErrorMessage(error, "Die Änderung konnte nicht gestartet werden. Bitte versuch es später erneut."),
+    };
+  }
+
+  revalidatePath("/profile");
+  return { success: true, error: "", pendingEmail: email };
+}
+
+const EMAIL_TAKEN_MESSAGE = "Diese E-Mail-Adresse wird bereits von einem anderen Konto verwendet.";

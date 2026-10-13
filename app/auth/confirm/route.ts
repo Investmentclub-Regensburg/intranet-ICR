@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     type === "recovery"
       ? new URL("/reset-password", request.url)
       : new URL(safeRedirectPath(nextParam), request.url);
-  const response = NextResponse.redirect(redirectTo);
+  let response = NextResponse.redirect(redirectTo);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     }
   );
 
-  const { error } = await supabase.auth.verifyOtp({
+  const { data, error } = await supabase.auth.verifyOtp({
     type,
     token_hash,
   });
@@ -51,6 +51,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(
       new URL("/login?error=Invalid_or_expired_token", request.url)
     );
+  }
+
+  // E-Mail-Änderung: Nur der letzte Link liefert eine Sitzung. Beim ersten von zwei Links („Secure email
+  // change“) antwortet Supabase ohne Sitzung und ohne Nutzer – dann fehlt die Bestätigung der anderen Adresse.
+  // Ohne eigene Anmeldung in diesem Browser (z. B. Link am Handy geöffnet) geht der Hinweis an die Login-Seite.
+  if (type === "email_change") {
+    let path = "/profile?tab=daten&email=geaendert";
+    if (!data.session) {
+      const { data: current } = await supabase.auth.getUser();
+      path = current.user ? "/profile?tab=daten&email=ausstehend" : "/login?email=ausstehend";
+    }
+    const target = NextResponse.redirect(new URL(path, request.url));
+    for (const cookie of response.cookies.getAll()) target.cookies.set(cookie);
+    response = target;
   }
 
   return response;
