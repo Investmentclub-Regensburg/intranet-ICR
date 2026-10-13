@@ -1,6 +1,6 @@
 # Verschlüsselung der Mitgliedsdaten
 
-Stand: 13.10.2026. Phase 0 bis 3 sind gebaut und im Test-Projekt geprüft; in der Produktion ist noch nichts davon ausgerollt (Rollout siehe unten).
+Stand: 13.10.2026. Phase 0 bis 3 sind gebaut und im Test-Projekt geprüft. In der Produktion seit 13.10.2026 ausgerollt bis Schritt 5; die Schritte 6 bis 9 (Klartext leeren) laufen per Skript (Rollout siehe unten).
 
 ## Ziel und Schutzumfang
 
@@ -9,7 +9,7 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
 
 | Schützt gegen | Schützt nicht gegen |
 |---|---|
-| geleakte Supabase-Backups und Dumps | Zugriff auf Vercel bzw. dessen Umgebungsvariablen (dort liegt der Master Key) |
+| geleakte Supabase-Backups und Dumps | Zugriff auf Vercel bzw. dessen Umgebungsvariablen (dort liegt der Master Key) oder auf den Rechner, auf dem das Skript `scripts/verschluesselung.mjs` gerade läuft |
 | SQL- oder Dashboard-Zugriff ohne Vercel-Zugang | Logikfehler in Server-Actions, die entschlüsseln |
 | geleakten `service_role`-Key, SQL-Injection | übernommene Admin- oder Vorstandskonten, XSS auf Admin-Seiten |
 | Mitglieder, die per API ihre Profilzeile lesen | Logs und Mails (letzte 4 Stellen der IBAN) |
@@ -153,7 +153,9 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
 1. **Prod-Master-Key erzeugen**, auf einem vertrauenswürdigen Rechner: Key und Prüfwert
    (`scripts/key-check-value.mjs` mit dem frisch erzeugten Key) **zusammen** offline hinterlegen und die
    Wiederherstellungsprobe machen. Danach liegt der Key nur noch in der Hinterlegung und in Vercel, nicht
-   auf einem Laptop.
+   gespeichert auf einem Laptop. Für die Schritte 6 bis 9 wird er einmalig in das Skript eingegeben (verdeckte
+   Abfrage, nicht in Dateien, Umgebungsvariablen oder der Shell-History; nur auf einem vertrauenswürdigen
+   Rechner).
 2. **Vercel:** In Vercel nur für **Production** `MEMBER_DATA_MASTER_KEY` und `MEMBER_DATA_MASTER_KEY_ID`
    setzen. Prüfen, dass Preview und Development den Key **nicht** haben.
 3. **Release-PR mergen**, mit dem Label `destructive-ok` (Treffer `delete from` in
@@ -164,11 +166,24 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
    - Die Schritte 3 und 4 deshalb direkt nacheinander ausführen.
 5. **Testen:** Profil eines Testkontos speichern. Erwartet wird eine `member_secrets`-Zeile und kein
    `iban_changed`-Event.
-6. **IBAN-Problemfälle korrigieren:** Verwaltung → Verschlüsselung → „Prüfen“ listet sie; je Profil über
-   Verwaltung → Mitglieder → Stift die richtige IBAN eintragen (Stand 12.10.2026: 3 Fälle).
-7. **Backfill:** „Verschlüsseln“, danach „Prüfen“ bis „Bereit zum Leeren des Klartexts“.
-8. **Backup notieren**, Hinterlegung des Keys prüfen.
-9. **„Klartext leeren“**, dann „Abschließen“. Danach einmal „Prüfen“: „Abgeschlossen, alles in Ordnung“.
+Die Schritte 6 bis 9 laufen über das Skript `scripts/verschluesselung.mjs` (nicht im Intranet, damit dort
+niemand Klartext leeren kann), im Ordner `web`:
+
+```
+npm run verschluesselung -- <pruefen|verschluesseln|leeren|abschliessen> --projekt <prod|test>
+```
+
+Es fragt Service-Role-Key, Master Key und Key-ID verdeckt ab (oder liest sie aus der Umgebung), speichert
+nichts und bricht ab, wenn der Key nicht zum registrierten Prüfwert passt. „leeren“ und „abschliessen“
+verlangen die Eingabe von „LEEREN <projekt-ref>“ bzw. „ABSCHLIESSEN <projekt-ref>“.
+
+6. **IBAN-Problemfälle korrigieren:** `pruefen` listet sie; je Profil über Verwaltung → Mitglieder → Stift
+   die richtige IBAN eintragen (Stand 12.10.2026: 3 Fälle). Konten mit Konto-Metadaten bereinigen (siehe unten).
+7. **Backfill:** `verschluesseln`, danach `pruefen`, bis der Status „bereit zum Leeren“ meldet (0 ohne
+   Verschlüsselung, keine IBAN-Fälle, nichts unlesbar, keine Abweichungen). Konto-Metadaten und offene
+   Registrierungen mit Klartext blockieren erst das Abschließen; „nicht übernommen“ ist nur ein Hinweis.
+8. **Frischen Dump ziehen** (`pg_dump`, Free-Plan ohne Dashboard-Backups), Hinterlegung des Keys prüfen.
+9. **`leeren`**, dann **`abschliessen`**. Danach einmal `pruefen`: 0 mit Klartext, Abgeschlossen gesetzt.
 
 **Instant Rollback in Vercel:** Die alte App schreibt `profiles` direkt. Bei Mitgliedern mit
 `member_secrets`-Zeile weist der Datenbank-Schutz das ab, Profiländerungen schlagen dann fehl. Das ist
@@ -208,8 +223,8 @@ gewollt (fail closed).
 
 ## Phase 3: Bestandsdaten umstellen (umgesetzt)
 
-1. **Backfill** (umgesetzt, Verwaltung → Verschlüsselung, nur Vorstand, `lib/member-secrets-backfill.ts`):
-   - Läuft in der App in der Produktion; der Key verlässt Vercel nie. Portionen zu 25 Profilen ab dem zuletzt
+1. **Backfill** (umgesetzt, `npm run verschluesselung -- verschluesseln`, `lib/member-secrets-backfill.ts`):
+   - Läuft per Skript auf dem Rechner des IT-Vorstands (Key einmalig verdeckt eingegeben). Portionen zu 25 Profilen ab dem zuletzt
      bearbeiteten (Cursor), bis keines übrig ist. Mehrfach ausführbar.
    - Pro Mitglied: Zeile aus dem Klartext anlegen (`saveMemberSecrets` ohne Änderungen – schreibt keinen
      Klartext, kein IBAN-Event), zurücklesen, entschlüsseln, mit dem frisch gelesenen Klartext vergleichen.
@@ -217,7 +232,7 @@ gewollt (fail closed).
    - Übersprungen und aufgelistet (nur Profil-IDs): IBAN mit verlustbehaftetem Format (Freitext, Bindestriche,
      keine IBAN-Form – vorher im Mitglied korrigieren) und Profile mit offener Registrierung.
    - Alle Abfragen seitenweise mit Gesamtzahl-Abgleich (PostgREST liefert sonst still höchstens 1000 Zeilen).
-2. **Prüflauf** (umgesetzt, Schaltfläche „Prüfen“, ändert nichts): alle Zeilen entschlüsseln und feldweise mit
+2. **Prüflauf** (umgesetzt, `npm run verschluesselung -- pruefen`, ändert nichts): alle Zeilen entschlüsseln und feldweise mit
    dem Klartext vergleichen (leer = leer, IBAN normalisiert), dazu IBAN-Fingerabdruck, letzte 4 Stellen und
    registrierten, nicht zurückgezogenen Key. Bereit erst bei 0 ohne Verschlüsselung und leeren Listen
    (nicht lesbar, Abweichungen, IBAN prüfen).
@@ -227,11 +242,11 @@ gewollt (fail closed).
      entfernter Fingerabdruck – alles erkannt; Klartext unverändert, keine Events.
    - Prod (12.10.2026, nur Zählung): 446 Profile, 390 mit IBAN, 3 IBANs mit Format zum Prüfen.
 3. **Vor dem Leeren der Klartextspalten:**
-   - Prüflauf meldet „bereit“ (inkl. Fingerabdruck und Key).
+   - `pruefen` meldet „bereit zum Leeren“ (inkl. Fingerabdruck und Key).
    - Die Hinterlegung des Keys samt Prüfwert ist geprüft.
-   - Ein frisches Backup ist notiert (Supabase → Database → Backups, Zeitpunkt festhalten).
+   - Ein frischer Dump ist gezogen (`pg_dump` über den Session-Pooler; der Free-Plan hat keine Dashboard-Backups).
 4. **Klartext leeren** (umgesetzt, Phase 3b, Migration `20261014100000_member_plaintext_clearing.sql`):
-   - Schaltfläche „Klartext leeren“ (nur bei „bereit“, Bestätigung mit Häkchen). Je Profil frisch geprüft
+   - `npm run verschluesselung -- leeren` (nur ohne Befunde, Bestätigung durch Eingabe). Je Profil frisch geprüft
      (Zeile lesbar, gleich dem Klartext, Fingerabdruck, Key, IBAN-Format), dann `clear_member_plaintext`:
      leert nur mit vorhandener Zeile und nur, wenn der Klartext noch exakt dem geprüften Stand entspricht.
      Setzt `member_secrets.plain_cleared_at` und entfernt die Klartext-Kopie aus übernommenen
