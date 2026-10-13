@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TurnstileField } from "@/components/auth/TurnstileField";
 import { forgotPasswordAction, type ForgotPasswordState } from "./actions";
 
 const initialState: ForgotPasswordState = {
@@ -14,13 +15,17 @@ const initialState: ForgotPasswordState = {
 };
 
 export function ForgotPasswordForm() {
-  const [state, formAction] = useActionState(forgotPasswordAction, initialState);
+  const [state, formAction, pending] = useActionState(forgotPasswordAction, initialState);
+  const [captchaReady, setCaptchaReady] = useState(false);
+  const captcha = <TurnstileField resetKey={state} onTokenChange={setCaptchaReady} />;
 
   if (state.success) {
     return (
-      <div className="space-y-4">
+      <div className="fly-stack space-y-4">
         <div className="flex flex-col items-center gap-2 text-center">
-          <CheckCircle2 className="size-8 text-emerald-600" aria-hidden="true" />
+          <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint text-primary">
+            <CheckCircle2 className="size-6" aria-hidden="true" />
+          </span>
           <p className="font-medium text-foreground">E-Mail zum Zurücksetzen gesendet</p>
           <p className="text-sm text-muted-foreground">
             Falls ein Konto mit dieser E-Mail existiert, findest du in Kürze eine
@@ -29,12 +34,13 @@ export function ForgotPasswordForm() {
         </div>
         <form action={formAction} className="space-y-2">
           <input type="hidden" name="email" value={state.email ?? ""} readOnly />
+          {captcha}
           {state.error && (
             <p className="text-sm text-destructive" role="alert">
               {state.error}
             </p>
           )}
-          <Button type="submit" variant="outline" className="w-full">
+          <Button type="submit" variant="outline" size="lg" className="w-full" disabled={pending || !captchaReady}>
             E-Mail erneut senden
           </Button>
         </form>
@@ -43,7 +49,7 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="fly-stack space-y-4">
       <div className="space-y-2">
         <Label htmlFor="email">E-Mail</Label>
         <Input
@@ -53,14 +59,16 @@ export function ForgotPasswordForm() {
           placeholder="name@beispiel.de"
           required
           autoComplete="email"
+          className="h-11"
         />
       </div>
+      {captcha}
       {state.error && (
         <p className="text-sm text-destructive" role="alert">
           {state.error}
         </p>
       )}
-      <Button type="submit" className="w-full">
+      <Button type="submit" size="lg" className="w-full" disabled={pending || !captchaReady}>
         Reset-Link senden
       </Button>
     </form>

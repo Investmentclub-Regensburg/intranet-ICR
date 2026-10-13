@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,6 +11,7 @@ import {
 } from "@/components/layout/nav-icon-motion";
 import { InsightsNavIcon } from "@/components/layout/sidebar-icons/InsightsNavIcon";
 import { BoardMembersNavIcon } from "@/components/layout/sidebar-icons/BoardMembersNavIcon";
+import { DashboardNavIcon } from "@/components/layout/sidebar-icons/DashboardNavIcon";
 import { CalendarNavIcon } from "@/components/layout/sidebar-icons/CalendarNavIcon";
 import { EventsNavIcon } from "@/components/layout/sidebar-icons/EventsNavIcon";
 import { MembersNavIcon } from "@/components/layout/sidebar-icons/MembersNavIcon";
@@ -28,6 +30,7 @@ type CustomNavIconProps = {
 };
 
 const CUSTOM_NAV_ICONS: Record<string, ComponentType<CustomNavIconProps>> = {
+  "/dashboard": DashboardNavIcon,
   "/events": EventsNavIcon,
   "/insights": InsightsNavIcon,
   "/members": MembersNavIcon,
@@ -35,7 +38,7 @@ const CUSTOM_NAV_ICONS: Record<string, ComponentType<CustomNavIconProps>> = {
 };
 
 function iconColorClass(active: boolean): string {
-  return active ? "text-primary" : "text-gray-600 group-hover:text-primary";
+  return active ? "text-sidebar-primary" : "text-sidebar-muted group-hover:text-sidebar-foreground";
 }
 
 const iconShellClass =
@@ -47,7 +50,7 @@ export function SidebarNavIcon({
   active,
   isRowHovered,
 }: SidebarNavIconProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
   const colorClass = iconColorClass(active);
   const CustomIcon = CUSTOM_NAV_ICONS[href];
 

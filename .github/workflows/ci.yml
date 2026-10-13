@@ -1,0 +1,180 @@
+# CI für jeden Pull Request nach dev/prod und jeden Stand auf dev/prod.
+# Pflicht-Checks (Ruleset): test, migrations, security.
+# Migrationen gehen nur per Merge nach prod in die Produktion (Supabase-GitHub-Integration).
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, prod]
+    # labeled/unlabeled: Label "destructive-ok" neu auswerten
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [dev, prod]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Europe/Berlin
+      # Kein Secret in der CI: Build und Tests laufen ohne .env.
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      # Gleiche npm-Version wie lokal; ältere Versionen lösen die Lockdatei anders auf.
+      - run: npm install -g npm@12.0.1
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BASELINE: supabase/migrations/20261011200000_baseline.sql
+      # Prüfsumme der Basis: Sie ist in der Produktion als eingespielt markiert und darf sich nie ändern.
+      BASELINE_SHA256: 2fe6b8066142da56a1651bcc804e2f8c808ac482ece1bb11e4bd911b26c651d2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Basis-Migration unverändert
+        run: echo "$BASELINE_SHA256  $BASELINE" | sha256sum -c -
+
+      - name: Migrationen – Dateiname, Reihenfolge, nichts gelöscht/geändert, keine destruktiven Befehle
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DESTRUCTIVE_OK: ${{ contains(github.event.pull_request.labels.*.name, 'destructive-ok') }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE="HEAD~1"
+          fi
+          git cat-file -e "$BASE^{commit}" || { echo "::error::Basis-Commit $BASE nicht gefunden"; exit 1; }
+          # --no-renames: Umbenennen zählt als Löschen + Neu und fällt damit auf.
+          changes=$(git diff --no-renames --name-status "$BASE" HEAD -- supabase/migrations/)
+          if [ -z "$changes" ]; then echo "Keine Änderungen an Migrationen."; exit 0; fi
+          echo "$changes"
+          baseline_version=$(basename "$BASELINE"); baseline_version=${baseline_version%%_*}
+          max_base=$(git ls-tree --name-only "$BASE" supabase/migrations/ | sed -E 's#.*/([0-9]{14})_.*#\1#' | grep -E '^[0-9]{14}$' | sort | tail -1 || true)
+          fail=0
+          while IFS=$'\t' read -r status f; do
+            name=$(basename "$f"); version=${name%%_*}
+            case "$status" in
+              D)
+                # Einzige erlaubte Löschung: Migrationen von vor der Basis, die ins Archiv verschoben wurden.
+                if [ "$version" -lt "$baseline_version" ] && git cat-file -e "HEAD:supabase/migrations_archive/$name" 2>/dev/null; then
+                  echo "Archiviert: $name"
+                else
+                  echo "::error file=$f::Migration gelöscht oder umbenannt – eingespielte Migrationen müssen bleiben"; fail=1
+                fi ;;
+              M)
+                echo "::error file=$f::Bestehende Migration geändert – stattdessen eine neue Migration anlegen"; fail=1 ;;
+              A)
+                [ "$f" = "$BASELINE" ] && continue
+                if ! echo "$name" | grep -Eq '^[0-9]{14}_[a-z0-9_]+\.sql$'; then
+                  echo "::error file=$f::Dateiname muss JJJJMMTThhmmss_name.sql sein (klein, a-z0-9_)"; fail=1; continue
+                fi
+                if [ -n "$max_base" ] && [ "$version" -le "$max_base" ]; then
+                  echo "::error file=$f::Version $version ist nicht neuer als $max_base auf dem Ziel-Branch"; fail=1
+                fi
+                # Destruktive Befehle nur im PR prüfen (dort wirkt das Label); Kommentare entfernen,
+                # Zeilenumbrüche auflösen, dann je Anweisung prüfen.
+                if [ "$EVENT" = "pull_request" ]; then
+                  sql=$(sed 's/--.*$//' "$f" | tr '\n' ' ' | tr -s '[:space:]' ' ')
+                  hits=""
+                  # Ohne Pipe in grep -q bzw. ohne vorzeitig abbrechende Leser: Mit pipefail würde ein
+                  # SIGPIPE bei großen Dateien einen Treffer verschlucken.
+                  grep -Eiq '\b(truncate|delete from)\b' <<< "$sql" && hits="$hits truncate/delete"
+                  grep -Eiq '\bdrop (table|schema|view|materialized view|owned|database|type|sequence|extension)\b' <<< "$sql" && hits="$hits drop-objekt"
+                  grep -Eio '\balter table [^;]*' <<< "$sql" | grep -Eio '\bdrop [a-z_"]+' | grep -Evi '^drop (constraint|default|not|expression|identity)$' >/dev/null && hits="$hits drop-spalte"
+                  grep -Eiq '\balter column [^;]* type\b' <<< "$sql" && hits="$hits typänderung"
+                  # Nur echte UPDATE-Anweisungen (UPDATE <tabelle> SET), nicht "for update", "on update" usw.
+                  tr ';' '\n' <<< "$sql" | grep -Eio '\bupdate [a-z0-9_."]+( as [a-z_]+)? set\b.*' | grep -Evi '\bwhere\b' >/dev/null && hits="$hits update-ohne-where"
+                  if [ -n "$hits" ]; then
+                    if [ "$DESTRUCTIVE_OK" = "true" ]; then
+                      echo "::warning file=$f::Destruktiv ($hits), per Label destructive-ok freigegeben"
+                    else
+                      echo "::error file=$f::Destruktiv ($hits). Vorher Daten sichern und den PR mit dem Label destructive-ok markieren."; fail=1
+                    fi
+                  fi
+                fi ;;
+              *)
+                echo "::error file=$f::Unerwartete Änderung ($status)"; fail=1 ;;
+            esac
+          done <<< "$changes"
+          exit $fail
+
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.119.0
+      # Alle Migrationen und seed.sql auf einer leeren Datenbank. Scheitert eine, ist der PR rot,
+      # bevor sie die Produktion erreicht.
+      - run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,supavisor,postgres-meta
+      - run: supabase db reset --local
+      # Ein zweiter Durchlauf der Testdaten muss fehlerfrei sein (idempotent).
+      - name: seed.sql idempotent
+        run: docker exec -i supabase_db_intranet-icr psql -U postgres -v ON_ERROR_STOP=1 -q < supabase/seed.sql
+      - name: RLS auf allen Tabellen in public
+        run: |
+          missing=$(docker exec supabase_db_intranet-icr psql -U postgres -At -c \
+            "select string_agg(relname, ', ') from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity")
+          echo "Tabellen ohne RLS: ${missing:-keine}"
+          test -z "$missing"
+      - name: Keine Funktion in public für anon ausführbar
+        run: |
+          count=$(docker exec supabase_db_intranet-icr psql -U postgres -At -c \
+            "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute')")
+          echo "Für anon ausführbare Funktionen: $count"
+          test "$count" = "0"
+      # Aufräumen auch nach Fehlern – aber nur, wenn die CLI überhaupt installiert wurde.
+      - if: always()
+        run: if command -v supabase >/dev/null; then supabase stop --no-backup; fi
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install -g npm@12.0.1
+      - run: npm ci
+      # Blockiert nur bei Lücken in Laufzeit-Abhängigkeiten.
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high || echo "::warning::Lücken in Entwicklungswerkzeugen – siehe npm audit"
+      # Geheimnisse in den neuen Commits dieses PRs bzw. Pushs.
+      - name: gitleaks (nur neue Commits)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            RANGE="HEAD~1..HEAD"
+          else
+            RANGE="$BASE..HEAD"
+          fi
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 \
+            git /repo --log-opts="$RANGE" --redact --no-banner

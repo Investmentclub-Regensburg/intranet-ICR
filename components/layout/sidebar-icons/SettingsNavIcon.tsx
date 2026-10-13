@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useAnimationControls, useReducedMotion } from "framer-motion";
+import { motion, useAnimationControls } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { Settings } from "lucide-react";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -19,7 +20,7 @@ export function SettingsNavIcon({
   isRowHovered,
 }: SettingsNavIconProps) {
   const controls = useAnimationControls();
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
 
   useEffect(() => {
     if (prefersReducedMotion) return;
@@ -37,9 +38,9 @@ export function SettingsNavIcon({
         rotate: [0, 360],
         scale: [1, 1.12, 1],
         transition: {
-          rotate: { duration: 0.55, ease: "easeInOut" },
+          rotate: { duration: 0.63, ease: "easeInOut" },
           scale: {
-            duration: 0.55,
+            duration: 0.63,
             ease: "easeInOut",
             times: [0, 0.45, 1],
           },

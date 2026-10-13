@@ -1,13 +1,50 @@
 # Supabase (ICR Intranet)
 
+## Umgebungen
+
+| Umgebung | Supabase-Projekt | Wer nutzt es | Daten |
+|---|---|---|---|
+| Lokal (`next dev`), Tests | `Intranet-Test` (`rkegvieoejmyutkowwwf`) | `.env.local` | nur erfunden (`seed.sql`) |
+| CI | `supabase start` (Docker auf dem GitHub-Runner) | `.github/workflows/ci.yml` | nur erfunden |
+| Produktion | `Intranet-Database` (`vxcwtfktnefreboejgpw`) | Vercel, Branch `prod` | echte Mitglieder |
+
+`next dev` bricht ab, wenn `.env.local` auf die Produktion zeigt (`next.config.ts`).
+
 ## Migrationen
 
-Alle Schemaänderungen liegen unter `migrations/` und sind idempotent. Ausführen per Supabase CLI
-(`supabase link --project-ref <ref>` → `supabase db push`) oder Inhalt im SQL Editor einfügen.
+**Ablauf:** Feature-Branch → PR nach `dev` (CI grün) → Merge → Migration läuft automatisch ins
+Test-Projekt (`.github/workflows/test-db.yml`) → Release-PR `dev` → `prod` → Merge → die
+Supabase-GitHub-Integration spielt neue Migrationen in die Produktion ein.
+
+**Regeln:**
+- Schemaänderungen nur als neue Datei unter `migrations/` (`supabase migration new <name>`).
+  **Nie** im SQL-Editor oder per `supabase db push` in der Produktion – sonst läuft die Migration beim
+  Merge ein zweites Mal. Ist es doch passiert: sofort
+  `supabase migration repair --db-url "<prod>" --status applied <version>`.
+- `migrations/20261011200000_baseline.sql` ist der Stand der Produktion vom 11.10.2026 und dort als
+  eingespielt markiert. Nie ändern (die CI prüft die Prüfsumme). Ältere Dateien: `migrations_archive/`
+  (nur zur Nachvollziehbarkeit, werden nicht mehr ausgeführt).
+- Neue Migrationen müssen neuer sein als alle vorhandenen und dürfen bestehende nicht ändern (CI).
+- Destruktive Befehle (`DROP TABLE/COLUMN/SCHEMA`, `TRUNCATE`, `DELETE FROM`, Typänderungen) lässt die
+  CI nur mit dem PR-Label `destructive-ok` durch. Vorher Daten der Produktion sichern.
+- Abwärtskompatibel bauen: Vercel und Supabase deployen gleichzeitig. Erst hinzufügen, Code umstellen,
+  Altes in einem späteren Release entfernen.
+- Vor dem PR gegen das Test-Projekt testen – **per `psql -1 -f <datei>` direkt, nicht per
+  `supabase db push`** (Verbindung: `supabase/.temp/pooler-url`, Passwort im Schlüsselbund).
+  Ein `db push` trägt die Migration in den Verlauf des Test-Projekts ein; solange sie noch nicht auf
+  `dev` ist, bricht dann der Workflow „Test-DB“ ab („Remote migration versions not found“). Migrationen
+  müssen ohnehin mehrfach ausführbar sein; nach dem Merge trägt der Workflow sie regulär ein.
+  Prüfen, dass die CLI mit dem Test-Projekt verknüpft ist: `cat supabase/.temp/project-ref` muss
+  `rkegvieoejmyutkowwwf` zeigen. Die CLI **nie** mit der
+  Produktion verknüpfen – `supabase db reset --linked` würde dort alles löschen.
+
+**Test-Projekt neu aufbauen:** `supabase db reset --linked` (nur mit Link auf das Test-Projekt). Danach
+die Passwörter der Testkonten setzen (siehe Kommentar in `seed.sql`). Vault-Secrets für Mails im
+Test-Projekt nie auf die Produktion zeigen lassen.
 
 ## Events
 
-Migration: `migrations/20261003120000_events_overhaul.sql`
+Migration: `migrations_archive/20261003120000_events_overhaul.sql`
 
 - `description`, `location`, `organizer`, `event_time`, `end_time` sind optional; `end_time` ist vom Typ `time`.
   Liegt `end_time` vor `event_time`, endet das Event am Folgetag.
@@ -26,7 +63,7 @@ Die Edge Function verschickt jede Mail einzeln adressiert in Resend-Batches à 1
 
 ## Vorstands-Benachrichtigungen (Registrierung, Kündigung, Alumni-Antrag)
 
-Migration: `migrations/20260920120000_board_notifications.sql`
+Migration: `migrations_archive/20260920120000_board_notifications.sql`
 Edge Function: `functions/notify-board/index.ts`
 
 ### Ablauf
@@ -40,8 +77,9 @@ Edge Function: `functions/notify-board/index.ts`
    `NOTIFY_TO_EMAIL` und setzt `sent_at` bzw. `last_error`/`attempts`.
 4. Wird ein Alumni-Antrag entschieden (`alumni_requests.status` → `approved`/`rejected`, egal ob über
    die Admin-Seite oder indirekt über das Rollen-Dropdown), entsteht ein Event `alumni_decided`, das
-   an das Mitglied selbst geht (`payload.recipient`, Reply-To = Vorstandsadresse).
-   Migration: `migrations/20260921090000_alumni_decision_mail.sql`.
+   an das Mitglied selbst geht (Adresse aus `profiles."E-Mail"` zu `payload.user_id`, ersatzweise die
+   Adresse des Auth-Kontos; Reply-To = Vorstandsadresse).
+   Migration: `migrations_archive/20260921090000_alumni_decision_mail.sql`.
 
 Fehlt ein Vault-Secret, bleibt das Event mit `sent_at = null` in der Outbox liegen; es geht nichts verloren.
 
@@ -61,6 +99,7 @@ select vault.create_secret('<zufälliges Secret, z. B. openssl rand -hex 32>', '
 | `NOTIFY_BOARD_SECRET` | ja | identisch mit dem Vault-Secret `notify_board_secret` |
 | `RESEND_API_KEY` | ja | Resend API-Key |
 | `NOTIFY_TO_EMAIL` | nein | Empfänger, kommasepariert (Default `info@investmentclubregensburg.com`) |
+| `NOTIFY_CANCELLATION_EMAIL` | nein | Empfänger der Kündigungsmails und Antwortadresse der Kündigungsbestätigung an das Mitglied (Default `kuendigung@investmentclubregensburg.com`) |
 | `NOTIFY_FROM_EMAIL` | nein | Absender, Domain muss in Resend verifiziert sein (Default `ICR Intranet <intranet@myicr.investmentclubregensburg.com>`) |
 | `INTRANET_URL` | nein | Basis-URL des Intranets für Links in der Mail (Default `https://myicr.investmentclubregensburg.com`) |
 

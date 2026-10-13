@@ -1,6 +1,7 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 
 import {
   whatsappBubbleVariants,
@@ -30,7 +31,7 @@ const DOT_RADIUS = 1.35;
  * Bubble path matches lucide-react `MessageCircle`.
  */
 export function WhatsAppNavIcon({ className }: WhatsAppNavIconProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
 
   return (
     <svg

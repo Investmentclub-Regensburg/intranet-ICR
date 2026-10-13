@@ -9,20 +9,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MemberRoleSelect } from "./MemberRoleSelect";
+import { MemberCorrectionDialog } from "./MemberCorrectionDialog";
+import { StatusPill } from "@/components/kit/StatusCard";
+import { ROLE_LABELS, statusGroup } from "./format";
 import type { AdminMemberRow } from "@/app/(intranet)/admin/members/actions";
-
-const ROLE_LABELS: Record<string, string> = {
-  member: "Mitglied",
-  admin: "Admin",
-  board: "Vorstand",
-  alumni: "Alumni",
-  cancelled: "Ausgetreten",
-};
 
 type Props = {
   members: AdminMemberRow[];
   canEditRole: boolean;
 };
+
+const STATUS_PILL = {
+  active: { status: "done", label: "Aktiv" },
+  applicant: { status: "open", label: "Antrag offen" },
+  cancelled: { status: "rejected", label: "Ausgetreten" },
+} as const;
 
 export function AdminMembersTable({ members, canEditRole }: Props) {
   return (
@@ -33,29 +34,44 @@ export function AdminMembersTable({ members, canEditRole }: Props) {
           <TableHead>Studiengang</TableHead>
           <TableHead>E-Mail</TableHead>
           <TableHead>Handynummer</TableHead>
-          <TableHead>Rolle/Status</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>{canEditRole ? "Rolle ändern" : "Rolle"}</TableHead>
+          {canEditRole && <TableHead className="text-right">Daten</TableHead>}
         </TableRow>
       </TableHeader>
       <TableBody>
-        {members.map((member) => (
-          <TableRow key={member.id}>
-            <TableCell className="font-medium">{member.name}</TableCell>
-            <TableCell>{member.studiengang || "—"}</TableCell>
-            <TableCell>{member.email || "—"}</TableCell>
-            <TableCell>{member.handynummer || "—"}</TableCell>
-            <TableCell>
-              {canEditRole ? (
-                <MemberRoleSelect member={member} />
-              ) : (
-                <span>
-                  {member.status === "cancelled"
-                    ? ROLE_LABELS.cancelled
-                    : ROLE_LABELS[member.rolle] ?? member.rolle}
-                </span>
+        {members.map((member) => {
+          const pill = STATUS_PILL[statusGroup(member)];
+          return (
+            <TableRow key={member.id}>
+              <TableCell className="font-medium whitespace-nowrap">{member.name}</TableCell>
+              <TableCell className="text-muted-foreground">{member.studiengang || "—"}</TableCell>
+              <TableCell className="whitespace-nowrap">{member.email || "—"}</TableCell>
+              <TableCell className="whitespace-nowrap tabular-nums">
+                {member.secretsUnreadable ? (
+                  <span className="text-destructive">nicht lesbar</span>
+                ) : (
+                  member.handynummer || "—"
+                )}
+              </TableCell>
+              <TableCell>
+                <StatusPill status={pill.status}>{pill.label}</StatusPill>
+              </TableCell>
+              <TableCell>
+                {canEditRole ? (
+                  <MemberRoleSelect member={member} />
+                ) : (
+                  <span>{ROLE_LABELS[member.rolle] ?? member.rolle}</span>
+                )}
+              </TableCell>
+              {canEditRole && (
+                <TableCell className="text-right">
+                  <MemberCorrectionDialog profileId={member.id} name={member.name} />
+                </TableCell>
               )}
-            </TableCell>
-          </TableRow>
-        ))}
+            </TableRow>
+          );
+        })}
       </TableBody>
     </Table>
   );

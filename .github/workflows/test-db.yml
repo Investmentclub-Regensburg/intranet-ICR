@@ -1,0 +1,44 @@
+# Neue Migrationen nach dem Merge auf dev ins Test-Projekt (Intranet-Test) einspielen.
+# Secret TEST_DB_URL im GitHub-Environment "test-db" (Deployment-Branch nur dev): Verbindung NUR zur
+# Test-Datenbank (Session-Pooler, Port 5432, alphanumerisches Passwort).
+# Kein Supabase-Zugangstoken in GitHub – das hätte auch Zugriff auf die Produktion.
+name: Test-DB
+
+on:
+  push:
+    branches: [dev]
+    paths: ["supabase/migrations/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: test-db
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/dev'
+    environment: test-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.119.0
+      - name: Ziel ist das Test-Projekt
+        env:
+          TEST_DB_URL: ${{ secrets.TEST_DB_URL }}
+        run: |
+          case "$TEST_DB_URL" in
+            *rkegvieoejmyutkowwwf*) echo "Ziel: Intranet-Test" ;;
+            *) echo "::error::TEST_DB_URL zeigt nicht auf das Test-Projekt"; exit 1 ;;
+          esac
+      - name: Migrationen einspielen
+        env:
+          TEST_DB_URL: ${{ secrets.TEST_DB_URL }}
+        run: supabase db push --db-url "$TEST_DB_URL" --yes

@@ -1,8 +1,8 @@
 "use server";
 
 import { unstable_cache } from "next/cache";
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { requireRole } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
 
 export type StatusCounts = {
   active: number;
@@ -45,10 +45,7 @@ function getSixMonthsAgo(): Date {
 
 const getInsightsDataCached = unstable_cache(
   async (): Promise<InsightsData | null> => {
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { data: rows, error } = await admin
     .from("profiles")
@@ -138,11 +135,8 @@ const getInsightsDataCached = unstable_cache(
 );
 
 export async function getInsightsData(): Promise<InsightsData | null> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return null;
-
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "board") return null;
+  const auth = await requireRole(["board"]);
+  if (!auth.ok) return null;
 
   return getInsightsDataCached();
 }

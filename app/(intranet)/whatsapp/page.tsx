@@ -1,72 +1,104 @@
 import Image from "next/image";
-import Link from "next/link";
-import { ExternalLink } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { redirect } from "next/navigation";
+import QRCode from "qrcode";
+import { ExternalLink, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AreaHeader } from "@/components/area/AreaHeader";
+import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
+import { getCachedAuth } from "@/utils/supabase/cached-auth";
+import { isActiveMemberProfile } from "@/lib/profile-status";
 
-const WHATSAPP_GROUP_URL = "https://chat.whatsapp.com/EOey0o6eRNnC9jUdbo74qK";
+/**
+ * Einladungslink nur aus der Server-Umgebung (WHATSAPP_INVITE_URL, ohne NEXT_PUBLIC_):
+ * steht weder im Repo noch im Browser-Bundle und wird nur aktiven Mitgliedern gerendert.
+ */
+function getInviteUrl(): string | null {
+  const raw = process.env.WHATSAPP_INVITE_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.hostname !== "chat.whatsapp.com") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
-export default function WhatsAppPage() {
+export default async function WhatsAppPage() {
+  const { user, profile } = await getCachedAuth();
+  if (!user) redirect("/login?next=/whatsapp");
+
+  const inviteUrl = isActiveMemberProfile(profile as Record<string, unknown> | null)
+    ? getInviteUrl()
+    : null;
+  // QR-Code serverseitig aus dem Link erzeugen (kein statisches Bild unter public/).
+  const qrDataUrl = inviteUrl
+    ? await QRCode.toDataURL(inviteUrl, { margin: 1, width: 288, errorCorrectionLevel: "M" })
+    : null;
+
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-          WhatsApp Gruppe
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground md:text-base">
-          Tritt der offiziellen Investment Club Regensburg WhatsApp-Gruppe bei,
-          um Updates und Austausch im Verein direkt mitzubekommen.
-        </p>
-      </div>
+    <div className="space-y-8">
+      <AreaHeader
+        area="Verein"
+        sections={VEREIN_SECTIONS}
+      />
 
-      <Card>
-        <CardHeader className="items-center text-center">
-          <Image
-            src="/whatsapp-logo.png"
-            alt="WhatsApp Logo"
-            width={180}
-            height={180}
-            className="h-16 w-16"
-            priority
-          />
-          <CardTitle>Investment Club Regensburg</CardTitle>
-          <CardDescription>Offizielle WhatsApp-Gruppe des ICR</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col items-center gap-6">
-          <div className="rounded-2xl border bg-white p-4">
-            <Image
-              src="/whatsapp-group-qr.png"
-              alt="QR-Code zur WhatsApp-Gruppe des Investment Club Regensburg"
-              width={472}
-              height={1024}
-              className="h-auto w-64 rounded-lg md:w-72"
-              priority
-            />
+      <section
+        aria-labelledby="whatsapp-titel"
+        className="max-w-3xl rounded-2xl border border-border bg-card p-5 sm:p-8"
+      >
+        {inviteUrl && qrDataUrl ? (
+          <div className="grid items-center gap-8 md:grid-cols-[auto_minmax(0,1fr)]">
+            {/* QR links (Desktop); auf dem Handy unter dem Knopf, dort tippt man eher. */}
+            <div className="order-2 mx-auto rounded-2xl border border-border bg-white p-3 md:order-1">
+              <Image
+                src={qrDataUrl}
+                alt="QR-Code zur WhatsApp-Gruppe des Investment Club Regensburg"
+                width={288}
+                height={288}
+                className="size-48 rounded-lg md:size-56"
+                unoptimized
+              />
+            </div>
+            <div className="order-1 min-w-0 space-y-5 md:order-2">
+              <div className="flex items-start gap-4">
+                <span className="tile-icon size-11 rounded-xl">
+                  <MessageCircle className="size-5" aria-hidden />
+                </span>
+                <div className="min-w-0 space-y-1">
+                  <h2 id="whatsapp-titel" className="text-xl leading-tight font-bold tracking-[-0.02em]">
+                    WhatsApp-Gruppe des ICR
+                  </h2>
+                  <p className="text-[0.9375rem] text-muted-foreground">Updates und Austausch im Verein.</p>
+                </div>
+              </div>
+              <p className="rounded-lg border border-border bg-background px-3 py-2 text-sm break-all text-muted-foreground select-all">
+                {inviteUrl}
+              </p>
+              <Button asChild size="lg" className="w-full sm:w-auto">
+                <a href={inviteUrl} target="_blank" rel="noopener noreferrer">
+                  In WhatsApp öffnen
+                  <ExternalLink aria-hidden />
+                </a>
+              </Button>
+            </div>
           </div>
-
-          <div className="flex w-full max-w-md flex-col gap-3 text-center">
-            <p className="break-all rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
-              {WHATSAPP_GROUP_URL}
-            </p>
-            <Button asChild className="w-full">
-              <Link
-                href={WHATSAPP_GROUP_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Gruppe in WhatsApp öffnen
-                <ExternalLink className="h-4 w-4" />
-              </Link>
-            </Button>
+        ) : (
+          <div className="flex items-start gap-4">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <MessageCircle className="size-5" aria-hidden />
+            </span>
+            <div className="space-y-1">
+              <h2 id="whatsapp-titel" className="text-lg font-bold tracking-[-0.02em]">
+                WhatsApp-Gruppe des ICR
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Der Einladungslink ist gerade nicht verfügbar. Bitte wende dich an den Vorstand.
+              </p>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </section>
     </div>
   );
 }

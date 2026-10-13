@@ -18,3 +18,17 @@ export function isCancelledProfile(
 ): boolean {
   return getProfileStatus(profile) === "cancelled";
 }
+
+/** Mitgliedsantrag noch nicht freigegeben (Status „applicant“). */
+export function isPendingProfile(
+  profile: Record<string, unknown> | null | undefined
+): boolean {
+  return getProfileStatus(profile) === "applicant";
+}
+
+/** Aktives Mitglied (inkl. Alumni): Profil vorhanden, weder gekündigt noch Antrag offen. */
+export function isActiveMemberProfile(
+  profile: Record<string, unknown> | null | undefined
+): boolean {
+  return Boolean(profile) && !isCancelledProfile(profile) && !isPendingProfile(profile);
+}

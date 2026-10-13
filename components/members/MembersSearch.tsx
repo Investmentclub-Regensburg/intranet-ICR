@@ -1,116 +1,161 @@
 "use client";
 
-import { useState } from "react";
-import { Search, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useMemo, useState, type FormEvent } from "react";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { IconButton } from "@/components/kit/IconButton";
+import { EmptyState } from "@/components/kit/PageHeader";
+import { Segmented } from "@/components/kit/Segmented";
+import { staggerProps } from "@/components/kit/Reveal";
+import { cn } from "@/lib/utils";
 import { searchMembers, getAllMembers, type MemberRow } from "@/app/(intranet)/members/actions";
 
+type Mode = "search" | "all";
+
+const MODES = [
+  { key: "search", label: "Suchen" },
+  { key: "all", label: "Alle anzeigen" },
+] as const;
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+function MemberTile({ member }: { member: MemberRow }) {
+  return (
+    <li className="flex min-w-0 items-center gap-3 rounded-2xl border border-border bg-card p-4">
+      <span
+        className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-tint text-sm font-bold text-primary"
+        aria-hidden
+      >
+        {initials(member.name) || "?"}
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">{member.name}</p>
+        <p className="truncate text-xs text-muted-foreground">{member.studiengang || "Ohne Angabe"}</p>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Mitgliederverzeichnis: Suche oben (Enter oder Lupe, Server-Suche wie bisher),
+ * „Alle anzeigen“ als Segment-Schalter. In „Alle“ filtert das Feld sofort in der
+ * geladenen Liste. Datenumfang unverändert: nur Name und Studiengang.
+ */
 export function MembersSearch() {
+  const [mode, setMode] = useState<Mode>("search");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MemberRow[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleSearch() {
+  async function runSearch(e?: FormEvent) {
+    e?.preventDefault();
+    if (mode === "all") return; // filtert lokal
+    if (!query.trim()) {
+      setResults(null);
+      return;
+    }
     setLoading(true);
     try {
-      const list = await searchMembers(query);
-      setResults(list);
+      setResults(await searchMembers(query));
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleShowAll() {
-    setLoading(true);
-    try {
-      const list = await getAllMembers();
-      setResults(list);
-      setQuery("");
-    } finally {
-      setLoading(false);
+  async function changeMode(next: Mode) {
+    setMode(next);
+    setResults(null);
+    if (next === "all") {
+      setLoading(true);
+      try {
+        setResults(await getAllMembers());
+      } finally {
+        setLoading(false);
+      }
     }
   }
+
+  const shown = useMemo(() => {
+    if (!results) return null;
+    if (mode !== "all") return results;
+    const q = query.trim().toLowerCase();
+    return q ? results.filter((m) => m.name.toLowerCase().includes(q)) : results;
+  }, [results, mode, query]);
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <h2 className="text-lg font-semibold">Mitglieder suchen</h2>
-          <p className="text-sm text-muted-foreground">
-            Nach Name suchen oder alle Mitglieder des ICR anzeigen. Es werden nur Name und Studiengang angezeigt.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Name eingeben …"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="pl-9"
-              />
-            </div>
-            <Button onClick={handleSearch} disabled={loading}>
-              Suchen
-            </Button>
-            <Button variant="secondary" onClick={handleShowAll} disabled={loading}>
-              <Users className="mr-2 h-4 w-4" />
-              Alle Mitglieder anzeigen
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <form
+        onSubmit={runSearch}
+        role="search"
+        className="flex flex-col gap-3 sm:flex-row sm:items-center"
+      >
+        <div className="relative flex-1">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            placeholder={mode === "all" ? "In der Liste filtern …" : "Name eingeben …"}
+            aria-label="Mitglieder nach Name suchen"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="h-11 pr-12 pl-9"
+          />
+          {mode === "search" && (
+            <IconButton
+              type="submit"
+              label="Suchen"
+              disabled={loading}
+              className="absolute top-1/2 right-1 -translate-y-1/2"
+            >
+              <Search />
+            </IconButton>
+          )}
+        </div>
+        <Segmented
+          options={MODES}
+          value={mode}
+          onChange={changeMode}
+          layoutId="members-mode"
+          ariaLabel="Ansicht"
+          className="self-start sm:self-auto"
+        />
+      </form>
 
-      {results !== null && (
-        <Card>
-          <CardHeader>
-            <h3 className="text-base font-medium">
-              {results.length === 0
-                ? "Keine Treffer"
-                : `${results.length} ${results.length === 1 ? "Mitglied" : "Mitglieder"}`}
-            </h3>
-          </CardHeader>
-          <CardContent>
-            {results.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {query.trim()
-                  ? "Keine Mitglieder gefunden. Versuche einen anderen Suchbegriff oder klicke auf „Alle Mitglieder anzeigen“."
-                  : "Klicke auf „Alle Mitglieder anzeigen“, um alle Mitglieder des ICR zu sehen."}
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Studiengang</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {results.map((row, i) => (
-                    <TableRow key={`${row.name}-${i}`}>
-                      <TableCell className="font-medium">{row.name}</TableCell>
-                      <TableCell>{row.studiengang || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <div aria-live="polite" className={cn("transition-opacity", loading && "opacity-50")}>
+        {shown === null ? (
+          loading ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">Lädt …</p>
+          ) : (
+            <EmptyState title="Wen suchst du?" hint="Gib einen Namen ein oder lass dir alle Mitglieder anzeigen." />
+          )
+        ) : shown.length === 0 ? (
+          <EmptyState
+            title="Niemanden gefunden."
+            hint={mode === "all" ? "Versuch einen anderen Namen." : "Versuch einen anderen Namen oder zeig alle an."}
+          />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+              {shown.length} {shown.length === 1 ? "Mitglied" : "Mitglieder"}
+            </p>
+            <ul {...staggerProps()} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {shown.map((m, i) => (
+                <MemberTile key={`${m.name}-${i}`} member={m} />
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

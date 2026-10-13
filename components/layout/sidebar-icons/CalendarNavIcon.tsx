@@ -1,6 +1,7 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -22,7 +23,7 @@ function randomDayExcept(current: number): number {
 }
 
 const dayNumberTransition = {
-  duration: 0.42,
+  duration: 0.48,
   ease: [0.33, 1, 0.68, 1] as const,
 };
 
@@ -35,7 +36,7 @@ export function CalendarNavIcon({
   className,
   isRowHovered,
 }: CalendarNavIconProps) {
-  const prefersReducedMotion = useReducedMotion();
+  const prefersReducedMotion = useReducedMotionSafe();
   const [day, setDay] = useState(todayDay);
   const wasHoveredRef = useRef(false);
 

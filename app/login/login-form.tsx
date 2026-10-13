@@ -1,17 +1,21 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
+import { TurnstileField } from "@/components/auth/TurnstileField";
 import { loginAction } from "./actions";
 
 const initialState = { error: "", redirect: undefined as string | undefined };
 
 export function LoginForm({ next }: { next?: string }) {
   const router = useRouter();
-  const [state, formAction] = useActionState(loginAction, initialState);
+  const [state, formAction, pending] = useActionState(loginAction, initialState);
+  const [captchaReady, setCaptchaReady] = useState(false);
 
   useEffect(() => {
     if (state.redirect) {
@@ -21,7 +25,7 @@ export function LoginForm({ next }: { next?: string }) {
   }, [state.redirect, router]);
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="fly-stack space-y-5">
       {next && <input type="hidden" name="next" value={next} />}
       <div className="space-y-2">
         <Label htmlFor="email">E-Mail</Label>
@@ -32,25 +36,35 @@ export function LoginForm({ next }: { next?: string }) {
           placeholder="name@beispiel.de"
           required
           autoComplete="email"
+          className="h-11"
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="password">Passwort</Label>
-        <Input
+        <div className="flex items-baseline justify-between gap-3">
+          <Label htmlFor="password">Passwort</Label>
+          <Link
+            href="/forgot-password"
+            className="text-xs font-semibold text-muted-foreground transition-colors hover:text-primary"
+          >
+            Passwort vergessen?
+          </Link>
+        </div>
+        <PasswordInput
           id="password"
           name="password"
-          type="password"
           required
           autoComplete="current-password"
+          className="h-11"
         />
       </div>
+      <TurnstileField resetKey={state} onTokenChange={setCaptchaReady} />
       {state.error && (
-        <p className="text-sm text-destructive" role="alert">
+        <p className="rounded-xs border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
           {state.error}
         </p>
       )}
-      <Button type="submit" className="w-full">
-        Anmelden
+      <Button type="submit" size="lg" className="w-full" disabled={pending || !captchaReady}>
+        {pending ? "Anmelden …" : "Anmelden"}
       </Button>
     </form>
   );

@@ -3,9 +3,10 @@
 import { useActionState, useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import { resetPasswordAction, type ResetPasswordState } from "./actions";
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth-messages";
 
 const initialState: ResetPasswordState = {
   error: "",
@@ -35,34 +36,35 @@ export function ResetPasswordForm() {
   }, []);
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="fly-stack space-y-4">
       <div className="space-y-2">
         <Label htmlFor="newPassword">Neues Passwort</Label>
-        <Input
+        <PasswordInput
           id="newPassword"
           name="newPassword"
-          type="password"
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           autoComplete="new-password"
-          placeholder="Mind. 6 Zeichen"
+          className="h-11"
+          aria-describedby="new-password-hint"
           onChange={(e) =>
             checkMatch(e.target.value, confirmRef.current?.value ?? "")
           }
         />
+        <p id="new-password-hint" className="text-xs text-muted-foreground">
+          Mindestens {MIN_PASSWORD_LENGTH} Zeichen.
+        </p>
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">Passwort bestätigen</Label>
-        <Input
+        <PasswordInput
           ref={confirmRef}
           id="confirmPassword"
           name="confirmPassword"
-          type="password"
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_LENGTH}
           autoComplete="new-password"
-          placeholder="Passwort wiederholen"
-          className={passwordMismatch ? "border-destructive" : ""}
+          className={passwordMismatch ? "h-11 border-destructive" : "h-11"}
           aria-invalid={passwordMismatch}
           aria-describedby={passwordMismatch ? "confirm-error" : undefined}
           onChange={(e) => {
@@ -83,7 +85,7 @@ export function ResetPasswordForm() {
           {state.error}
         </p>
       )}
-      <Button type="submit" className="w-full">
+      <Button type="submit" size="lg" className="w-full">
         Neues Passwort speichern
       </Button>
     </form>

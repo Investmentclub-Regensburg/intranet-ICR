@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/utils/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
+import { EXPORT_ROLES, requireRole } from "@/utils/supabase/guards";
+import { createServiceClient } from "@/utils/supabase/service";
+import { isUuid } from "@/lib/validation";
+import { readMemberSecretsMany, type MemberSecretValues } from "@/lib/member-secrets-server";
 import {
   BVH_MITGLIEDER_CSV_HEADER,
   formatBirthdayIso,
@@ -12,10 +14,19 @@ import {
   vorstandFromRolle,
 } from "@/lib/bvh-mitglieder-csv";
 
-export type RequestBvhResult = { ok: boolean; error?: string };
+export type RequestBvhResult = {
+  ok: boolean;
+  error?: string;
+  /** Es gibt schon eine offene Anfrage (Statusanzeige auch ohne Lese-Policy möglich). */
+  alreadyOpen?: boolean;
+};
 
-/** Status der BVH-Anfrage des aktuellen Users (für Anzeige „Erledigt“ → „Login per E-Mail versendet“). */
-export type BvhLoginStatus = { hasRequested: boolean; handled: boolean };
+/**
+ * Status der letzten BVH-Anfrage des aktuellen Users, gelesen unter RLS.
+ * Liest über die Policy „Users can read own bvh requests“ (Migration 20261009140000);
+ * ohne sie liefert die Abfrage keine Zeile: dann hasRequested = false, die Seite zeigt keinen Status.
+ */
+export type BvhLoginStatus = { hasRequested: boolean; handled: boolean; requestedAt: string | null };
 
 export async function getBvhLoginStatusForCurrentUser(): Promise<BvhLoginStatus> {
   const supabase = await createClient();
@@ -23,22 +34,24 @@ export async function getBvhLoginStatusForCurrentUser(): Promise<BvhLoginStatus>
     data: { user },
   } = await supabase.auth.getUser();
   if (!user)
-    return { hasRequested: false, handled: false };
+    return { hasRequested: false, handled: false, requestedAt: null };
 
   const { data, error } = await supabase
     .from("bvh_login_requests")
-    .select("handled")
+    .select("handled, created_at")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error || !data)
-    return { hasRequested: false, handled: false };
+    return { hasRequested: false, handled: false, requestedAt: null };
 
+  const row = data as { handled?: boolean; created_at?: string | null };
   return {
     hasRequested: true,
-    handled: Boolean((data as { handled?: boolean }).handled),
+    handled: Boolean(row.handled),
+    requestedAt: row.created_at ?? null,
   };
 }
 
@@ -65,6 +78,20 @@ export async function requestBvhLogin(): Promise<RequestBvhResult> {
 
   if (!email) return { ok: false, error: "E-Mail im Profil fehlt." };
 
+  // Höchstens eine offene Anfrage pro Konto (verhindert Massenanfragen).
+  const { count: openCount, error: openError } = await createServiceClient()
+    .from("bvh_login_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .eq("handled", false);
+  if (openError) {
+    console.error("requestBvhLogin (offene Anfragen):", openError);
+    return { ok: false, error: "Anfrage konnte nicht gespeichert werden." };
+  }
+  if ((openCount ?? 0) > 0) {
+    return { ok: false, error: "Du hast bereits eine offene Anfrage.", alreadyOpen: true };
+  }
+
   const { error } = await supabase.from("bvh_login_requests").insert({
     user_id: user.id,
     vorname,
@@ -72,7 +99,10 @@ export async function requestBvhLogin(): Promise<RequestBvhResult> {
     email,
   });
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("requestBvhLogin:", error);
+    return { ok: false, error: "Anfrage konnte nicht gespeichert werden." };
+  }
   revalidatePath("/admin/bvh-login");
   revalidatePath("/magazines");
   return { ok: true };
@@ -89,51 +119,59 @@ export type BvhLoginRequestRow = {
 
 /** Liste aller BVH-Anfragen (nur Admin/Vorstand). */
 export async function getBvhLoginRequests(): Promise<BvhLoginRequestRow[]> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return [];
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") return [];
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return [];
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { data, error } = await admin
     .from("bvh_login_requests")
-    .select("id, vorname, nachname, email, handled, created_at")
+    .select("id, user_id, vorname, nachname, email, handled, created_at")
     .order("created_at", { ascending: false });
 
   if (error) return [];
 
-  return (data ?? []).map((r) => ({
-    id: String(r.id),
-    vorname: String(r.vorname ?? ""),
-    nachname: String(r.nachname ?? ""),
-    email: String(r.email ?? ""),
-    handled: Boolean(r.handled),
-    created_at: String(r.created_at ?? ""),
-  }));
+  // Angezeigt werden die Profildaten des anfragenden Kontos, nicht die im Antrag gespeicherten Felder.
+  const userIds = [...new Set((data ?? []).map((r) => String(r.user_id ?? "")).filter(isUuid))];
+  const byUserId = new Map<string, Record<string, unknown>>();
+  if (userIds.length > 0) {
+    const { data: profs } = await admin
+      .from("profiles")
+      .select('user_id, Vorname, Nachname, "E-Mail"')
+      .in("user_id", userIds);
+    for (const p of profs ?? []) byUserId.set(String(p.user_id ?? ""), p as Record<string, unknown>);
+  }
+
+  return (data ?? []).map((r) => {
+    const p = byUserId.get(String(r.user_id ?? ""));
+    return {
+      id: String(r.id),
+      vorname: String((p ? p.Vorname : r.vorname) ?? ""),
+      nachname: String((p ? p.Nachname : r.nachname) ?? ""),
+      email: String((p ? p["E-Mail"] : r.email) ?? ""),
+      handled: Boolean(r.handled),
+      created_at: String(r.created_at ?? ""),
+    };
+  });
 }
 
 /** Anfrage als „akzeptiert“ markieren (Button ausgrauen; Freischaltung erfolgt manuell auf BVH-Seite). */
 export async function markBvhRequestHandled(id: string): Promise<{ error?: string }> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return { error: "Nicht eingeloggt." };
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") return { error: "Keine Berechtigung." };
+  const auth = await requireRole(["admin", "board"]);
+  if (!auth.ok) return { error: auth.error };
+  if (!isUuid(id)) return { error: "Anfrage nicht gefunden." };
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { error } = await admin
     .from("bvh_login_requests")
     .update({ handled: true })
     .eq("id", id);
 
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("markBvhRequestHandled:", error);
+    return { error: "Anfrage konnte nicht aktualisiert werden." };
+  }
   revalidatePath("/admin/bvh-login");
   return {};
 }
@@ -146,25 +184,21 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
   csv: string | null;
   error: string;
 }> {
-  const { user, profile } = await getCachedAuth();
-  if (!user) return { csv: null, error: "Nicht eingeloggt." };
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-  if (role !== "admin" && role !== "board") {
-    return { csv: null, error: "Keine Berechtigung." };
-  }
+  const auth = await requireRole(EXPORT_ROLES, "Nur der Vorstand darf diesen Export erstellen.");
+  if (!auth.ok) return { csv: null, error: auth.error };
 
-  const admin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceClient();
 
   const { data: reqs, error: reqErr } = await admin
     .from("bvh_login_requests")
-    .select("user_id, vorname, nachname, email")
+    .select("user_id")
     .eq("handled", false)
     .order("created_at", { ascending: true });
 
-  if (reqErr) return { csv: null, error: reqErr.message };
+  if (reqErr) {
+    console.error("buildBvhUnhandledRequestsCsv (Anfragen):", reqErr);
+    return { csv: null, error: "Anfragen konnten nicht geladen werden." };
+  }
   if (!reqs?.length) {
     return {
       csv: `${BVH_MITGLIEDER_CSV_HEADER}\n`,
@@ -185,11 +219,33 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     const { data: profData, error: profErr } = await admin
       .from("profiles")
       .select(
-        'user_id, Vorname, Nachname, "E-Mail", Handynummer, Geburtsdatum, Anrede, "Straße", Hausnummer, PLZ, Ort, Rolle'
+        'id, user_id, Vorname, Nachname, "E-Mail", Handynummer, Geburtsdatum, Anrede, "Straße", Hausnummer, PLZ, Ort, Rolle'
       )
       .in("user_id", userIds);
-    if (profErr) return { csv: null, error: profErr.message };
+    if (profErr) {
+      console.error("buildBvhUnhandledRequestsCsv (Profile):", profErr);
+      return { csv: null, error: "Profile konnten nicht geladen werden." };
+    }
     profiles = (profData ?? []) as Record<string, unknown>[];
+  }
+
+  // Adresse, Telefon, Geburtsdatum aus member_secrets (verschlüsselt); ohne Zeile aus dem Klartext.
+  let secrets: Awaited<ReturnType<typeof readMemberSecretsMany>>;
+  try {
+    secrets = await readMemberSecretsMany(
+      admin,
+      profiles.map((p) => ({ ...p, id: String(p.id ?? "") }))
+    );
+  } catch (err) {
+    console.error("buildBvhUnhandledRequestsCsv (member_secrets):", err instanceof Error ? err.message : "unbekannt");
+    return { csv: null, error: "Verschlüsselte Mitgliedsdaten konnten nicht gelesen werden." };
+  }
+  const unreadable = [...secrets.values()].filter((v) => v === "unreadable").length;
+  if (unreadable > 0) {
+    return {
+      csv: null,
+      error: `Daten von ${unreadable} ${unreadable === 1 ? "Mitglied" : "Mitgliedern"} nicht entschlüsselbar. Bitte IT-Vorstand informieren.`,
+    };
   }
 
   const byUserId = new Map<string, Record<string, unknown>>();
@@ -199,31 +255,28 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
   }
 
   const lines: string[] = [BVH_MITGLIEDER_CSV_HEADER];
+  const seen = new Set<string>();
 
-  for (const r of reqs as {
-    user_id?: string;
-    vorname?: string;
-    nachname?: string;
-    email?: string;
-  }[]) {
+  for (const r of reqs as { user_id?: string }[]) {
     const uid = r.user_id ?? "";
     const prof = uid ? byUserId.get(uid) : undefined;
+    // Nur Daten aus dem Profil des anfragenden Kontos exportieren; je Konto eine Zeile.
+    if (!prof || seen.has(uid)) continue;
+    seen.add(uid);
 
-    const email =
-      String(
-        prof?.["E-Mail"] ?? prof?.["e-mail"] ?? r.email ?? ""
-      ).trim();
-    const firstName = String(prof?.Vorname ?? prof?.vorname ?? r.vorname ?? "").trim();
-    const lastName = String(prof?.Nachname ?? prof?.nachname ?? r.nachname ?? "").trim();
-    const phone = String(prof?.Handynummer ?? prof?.handynummer ?? "").trim();
-    const birthday = formatBirthdayIso(prof?.Geburtsdatum ?? prof?.geburtsdatum);
+    const email = String(prof["E-Mail"] ?? prof["e-mail"] ?? "").trim();
+    const firstName = String(prof.Vorname ?? prof.vorname ?? "").trim();
+    const lastName = String(prof.Nachname ?? prof.nachname ?? "").trim();
+    const sv = secrets.get(String(prof.id ?? "")) as MemberSecretValues | undefined;
+    const phone = (sv?.handynummer ?? "").trim();
+    const birthday = formatBirthdayIso(sv?.geburtsdatum);
     const gender = genderFromAnrede(
       String(prof?.Anrede ?? prof?.anrede ?? "").trim() || undefined
     );
-    const pcode = String(prof?.PLZ ?? prof?.plz ?? "").trim();
-    const place = String(prof?.Ort ?? prof?.ort ?? "").trim();
-    const street = String(prof?.["Straße"] ?? prof?.Strasse ?? "").trim();
-    const snumber = String(prof?.Hausnummer ?? prof?.hausnummer ?? "").trim();
+    const pcode = (sv?.plz ?? "").trim();
+    const place = (sv?.ort ?? "").trim();
+    const street = (sv?.strasse ?? "").trim();
+    const snumber = (sv?.hausnummer ?? "").trim();
     const addition = "";
     const vorstand = vorstandFromRolle(
       String(prof?.Rolle ?? prof?.rolle ?? "member")

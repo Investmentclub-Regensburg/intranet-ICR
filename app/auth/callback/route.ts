@@ -1,13 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { NextResponse } from "next/server";
-
-function getSafeRedirectPath(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//")) {
-    return "/reset-password";
-  }
-
-  return next;
-}
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 /**
  * Auth-Callback für E-Mail-Links (z. B. Passwort-Reset).
@@ -17,7 +10,7 @@ function getSafeRedirectPath(next: string | null): string {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = getSafeRedirectPath(searchParams.get("next"));
+  const next = safeRedirectPath(searchParams.get("next"), "/reset-password");
 
   if (!code) {
     return NextResponse.redirect(new URL("/login?error=missing_code", request.url));

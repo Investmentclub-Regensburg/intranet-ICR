@@ -8,14 +8,22 @@
 // Aufruf ohne event_id (z. B. manuell per curl) arbeitet bis zu 20 offene Events ab
 // (Retry für Events, deren Versand fehlgeschlagen ist).
 // Aufruf mit { "action": "health" } zeigt, welche Secrets gesetzt sind (nur Namen/Längen, keine Werte).
-// Events vom Typ alumni_decided gehen an das Mitglied (payload.recipient), alle anderen an den Vorstand.
+// Events vom Typ alumni_decided gehen an das Mitglied (Adresse aus dem Profil zu payload.user_id),
+// alle anderen an den Vorstand.
 // Events vom Typ event_announcement (neues Event) gehen an payload.recipients – einzeln adressiert,
 // in Resend-Batches à 100. Der Fortschritt steht in payload.sent_count, ein Retry setzt dort fort.
+// Events vom Typ task_deadline (Aufgaben-Board, täglich per pg_cron, ein Event je zuständiger
+// Person) gehen an diese Person (Adresse aus dem Profil zu payload.assignee_profile_id), Reply-To Vorstand.
+// Events vom Typ task_assigned (Aufgabe neu zugeteilt, von den Server Actions des Aufgaben-Boards)
+// gehen ebenso an payload.assignee_profile_id; Reply-To ist die Person, die zugeteilt hat.
+// Events vom Typ iban_changed gehen an den Vorstand (nur die letzten 4 Stellen der IBAN).
 //
 // Secrets (Dashboard → Edge Functions → Secrets oder `supabase secrets set`):
 //   NOTIFY_BOARD_SECRET  – muss dem Vault-Secret notify_board_secret entsprechen
 //   RESEND_API_KEY       – Resend API-Key
 //   NOTIFY_TO_EMAIL      – Empfänger, kommasepariert (Default: info@investmentclubregensburg.com)
+//   NOTIFY_CANCELLATION_EMAIL – Empfänger der Kündigungsmails und Antwortadresse der Kündigungsbestätigung,
+//                          kommasepariert (Default: kuendigung@investmentclubregensburg.com)
 //   NOTIFY_FROM_EMAIL    – Absender, Domain muss in Resend verifiziert sein
 //   INTRANET_URL         – optional, Basis-URL für Links in die Admin-Seiten (Default: https://myicr.investmentclubregensburg.com)
 //
@@ -27,9 +35,13 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 type EventType =
   | "member_registered"
   | "member_cancelled"
+  | "member_cancellation_confirmed"
   | "alumni_requested"
   | "alumni_decided"
   | "event_announcement"
+  | "task_deadline"
+  | "task_assigned"
+  | "iban_changed"
   | "test";
 
 type NotificationEvent = {
@@ -51,6 +63,11 @@ const TO_EMAILS = (Deno.env.get("NOTIFY_TO_EMAIL") ?? "info@investmentclubregens
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+// Kündigungen gehen an die Gruppe „Kündigung“ statt an die allgemeine Vorstandsadresse.
+const CANCELLATION_EMAILS = (Deno.env.get("NOTIFY_CANCELLATION_EMAIL") ?? "kuendigung@investmentclubregensburg.com")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 const FROM_EMAIL =
   Deno.env.get("NOTIFY_FROM_EMAIL") ?? "ICR Intranet <intranet@myicr.investmentclubregensburg.com>";
 const INTRANET_URL = (Deno.env.get("INTRANET_URL") ?? "https://myicr.investmentclubregensburg.com").replace(
@@ -59,6 +76,11 @@ const INTRANET_URL = (Deno.env.get("INTRANET_URL") ?? "https://myicr.investmentc
 );
 
 const MAX_BATCH = 20;
+// Obergrenzen für Rundmails (Schutz gegen Missbrauch als Mail-Relay).
+const MAX_ANNOUNCEMENT_RECIPIENTS = 5000;
+const MAX_CUSTOM_RECIPIENTS = 50;
+const EMAIL_RE = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Resend: max. 100 Mails pro Batch-Request, Default-Rate-Limit 2 Requests/Sekunde.
 const RESEND_BATCH_SIZE = 100;
 const RESEND_BATCH_PAUSE_MS = 600;
@@ -80,7 +102,28 @@ function escapeHtml(v: unknown): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Betreffzeile: keine Zeilenumbrüche/Steuerzeichen, begrenzte Länge. */
+function cleanSubject(v: string): string {
+  return v.replace(/[\u0000-\u001F\u007F]+/g, " ").trim().slice(0, 200);
+}
+
+/** Shared Secret zeitkonstant vergleichen (SHA-256 beider Werte, dann XOR über feste Länge). */
+async function secretMatches(given: string, expected: string): Promise<boolean> {
+  if (!expected) return false;
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(given)),
+    crypto.subtle.digest("SHA-256", enc.encode(expected)),
+  ]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
 }
 
 function formatDate(v: unknown): string {
@@ -127,6 +170,11 @@ function renderRows(rows: Array<[string, string]>): { html: string; text: string
     .join("");
   const text = rows.map(([k, v]) => `${k}: ${v || "–"}`).join("\n");
   return { html, text };
+}
+
+/** Anrede: „Hallo Anna,“ bzw. „Hallo,“ ohne Vornamen. */
+function greeting(vorname: string): string {
+  return vorname ? `Hallo ${vorname},` : "Hallo,";
 }
 
 const DEFAULT_FOOTER =
@@ -232,7 +280,76 @@ function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
   };
 }
 
-function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | null }): Mail {
+type MemberRecipient = { email: string; vorname: string };
+
+/**
+ * Empfänger für Mails an ein Mitglied (alumni_decided, member_cancellation_confirmed): ausschließlich aus dem Profil bzw.
+ * Auth-Konto zu payload.user_id – nie aus frei befüllbaren Feldern des Ereignisses.
+ */
+async function resolveMemberRecipient(
+  supabase: ReturnType<typeof createClient>,
+  ev: NotificationEvent
+): Promise<MemberRecipient | null> {
+  const userId = str(ev.payload?.user_id);
+  if (!UUID_RE.test(userId)) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select('"E-Mail", "Vorname"')
+    .eq("user_id", userId)
+    .maybeSingle();
+  const p = (profile ?? {}) as Record<string, unknown>;
+  const profileEmail = str(p["E-Mail"]).toLowerCase();
+  if (EMAIL_RE.test(profileEmail)) return { email: profileEmail, vorname: str(p["Vorname"]) };
+
+  const { data } = await supabase.auth.admin.getUserById(userId);
+  const authEmail = str(data?.user?.email).toLowerCase();
+  if (EMAIL_RE.test(authEmail)) return { email: authEmail, vorname: str(p["Vorname"]) };
+  return null;
+}
+
+/**
+ * Empfänger für Aufgaben-Erinnerungen: Profil zu payload.assignee_profile_id (profiles.id),
+ * nur Vorstand/Admin und nicht gekündigt.
+ */
+async function resolveAssigneeRecipient(
+  supabase: ReturnType<typeof createClient>,
+  ev: NotificationEvent,
+  field = "assignee_profile_id"
+): Promise<MemberRecipient | null> {
+  const profileId = str(ev.payload?.[field]);
+  if (!UUID_RE.test(profileId)) return null;
+  const { data } = await supabase
+    .from("profiles")
+    .select('"E-Mail", "Vorname", "Rolle", "Status"')
+    .eq("id", profileId)
+    .maybeSingle();
+  const p = (data ?? {}) as Record<string, unknown>;
+  const role = str(p["Rolle"]).toLowerCase();
+  if (role !== "board" && role !== "admin") return null;
+  if (str(p["Status"]).toLowerCase() === "cancelled") return null;
+  const email = str(p["E-Mail"]).toLowerCase();
+  return EMAIL_RE.test(email) ? { email, vorname: str(p["Vorname"]) } : null;
+}
+
+// Gleiche Schlüssel wie lib/cancellation-reasons.ts (App) und die Datenbank-Prüfung.
+const CANCELLATION_REASONS: Record<string, string> = {
+  studium_beendet: "Studium beendet / Wegzug",
+  keine_zeit: "Keine Zeit mehr",
+  zu_wenig_inhalte: "Zu wenig Inhalte / Angebote",
+  inhalte_passen_nicht: "Inhalte/Events passen nicht zu mir",
+  beitrag: "Mitgliedsbeitrag",
+  anderes_angebot: "Wechsel zu anderem Verein/Angebot",
+  sonstiges: "Sonstiges",
+};
+
+const PRIORITY_LABELS: Record<string, string> = { low: "Niedrig", normal: "Normal", high: "Hoch" };
+const STATUS_LABELS: Record<string, string> = { planned: "Geplant", in_progress: "In Arbeit", done: "Erledigt" };
+
+function buildMail(
+  ev: NotificationEvent,
+  extra: { emailConfirmed?: boolean | null; recipient?: MemberRecipient | null; replyTo?: string | null }
+): Mail {
   const p = ev.payload ?? {};
   const name = fullName(p);
 
@@ -252,7 +369,6 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         ["Abschluss", str(p.abschluss)],
         ["Semester", str(p.semester)],
         ["Hochschulart", str(p.hochschulart)],
-        ["Ort", str(p.ort)],
         ["Antragsdatum", formatDate(p.datum_antrag)],
         ["Zeitpunkt", formatDateTime(ev.created_at)],
       ];
@@ -275,6 +391,13 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         ["Studiengang", str(p.studiengang)],
         ["Mitglied seit", formatDate(p.datum_antrag)],
         ["Kündigungsdatum", formatDate(p.datum_kuendigung)],
+        [
+          "Grund",
+          p.self_service === false
+            ? "– (Kündigung durch den Vorstand im Intranet)"
+            : (CANCELLATION_REASONS[str(p.reason)] ?? (str(p.reason) || "nicht angegeben")),
+        ],
+        ["Anmerkung", str(p.reason_text)],
         ["Zeitpunkt", formatDateTime(ev.created_at)],
       ];
       const r = renderRows(rows);
@@ -285,7 +408,39 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         subject: title,
         html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
-        to: TO_EMAILS,
+        to: CANCELLATION_EMAILS,
+      };
+    }
+    case "member_cancellation_confirmed": {
+      const vorname = str(extra.recipient?.vorname);
+      // Empfänger nur aus dem Profil des kündigenden Kontos (siehe resolveMemberRecipient).
+      const recipient = extra.recipient?.email ?? "";
+      const title = "Deine Kündigung beim ICR ist eingegangen";
+      const feeSemester = str(p.fee_semester);
+      const feeLine = feeSemester
+        ? ` Ab dem ${feeSemester} wird kein Mitgliedsbeitrag mehr eingezogen.`
+        : "";
+      const intro =
+        `${greeting(vorname)} wir bestätigen dir hiermit die Kündigung deiner Mitgliedschaft im Investmentclub Regensburg.${feeLine} ` +
+        "Dein Zugang zum Intranet ist damit beendet. Schade, dass du gehst – danke für deine Zeit im ICR und alles Gute für deinen weiteren Weg! " +
+        (p.reason_given === false
+          ? "Magst du uns noch sagen, warum du gehst? Antworte einfach auf diese Mail – das hilft uns, den ICR besser zu machen. "
+          : "") +
+        "War die Kündigung ein Versehen oder hast du Fragen, antworte ebenfalls einfach auf diese Mail.";
+      const rows: Array<[string, string]> = [
+        ["Eingegangen am", formatDate(p.datum_kuendigung)],
+        ["Kein Beitrag mehr ab", feeSemester ? `${feeSemester} (Stichtag ${str(p.fee_stichtag)})` : "– (bisher beitragsfrei)"],
+        ["Rückfragen", CANCELLATION_EMAILS[0] ?? ""],
+      ];
+      const r = renderRows(rows);
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, undefined, {
+          footer: "Automatische Nachricht aus dem ICR Intranet. Antworten auf diese E-Mail gehen an den Vorstand.",
+        }),
+        text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: recipient ? [recipient] : [],
+        replyTo: CANCELLATION_EMAILS[0],
       };
     }
     case "alumni_requested": {
@@ -309,15 +464,16 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
       };
     }
     case "alumni_decided": {
-      const vorname = str(p.vorname) || "Hallo";
+      const vorname = str(extra.recipient?.vorname);
       const approved = str(p.decision) === "approved";
-      const recipient = str(p.recipient) || str(p.email);
+      // Empfänger nur aus dem Profil des antragstellenden Kontos (siehe resolveMemberRecipient).
+      const recipient = extra.recipient?.email ?? "";
       const title = approved
         ? "Dein Alumni-Status wurde freigeschaltet"
         : "Dein Alumni-Antrag wurde abgelehnt";
       const intro = approved
-        ? `Hallo ${vorname}, der Vorstand hat deinen Antrag geprüft und dich als Alumni freigeschaltet. Dein Profil im Intranet zeigt ab sofort die Rolle „Alumni“.`
-        : `Hallo ${vorname}, der Vorstand hat deinen Antrag auf den Alumni-Status geprüft und ihn leider abgelehnt. Bei Fragen melde dich gern beim Vorstand.`;
+        ? `${greeting(vorname)} der Vorstand hat deinen Antrag geprüft und dich als Alumni freigeschaltet. Dein Profil im Intranet zeigt ab sofort die Rolle „Alumni“.`
+        : `${greeting(vorname)} der Vorstand hat deinen Antrag auf den Alumni-Status geprüft und ihn leider abgelehnt. Bei Fragen melde dich gern beim Vorstand.`;
       const rows: Array<[string, string]> = [
         ["Entscheidung", approved ? "Freigeschaltet" : "Abgelehnt"],
         ["Entschieden am", formatDateTime(p.handled_at ?? ev.created_at)],
@@ -330,6 +486,92 @@ function buildMail(ev: NotificationEvent, extra: { emailConfirmed?: boolean | nu
         text: `${title}\n\n${intro}\n\n${r.text}`,
         to: recipient ? [recipient] : [],
         replyTo: TO_EMAILS[0],
+      };
+    }
+    case "task_deadline": {
+      const vorname = str(extra.recipient?.vorname);
+      const recipient = extra.recipient?.email ?? "";
+      const overdue = Number(p.stage) >= 2;
+      const taskTitle = str(p.title) || "Aufgabe";
+      const title = overdue ? `Deadline erreicht: ${taskTitle}` : `Deadline naht: ${taskTitle}`;
+      const intro = overdue
+        ? `${greeting(vorname)} die Deadline deiner Aufgabe „${taskTitle}“ ist heute bzw. bereits überschritten.`
+        : `${greeting(vorname)} die Deadline deiner Aufgabe „${taskTitle}“ ist in den nächsten Tagen.`;
+      const rows: Array<[string, string]> = [
+        ["Aufgabe", taskTitle],
+        ["Deadline", formatDate(p.deadline)],
+        ["Priorität", PRIORITY_LABELS[str(p.priority)] ?? str(p.priority)],
+        ["Status", STATUS_LABELS[str(p.status)] ?? str(p.status)],
+      ];
+      const r = renderRows(rows);
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, adminLink("/admin", "Aufgaben öffnen")),
+        text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: recipient ? [recipient] : [],
+        replyTo: TO_EMAILS[0],
+      };
+    }
+    case "task_assigned": {
+      const vorname = str(extra.recipient?.vorname);
+      const recipient = extra.recipient?.email ?? "";
+      const taskTitle = str(p.title) || "Aufgabe";
+      const by = str(p.assigned_by_name) || "Jemand aus dem Vorstand";
+      const coAssignees = Array.isArray(p.co_assignees) ? p.co_assignees.map(str).filter(Boolean) : [];
+      const description = truncate(str(p.description), 1500);
+      const title = `Neue Aufgabe für dich: ${taskTitle}`;
+      const intro = `${greeting(vorname)} ${by} hat dir im Aufgaben-Board eine Aufgabe zugeteilt.`;
+      const rows: Array<[string, string]> = [
+        ["Aufgabe", taskTitle],
+        ["Zugeteilt von", by],
+        ["Deadline", str(p.deadline) ? formatDate(p.deadline) : "Keine"],
+        ["Priorität", PRIORITY_LABELS[str(p.priority)] ?? str(p.priority)],
+        ["Status", STATUS_LABELS[str(p.status)] ?? str(p.status)],
+      ];
+      if (coAssignees.length > 0) rows.push(["Ebenfalls zuständig", coAssignees.join(", ")]);
+      const r = renderRows(rows);
+      const afterRowsHtml = description
+        ? `<p style="margin:16px 0 0;font-size:14px;line-height:1.6;color:#374151">${escapeHtml(description).replace(/\n/g, "<br />")}</p>`
+        : "";
+      const link = adminLink("/admin", "Aufgabe im Intranet öffnen");
+      const footer = "Automatische Benachrichtigung aus dem ICR Intranet. Bei Fragen antworte einfach auf diese Mail.";
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, link, { footer, afterRowsHtml }),
+        text: [
+          title,
+          "",
+          intro,
+          "",
+          r.text,
+          description ? `\nBeschreibung:\n${description}` : "",
+          link ? `\n${link.label}: ${link.href}` : "",
+          "",
+          footer,
+        ].join("\n"),
+        to: recipient ? [recipient] : [],
+        replyTo: extra.replyTo || TO_EMAILS[0],
+      };
+    }
+    case "iban_changed": {
+      const rows: Array<[string, string]> = [
+        ["Name", name],
+        ["E-Mail", str(p.email)],
+        ["Neue IBAN (Ende)", str(p.iban_last4) ? `…${str(p.iban_last4)}` : "entfernt"],
+        ["Bisherige IBAN (Ende)", str(p.old_iban_last4) ? `…${str(p.old_iban_last4)}` : "keine"],
+        ["Zeitpunkt", formatDateTime(p.changed_at ?? ev.created_at)],
+      ];
+      const r = renderRows(rows);
+      const title = `Bankverbindung geändert: ${name}`;
+      const intro =
+        p.by_board === true
+          ? "Der Vorstand hat die IBAN dieses Mitglieds im Admin-Bereich korrigiert. Der nächste SEPA-Export kennzeichnet die Lastschrift als Mandatsänderung."
+          : "Ein Mitglied hat seine IBAN im Profil geändert. Der nächste SEPA-Export kennzeichnet die Lastschrift als Mandatsänderung. Falls die Änderung unerwartet ist, bitte beim Mitglied nachfragen.";
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, adminLink("/admin/members", "Mitglieder öffnen")),
+        text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: TO_EMAILS,
       };
     }
     case "test":
@@ -367,7 +609,7 @@ async function sendViaResend(mail: Mail): Promise<void> {
       from: FROM_EMAIL,
       to: mail.to,
       ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
-      subject: mail.subject,
+      subject: cleanSubject(mail.subject),
       html: mail.html,
       text: mail.text,
     }),
@@ -397,6 +639,14 @@ async function sendAnnouncement(
     .map((r) => str(r))
     .filter(Boolean);
   if (recipients.length === 0) throw new Error("Keine Empfänger in payload.recipients");
+  // Liste nicht umsortieren/filtern (sent_count zeigt auf Positionen), sondern nur prüfen.
+  const limit = ev.payload?.mode === "custom" ? MAX_CUSTOM_RECIPIENTS : MAX_ANNOUNCEMENT_RECIPIENTS;
+  if (recipients.length > limit) {
+    throw new Error(`Zu viele Empfänger (${recipients.length} > ${limit})`);
+  }
+  if (recipients.some((r) => !EMAIL_RE.test(r))) {
+    throw new Error("Ungültige Empfängeradresse in payload.recipients");
+  }
 
   const mail = buildEventAnnouncement(ev);
   let sent = Math.max(0, Number(ev.payload?.sent_count ?? 0) || 0);
@@ -415,7 +665,7 @@ async function sendAnnouncement(
           from: FROM_EMAIL,
           to: [to],
           ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
-          subject: mail.subject,
+          subject: cleanSubject(mail.subject),
           html: mail.html,
           text: mail.text,
         }))
@@ -456,10 +706,22 @@ async function processEvents(
         }
       }
 
+      const recipient =
+        ev.type === "alumni_decided" || ev.type === "member_cancellation_confirmed"
+          ? await resolveMemberRecipient(supabase, ev)
+          : ev.type === "task_deadline" || ev.type === "task_assigned"
+            ? await resolveAssigneeRecipient(supabase, ev)
+            : null;
+      // Antworten auf die Zuweisungs-Mail gehen an die Person, die zugeteilt hat.
+      const replyTo =
+        ev.type === "task_assigned"
+          ? (await resolveAssigneeRecipient(supabase, ev, "assigned_by_profile_id"))?.email ?? null
+          : null;
+
       if (ev.type === "event_announcement") {
         await sendAnnouncement(supabase, ev);
       } else {
-        await sendViaResend(buildMail(ev, { emailConfirmed }));
+        await sendViaResend(buildMail(ev, { emailConfirmed, recipient, replyTo }));
       }
 
       await supabase
@@ -487,7 +749,7 @@ Deno.serve(async (req) => {
     return json({ error: "Method not allowed" }, 405);
   }
 
-  if (!NOTIFY_SECRET || req.headers.get("x-notify-secret") !== NOTIFY_SECRET) {
+  if (!(await secretMatches(req.headers.get("x-notify-secret") ?? "", NOTIFY_SECRET))) {
     return json({ error: "Unauthorized" }, 401);
   }
 
