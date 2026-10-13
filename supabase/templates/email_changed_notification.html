@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="de">
+  <body style="margin:0;padding:24px;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827">
+    <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:24px">
+      <p style="margin:0 0 4px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280">ICR Intranet</p>
+      <h1 style="margin:0 0 12px;font-size:20px">Deine E-Mail-Adresse wurde geändert</h1>
+      <p style="margin:0 0 16px;font-size:14px;line-height:1.5">
+        Die E-Mail-Adresse deines Kontos im Intranet des Investmentclub Regensburg wurde soeben geändert. Für den
+        Login und alle Nachrichten des Vereins gilt ab sofort die neue Adresse.
+      </p>
+      <table style="border-collapse:collapse;font-size:14px;width:100%">
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top">Bisher</td>
+          <td style="padding:6px 0;vertical-align:top">{{ .OldEmail }}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 12px 6px 0;color:#6b7280;white-space:nowrap;vertical-align:top">Neu</td>
+          <td style="padding:6px 0;vertical-align:top">{{ .Email }}</td>
+        </tr>
+      </table>
+      <p style="margin:16px 0 0;font-size:13px;line-height:1.5;color:#374151">
+        Warst du das nicht? Dann melde dich bitte umgehend beim Vorstand (info@investmentclubregensburg.com), damit wir
+        dein Konto sichern können.
+      </p>
+      <p style="margin:24px 0 0;font-size:12px;color:#9ca3af">Automatische Nachricht aus dem ICR Intranet. Antworten auf diese E-Mail werden nicht gelesen.</p>
+    </div>
+  </body>
+</html>
