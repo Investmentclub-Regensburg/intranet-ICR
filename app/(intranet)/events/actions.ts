@@ -7,6 +7,7 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { isSafeId } from "@/lib/validation";
 import {
   EVENT_IMAGE_BUCKET,
+  MAIL_TO_ALL_ENABLED,
   MAX_CUSTOM_RECIPIENTS,
   MAX_EVENT_DAYS,
   eventEndTimestamp,
@@ -71,6 +72,8 @@ const ANNOUNCEMENT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 function checkAnnouncementTarget(target: AnnouncementTarget | null | undefined, role: Role): string {
   if (!target) return "";
   if (target.mode !== "all" && target.mode !== "custom") return "Ungültige Empfängerauswahl.";
+  if (target.mode === "all" && !MAIL_TO_ALL_ENABLED)
+    return "Rundmails an alle Mitglieder sind vorübergehend gesperrt (Mail-Kontingent).";
   if (target.mode === "custom") {
     // Mails an frei eingegebene Adressen nur durch den Vorstand.
     if (role !== "board") return "Mails an einzelne Adressen darf nur der Vorstand verschicken.";
