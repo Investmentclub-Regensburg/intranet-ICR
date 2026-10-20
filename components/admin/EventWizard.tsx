@@ -56,7 +56,14 @@ import {
 } from "@/components/kit/Wizard";
 import { EventCard } from "@/components/events/EventCard";
 import { createEvent } from "@/app/(intranet)/events/actions";
-import { eventPath, formatEventDateRange, formatTimeRange, type AnnouncementTarget } from "@/lib/events";
+import {
+  MAIL_TO_ALL_DISABLED_HINT,
+  MAIL_TO_ALL_ENABLED,
+  eventPath,
+  formatEventDateRange,
+  formatTimeRange,
+  type AnnouncementTarget,
+} from "@/lib/events";
 import { RecipientEmailsInput } from "./AnnouncementRecipients";
 import { ShareLinkButton } from "./ShareLinkButton";
 import {
@@ -400,7 +407,7 @@ export function EventWizard({
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="wiz-end-date">
-                        Bis <span className="font-normal text-muted-foreground">(optional, bei mehreren Tagen)</span>
+                        Bis <span className="font-normal text-muted-foreground">(optional)</span>
                       </Label>
                       <Input
                         id="wiz-end-date"
@@ -413,7 +420,11 @@ export function EventWizard({
                       />
                     </div>
                   </div>
-                  {dateInPast && <Hint>Das Datum liegt in der Vergangenheit.</Hint>}
+                  {dateInPast ? (
+                    <Hint>Das Datum liegt in der Vergangenheit.</Hint>
+                  ) : (
+                    !form.endDate && <Hint>„Bis“ nur bei mehrtägigen Veranstaltungen, z. B. Ausflügen.</Hint>
+                  )}
                   {errorLine}
                   <WizardNav onBack={back}>
                     <NextButton onClick={() => next("date")} />
@@ -436,7 +447,7 @@ export function EventWizard({
                   />
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label htmlFor="wiz-start">{multiDay ? "Beginn am ersten Tag" : "Beginn"}</Label>
+                      <Label htmlFor="wiz-start">Beginn</Label>
                       <Input
                         id="wiz-start"
                         type="time"
@@ -451,8 +462,7 @@ export function EventWizard({
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="wiz-end">
-                        {multiDay ? "Ende am letzten Tag" : "Ende"}{" "}
-                        <span className="font-normal text-muted-foreground">(optional)</span>
+                        Ende <span className="font-normal text-muted-foreground">(optional)</span>
                       </Label>
                       <Input
                         id="wiz-end"
@@ -466,6 +476,7 @@ export function EventWizard({
                     </div>
                   </div>
                   {endNextDay && <Hint>Ende liegt vor dem Beginn: Die Veranstaltung endet am Folgetag.</Hint>}
+                  {multiDay && <Hint>Mehrtägig: Beginn gilt für den ersten Tag, Ende für den letzten.</Hint>}
                   {errorLine}
                   <WizardNav onBack={back}>
                     <NextButton onClick={() => next("time")} />
@@ -657,9 +668,14 @@ export function EventWizard({
                         setMailMode("all");
                         autoNext("mail");
                       }}
+                      disabled={!MAIL_TO_ALL_ENABLED}
                       Icon={Users}
                       label="Alle Mitglieder"
-                      hint={`${memberCount} Empfänger, ohne Alumni und Ausgetretene`}
+                      hint={
+                        MAIL_TO_ALL_ENABLED
+                          ? `${memberCount} Empfänger, ohne Alumni und Ausgetretene`
+                          : MAIL_TO_ALL_DISABLED_HINT
+                      }
                     />
                     {canCustomMail && (
                       <PickTile

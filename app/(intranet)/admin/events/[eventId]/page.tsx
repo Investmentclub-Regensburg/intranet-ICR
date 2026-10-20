@@ -15,7 +15,7 @@ import { ShareLinkButton } from "@/components/admin/ShareLinkButton";
 import { DeleteEventButton } from "@/components/admin/DeleteEventButton";
 import { SendAnnouncementDialog } from "@/components/admin/SendAnnouncementDialog";
 import { ROLE_LABELS, formatMoment } from "@/components/admin/format";
-import { eventPath, formatEventDateRange, formatEventTimes, isEventPast } from "@/lib/events";
+import { MAIL_TO_ALL_ENABLED, eventPath, formatEventDateRange, formatEventTimes, isEventPast } from "@/lib/events";
 
 type Props = {
   params: Promise<{ eventId: string }>;
@@ -34,6 +34,7 @@ export default async function AdminEventDetailPage({ params }: Props) {
 
   const { event, participants, announcements } = data;
   const time = formatEventTimes(event);
+  const canCustomMail = auth.ok && auth.role === "board";
   const past = isEventPast(event);
 
   return (
@@ -70,12 +71,15 @@ export default async function AdminEventDetailPage({ params }: Props) {
             <Pencil />
           </IconLink>
           <ShareLinkButton eventId={event.id} title={event.title} variant="outline" />
-          <SendAnnouncementDialog
-            eventId={event.id}
-            eventTitle={event.title}
-            memberCount={memberCount}
-            canCustom={auth.ok && auth.role === "board"}
-          />
+          {/* Ohne Rundmail an alle (vorübergehend gesperrt) bleiben nur einzelne Adressen, und die nur für den Vorstand. */}
+          {(MAIL_TO_ALL_ENABLED || canCustomMail) && (
+            <SendAnnouncementDialog
+              eventId={event.id}
+              eventTitle={event.title}
+              memberCount={memberCount}
+              canCustom={canCustomMail}
+            />
+          )}
           <DeleteEventButton eventId={event.id} title={event.title} redirectTo={MANAGE_HREF} variant="outline" />
         </div>
       </RevealHeading>

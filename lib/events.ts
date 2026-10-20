@@ -20,6 +20,14 @@ export const EVENT_IMAGE_TYPES: Record<string, string> = {
 /** Mehrtägige Events enden höchstens so viele Tage nach dem Start (wie Check events_end_date_range in der DB). */
 export const MAX_EVENT_DAYS = 31;
 
+/**
+ * Rundmail an alle Mitglieder. Vorübergehend gesperrt (Oktober 2026): Der kostenlose Resend-Plan reicht
+ * dafür nicht, ein bezahlter Plan ist noch nicht gebucht. Mails an einzelne Adressen gehen weiter.
+ * Zum Freischalten auf true setzen.
+ */
+export const MAIL_TO_ALL_ENABLED = false;
+export const MAIL_TO_ALL_DISABLED_HINT = "Vorübergehend gesperrt (Mail-Kontingent)";
+
 /** Max. Anzahl einzeln eingegebener Empfänger für eine Event-Mail. */
 export const MAX_CUSTOM_RECIPIENTS = 50;
 

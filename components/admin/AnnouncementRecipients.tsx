@@ -5,7 +5,13 @@ import { AtSign, Users, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PickTile } from "@/components/kit/Wizard";
-import { MAX_CUSTOM_RECIPIENTS, isValidEmail, type AnnouncementTarget } from "@/lib/events";
+import {
+  MAIL_TO_ALL_DISABLED_HINT,
+  MAIL_TO_ALL_ENABLED,
+  MAX_CUSTOM_RECIPIENTS,
+  isValidEmail,
+  type AnnouncementTarget,
+} from "@/lib/events";
 
 type Props = {
   value: AnnouncementTarget;
@@ -30,9 +36,12 @@ export function AnnouncementRecipients({ value, onChange, memberCount, canCustom
           value="all"
           checked={value.mode === "all"}
           onChange={() => onChange({ mode: "all" })}
+          disabled={!MAIL_TO_ALL_ENABLED}
           Icon={Users}
           label="Alle Mitglieder"
-          hint={`${memberCount} Empfänger, ohne Alumni und Ausgetretene`}
+          hint={
+            MAIL_TO_ALL_ENABLED ? `${memberCount} Empfänger, ohne Alumni und Ausgetretene` : MAIL_TO_ALL_DISABLED_HINT
+          }
         />
         {canCustom && (
           <PickTile

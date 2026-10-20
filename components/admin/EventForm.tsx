@@ -161,7 +161,14 @@ export function EventForm({ event }: Props) {
                 className="h-11"
               />
             </Field>
-            <Field label="Bis (optional, bei mehreren Tagen)" htmlFor="ev-end-date">
+            <Field
+              label={
+                <>
+                  Bis <span className="font-normal text-muted-foreground">(optional)</span>
+                </>
+              }
+              htmlFor="ev-end-date"
+            >
               <Input
                 id="ev-end-date"
                 type="date"
@@ -172,7 +179,7 @@ export function EventForm({ event }: Props) {
                 className="h-11"
               />
             </Field>
-            <Field label={multiDay ? "Beginn am ersten Tag" : "Beginn"} htmlFor="ev-time">
+            <Field label="Beginn" htmlFor="ev-time">
               <Input
                 id="ev-time"
                 type="time"
@@ -184,7 +191,7 @@ export function EventForm({ event }: Props) {
                 className="h-11"
               />
             </Field>
-            <Field label={multiDay ? "Ende am letzten Tag" : "Ende"} htmlFor="ev-end-time">
+            <Field label="Ende" htmlFor="ev-end-time">
               <Input
                 id="ev-end-time"
                 type="time"
@@ -195,6 +202,12 @@ export function EventForm({ event }: Props) {
               />
             </Field>
           </div>
+          {!form.endDate && (
+            <p className="text-xs text-muted-foreground">„Bis“ nur bei mehrtägigen Veranstaltungen, z. B. Ausflügen.</p>
+          )}
+          {multiDay && form.eventTime && !endDateError && (
+            <p className="text-xs text-muted-foreground">Mehrtägig: Beginn gilt für den ersten Tag, Ende für den letzten.</p>
+          )}
           {(endDateError || dateInPast || endBeforeStart || !form.eventTime) && (
             <p className={endDateError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
               {endDateError
@@ -321,7 +334,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
+function Field({ label, htmlFor, children }: { label: ReactNode; htmlFor: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
