@@ -17,7 +17,7 @@ import { ShareLinkButton } from "./ShareLinkButton";
 /** Was die Verwaltung pro Veranstaltung braucht (ohne die User-IDs der Anmeldungen). */
 export type AdminEventTile = Pick<
   EventCore,
-  "id" | "title" | "event_date" | "event_time" | "end_time" | "location" | "requires_registration"
+  "id" | "title" | "event_date" | "end_date" | "event_time" | "end_time" | "location" | "requires_registration"
 > & { registration_count: number };
 
 type Props = {

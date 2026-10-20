@@ -13,7 +13,7 @@ import { LinkifiedText } from "@/components/kit/LinkifiedText";
 import { RegistrationButton } from "@/components/events/RegistrationButton";
 import { ShareEventButton } from "@/components/events/ShareEventButton";
 import { registrationCountLabel } from "@/components/events/EventTile";
-import { formatEventDate, formatEventWhen, formatTimeRange, isEventPast } from "@/lib/events";
+import { formatEventDateRange, formatEventTimes, formatEventWhen, isEventPast, isRegistrationOpen } from "@/lib/events";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -46,10 +46,11 @@ export default async function EventDetailPage({ params }: Props) {
   if (!event) notFound();
 
   const past = isEventPast(event);
+  const registrationOpen = isRegistrationOpen(event);
   const role = roleOf(profile as Record<string, unknown> | null);
   const canManage = role === "admin" || role === "board";
   const isRegistered = !!user && event.is_registered;
-  const time = formatTimeRange(event.event_time, event.end_time);
+  const time = formatEventTimes(event);
   const paragraphs = (event.description ?? "").split(/\n{2,}/).filter((p) => p.trim());
 
   return (
@@ -96,7 +97,7 @@ export default async function EventDetailPage({ params }: Props) {
         <aside className="space-y-4 lg:sticky lg:top-4 lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <dl className="space-y-4 rounded-2xl border border-border bg-card p-5">
             <Fact Icon={CalendarDays} label="Datum">
-              {formatEventDate(event.event_date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              {formatEventDateRange(event, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </Fact>
             {time && (
               <Fact Icon={Clock} label="Uhrzeit">
@@ -118,11 +119,11 @@ export default async function EventDetailPage({ params }: Props) {
               <p className="text-sm text-muted-foreground">
                 {past ? "Diese Veranstaltung ist vorbei." : "Ohne Anmeldung. Komm einfach vorbei."}
               </p>
-            ) : past ? (
+            ) : !registrationOpen ? (
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-foreground">Anmeldung geschlossen</p>
                 <p className="text-sm text-muted-foreground">
-                  {registrationCountLabel(event.registration_count, true)}
+                  {registrationCountLabel(event.registration_count, past)}
                   {isRegistered && ", du auch"}
                 </p>
               </div>

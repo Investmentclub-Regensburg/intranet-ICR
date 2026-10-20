@@ -13,6 +13,7 @@ function toTile(e: EventListItem): AdminEventTile {
     id: e.id,
     title: e.title,
     event_date: e.event_date,
+    end_date: e.end_date,
     event_time: e.event_time,
     end_time: e.end_time,
     location: e.location,

@@ -3,7 +3,7 @@ import { cache } from "react";
 import { getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { requireRole, requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
-import { EVENT_TIME_ZONE, formatEventDate, formatTimeRange, isEventPast } from "@/lib/events";
+import { EVENT_TIME_ZONE, formatEventDate, formatEventDateRange, formatEventTimes, isEventPast, isMultiDay, isRegistrationOpen } from "@/lib/events";
 import type { AdminCounts, DashboardEvent, DashboardNewsItem } from "@/components/dashboard/types";
 
 /*
@@ -109,14 +109,15 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
 
   const supabase = await getCachedSupabase();
   const today = berlinToday();
-  // Ab gestern: ein Event über Mitternacht läuft heute noch.
+  // Ab gestern: ein Event über Mitternacht läuft heute noch. Mehrtägige Events, die heute noch laufen,
+  // haben ein end_date ab heute.
   const from = isoDate(today, -1);
 
   const [eventsRes, regsRes] = await Promise.all([
     supabase
       .from("events")
-      .select("id, title, event_date, event_time, end_time, location, requires_registration, image_url")
-      .gte("event_date", from)
+      .select("id, title, event_date, end_date, event_time, end_time, location, requires_registration, image_url")
+      .or(`event_date.gte.${from},end_date.gte.${isoDate(today)}`)
       .order("event_date", { ascending: true })
       .order("event_time", { ascending: true, nullsFirst: true })
       .limit(60),
@@ -137,6 +138,7 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
   for (const row of eventsRes.data ?? []) {
     const e = {
       event_date: String(row.event_date ?? ""),
+      end_date: str(row.end_date),
       event_time: str(row.event_time),
       end_time: str(row.end_time),
     };
@@ -145,16 +147,23 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
     upcoming.push({
       id: String(row.id),
       title: String(row.title ?? ""),
-      dateLabel: formatEventDate(e.event_date),
+      dateLabel: formatEventDateRange(e),
       day: String(Number(e.event_date.slice(8, 10))),
       month: stripDot(formatEventDate(e.event_date, { month: "short" })),
       weekday: stripDot(formatEventDate(e.event_date, { weekday: "short" })),
-      timeLabel: formatTimeRange(e.event_time, e.end_time),
+      // Mehrtägig: Zeitraum mit anzeigen, der Datum-Block zeigt nur den ersten Tag.
+      timeLabel: [
+        isMultiDay(e) ? formatEventDateRange(e, { day: "numeric", month: "short" }) : "",
+        formatEventTimes(e),
+      ]
+        .filter(Boolean)
+        .join(" · "),
       location: str(row.location),
       imageUrl: str(row.image_url),
       relative: relativeLabel(days),
       soon: days <= 1,
       requiresRegistration: !!row.requires_registration,
+      registrationOpen: isRegistrationOpen(e, now),
       registered: mine.has(String(row.id)),
     });
   }
