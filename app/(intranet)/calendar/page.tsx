@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { roleOf } from "@/utils/supabase/guards";
 import { getEvents, type EventListItem } from "@/app/(intranet)/events/actions";
-import { eventPath, formatTimeRange, isEventPast, shortTime } from "@/lib/events";
+import { eventDays, eventPath, formatEventTimes, isEventPast, isMultiDay, shortTime } from "@/lib/events";
 import { cn } from "@/lib/utils";
 import { AdminShortcut } from "@/components/area/AdminShortcut";
 import { AreaHeader } from "@/components/area/AreaHeader";
@@ -34,6 +34,13 @@ function parseMonthYear(
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+/** Uhrzeit im Kalender-Chip: Beginn am ersten Tag, „bis“ am letzten Tag eines mehrtägigen Events. */
+function chipTime(ev: EventListItem, day: string): string {
+  if (day === ev.event_date) return shortTime(ev.event_time);
+  if (isMultiDay(ev) && day === ev.end_date && ev.end_time) return `bis ${shortTime(ev.end_time)}`;
+  return "";
+}
+
 export default async function CalendarPage({
   searchParams,
 }: {
@@ -56,10 +63,13 @@ export default async function CalendarPage({
   const days = Array.from({ length: daysInMonth }, (_, i) => `${year}-${pad(month)}-${pad(i + 1)}`);
 
   const eventsByDate = new Map<string, EventListItem[]>();
+  // Mehrtägige Events stehen an jedem ihrer Tage.
   for (const ev of events) {
-    const list = eventsByDate.get(ev.event_date) ?? [];
-    list.push(ev);
-    eventsByDate.set(ev.event_date, list);
+    for (const day of eventDays(ev)) {
+      const list = eventsByDate.get(day) ?? [];
+      list.push(ev);
+      eventsByDate.set(day, list);
+    }
   }
   const agendaDays = days.filter((d) => eventsByDate.has(d));
 
@@ -131,8 +141,8 @@ export default async function CalendarPage({
                         isEventPast(ev) && "border-primary/40 bg-muted text-muted-foreground",
                       )}
                     >
-                      {ev.event_time && (
-                        <span className="block text-[11px] tabular-nums opacity-75">{shortTime(ev.event_time)}</span>
+                      {chipTime(ev, key) && (
+                        <span className="block text-[11px] tabular-nums opacity-75">{chipTime(ev, key)}</span>
                       )}
                       <span className="line-clamp-2 font-semibold break-words">{ev.title}</span>
                     </Link>
@@ -183,7 +193,7 @@ export default async function CalendarPage({
                     </div>
                     <ul className="min-w-0 flex-1 divide-y divide-border">
                       {(eventsByDate.get(key) ?? []).map((ev) => {
-                        const time = formatTimeRange(ev.event_time, ev.end_time);
+                        const time = formatEventTimes(ev);
                         return (
                           <li key={ev.id} className="py-1.5 first:pt-0 last:pb-0">
                             <Link

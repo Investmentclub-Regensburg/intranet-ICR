@@ -402,6 +402,7 @@ export function PickTile({
   checked,
   onChange,
   required,
+  disabled,
   label,
   hint,
   Icon,
@@ -413,6 +414,8 @@ export function PickTile({
   checked: boolean;
   onChange: ChangeEventHandler<HTMLInputElement>;
   required?: boolean;
+  /** Nicht wählbar (ausgegraut), z. B. vorübergehend gesperrte Option. */
+  disabled?: boolean;
   label: string;
   hint?: string;
   Icon?: LucideIcon;
@@ -421,9 +424,11 @@ export function PickTile({
   return (
     <label
       className={cn(
-        "group relative flex cursor-pointer items-center gap-3 rounded-xl border border-input bg-card px-4 py-3.5 transition-[border-color,background-color,box-shadow] duration-200",
-        // Gewählt: einfarbig im Primär-Rot wie der Weiter-Button, Schrift weiß (Hannes 2026-10-08).
-        "hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-primary has-[:checked]:shadow-brand",
+        "group relative flex items-center gap-3 rounded-xl border border-input bg-card px-4 py-3.5 transition-[border-color,background-color,box-shadow] duration-200",
+        disabled
+          ? "cursor-not-allowed opacity-55"
+          : // Gewählt: einfarbig im Primär-Rot wie der Weiter-Button, Schrift weiß (Hannes 2026-10-08).
+            "cursor-pointer hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-primary has-[:checked]:shadow-brand",
         "has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/40",
         className,
       )}
@@ -435,6 +440,7 @@ export function PickTile({
         checked={checked}
         onChange={onChange}
         required={required}
+        disabled={disabled}
         className="peer sr-only"
       />
       {Icon && (

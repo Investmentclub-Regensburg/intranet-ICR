@@ -56,7 +56,14 @@ import {
 } from "@/components/kit/Wizard";
 import { EventCard } from "@/components/events/EventCard";
 import { createEvent } from "@/app/(intranet)/events/actions";
-import { eventPath, formatEventDate, formatTimeRange, type AnnouncementTarget } from "@/lib/events";
+import {
+  MAIL_TO_ALL_DISABLED_HINT,
+  MAIL_TO_ALL_ENABLED,
+  eventPath,
+  formatEventDateRange,
+  formatTimeRange,
+  type AnnouncementTarget,
+} from "@/lib/events";
 import { RecipientEmailsInput } from "./AnnouncementRecipients";
 import { ShareLinkButton } from "./ShareLinkButton";
 import {
@@ -64,9 +71,11 @@ import {
   EVENT_IMAGE_ACCEPT,
   checkEventImage,
   eventFields,
+  isFormMultiDay,
   removeUploadedEventImage,
   todayInBerlin,
   uploadEventImage,
+  validateEndDate,
   validateEventForm,
   type EventFormState,
 } from "./event-form-shared";
@@ -130,6 +139,7 @@ export function EventWizard({
 
   const set = <K extends keyof EventFormState>(key: K, value: EventFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+  const multiDay = isFormMultiDay(form);
 
   const announce: AnnouncementTarget | null =
     mailMode === "all" ? { mode: "all" } : mailMode === "custom" ? { mode: "custom", emails } : null;
@@ -176,11 +186,11 @@ export function EventWizard({
         return "";
       case "date":
         if (!/^\d{4}-\d{2}-\d{2}$/.test(form.eventDate)) return "Bitte ein Datum wählen.";
-        return "";
+        return validateEndDate(form);
       case "time":
         if (timeMode === "allday") return "";
         if (!form.eventTime) return "Bitte den Beginn eintragen oder „Ganztägig“ wählen.";
-        if (form.endTime && form.endTime === form.eventTime) return "Endzeit muss nach der Startzeit liegen.";
+        if (!multiDay && form.endTime && form.endTime === form.eventTime) return "Endzeit muss nach der Startzeit liegen.";
         return "";
       case "organizer":
         if (organizerMode === "other" && !otherOrganizer.trim()) return "Bitte den Veranstalter eintragen.";
@@ -275,13 +285,18 @@ export function EventWizard({
   const rows: WizardRow<StepKey>[] = [];
   if (done("title")) rows.push({ key: "title", label: "Titel", Icon: Type, value: form.title.trim() });
   if (done("date"))
-    rows.push({ key: "date", label: "Datum", Icon: CalendarDays, value: formatEventDate(form.eventDate) });
+    rows.push({
+      key: "date",
+      label: "Datum",
+      Icon: CalendarDays,
+      value: formatEventDateRange({ event_date: form.eventDate, end_date: form.endDate || null }),
+    });
   if (done("time"))
     rows.push({
       key: "time",
       label: "Uhrzeit",
       Icon: Clock,
-      value: timeMode === "allday" ? "Ganztägig" : formatTimeRange(form.eventTime, form.endTime || null),
+      value: timeMode === "allday" ? "Ganztägig" : formatTimeRange(form.eventTime, form.endTime || null, multiDay),
     });
   if (done("location"))
     rows.push({ key: "location", label: "Ort", Icon: MapPin, value: form.location.trim() || "Ohne Ort" });
@@ -324,7 +339,7 @@ export function EventWizard({
     className: "[&>h2]:pr-10",
   });
   const dateInPast = !!form.eventDate && form.eventDate < todayInBerlin();
-  const endNextDay = !!form.endTime && !!form.eventTime && form.endTime < form.eventTime;
+  const endNextDay = !multiDay && !!form.endTime && !!form.eventTime && form.endTime < form.eventTime;
   const errorLine = stepError ? (
     <p role="alert" className="text-sm font-medium text-destructive">
       {stepError}
@@ -378,14 +393,33 @@ export function EventWizard({
                 </WizardStep>
 
                 <WizardStep {...stepProps("date")} title="An welchem Tag?">
-                  <Input
-                    type="date"
-                    value={form.eventDate}
-                    onChange={(e) => set("eventDate", e.target.value)}
-                    onKeyDown={enterNext("date")}
-                    aria-label="Datum"
-                    className="h-12 w-full text-base sm:w-64"
-                  />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wiz-date">Datum</Label>
+                      <Input
+                        id="wiz-date"
+                        type="date"
+                        value={form.eventDate}
+                        onChange={(e) => set("eventDate", e.target.value)}
+                        onKeyDown={enterNext("date")}
+                        className="h-12 w-full text-base"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wiz-end-date">
+                        Bis <span className="font-normal text-muted-foreground">(optional)</span>
+                      </Label>
+                      <Input
+                        id="wiz-end-date"
+                        type="date"
+                        value={form.endDate}
+                        min={form.eventDate || undefined}
+                        onChange={(e) => set("endDate", e.target.value)}
+                        onKeyDown={enterNext("date")}
+                        className="h-12 w-full text-base"
+                      />
+                    </div>
+                  </div>
                   {dateInPast && <Hint>Das Datum liegt in der Vergangenheit.</Hint>}
                   {errorLine}
                   <WizardNav onBack={back}>
@@ -438,6 +472,7 @@ export function EventWizard({
                     </div>
                   </div>
                   {endNextDay && <Hint>Ende liegt vor dem Beginn: Die Veranstaltung endet am Folgetag.</Hint>}
+                  {multiDay && <Hint>Mehrtägig: Beginn gilt für den ersten Tag, Ende für den letzten.</Hint>}
                   {errorLine}
                   <WizardNav onBack={back}>
                     <NextButton onClick={() => next("time")} />
@@ -629,9 +664,14 @@ export function EventWizard({
                         setMailMode("all");
                         autoNext("mail");
                       }}
+                      disabled={!MAIL_TO_ALL_ENABLED}
                       Icon={Users}
                       label="Alle Mitglieder"
-                      hint={`${memberCount} Empfänger, ohne Alumni und Ausgetretene`}
+                      hint={
+                        MAIL_TO_ALL_ENABLED
+                          ? `${memberCount} Empfänger, ohne Alumni und Ausgetretene`
+                          : MAIL_TO_ALL_DISABLED_HINT
+                      }
                     />
                     {canCustomMail && (
                       <PickTile
@@ -660,6 +700,7 @@ export function EventWizard({
                         title: form.title.trim(),
                         description: form.description.trim() || null,
                         event_date: form.eventDate,
+                        end_date: multiDay ? form.endDate : null,
                         event_time: form.eventTime || null,
                         end_time: form.endTime || null,
                         location: form.location.trim() || null,

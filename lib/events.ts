@@ -17,6 +17,17 @@ export const EVENT_IMAGE_TYPES: Record<string, string> = {
   "image/webp": "webp",
 };
 
+/** Mehrtägige Events enden höchstens so viele Tage nach dem Start (wie Check events_end_date_range in der DB). */
+export const MAX_EVENT_DAYS = 31;
+
+/**
+ * Rundmail an alle Mitglieder. Vorübergehend gesperrt (Oktober 2026): Der kostenlose Resend-Plan reicht
+ * dafür nicht, ein bezahlter Plan ist noch nicht gebucht. Mails an einzelne Adressen gehen weiter.
+ * Zum Freischalten auf true setzen.
+ */
+export const MAIL_TO_ALL_ENABLED = false;
+export const MAIL_TO_ALL_DISABLED_HINT = "Vorübergehend gesperrt (Mail-Kontingent)";
+
 /** Max. Anzahl einzeln eingegebener Empfänger für eine Event-Mail. */
 export const MAX_CUSTOM_RECIPIENTS = 50;
 
@@ -25,6 +36,8 @@ export type EventCore = {
   title: string;
   description: string | null;
   event_date: string;
+  /** Letzter Tag bei mehrtägigen Events, sonst null. */
+  end_date: string | null;
   event_time: string | null;
   end_time: string | null;
   location: string | null;
@@ -69,19 +82,68 @@ export function formatEventDate(
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("de-DE", { ...options, timeZone: "UTC" });
 }
 
-/** "19:00 – 22:00 Uhr", "19:00 Uhr" oder "" */
-export function formatTimeRange(start: string | null, end: string | null): string {
+/** Felder für Datum und Uhrzeit; end_date fehlt bei Altdaten oder ist null (= eintägig). */
+export type EventWhen = Pick<EventCore, "event_date" | "event_time" | "end_time"> & { end_date?: string | null };
+
+/** Mehrtägig, wenn ein Enddatum nach dem Starttag gesetzt ist. */
+export function isMultiDay(event: Pick<EventWhen, "event_date" | "end_date">): boolean {
+  return !!event.end_date && event.end_date > event.event_date;
+}
+
+/**
+ * Eintägig: "19:00 – 22:00 Uhr", "19:00 Uhr" oder "".
+ * Mehrtägig (multiDay): "Beginn 09:00 Uhr · Ende 18:00 Uhr", "Beginn 09:00 Uhr" oder "" –
+ * die Zeiten gehören zum ersten bzw. letzten Tag, daher kein "(Folgetag)".
+ */
+export function formatTimeRange(start: string | null, end: string | null, multiDay = false): string {
   const s = shortTime(start);
   const e = shortTime(end);
   if (!s) return "";
+  if (multiDay) return e ? `Beginn ${s} Uhr · Ende ${e} Uhr` : `Beginn ${s} Uhr`;
   if (!e) return `${s} Uhr`;
   return `${s} – ${e} Uhr${e <= s ? " (Folgetag)" : ""}`;
 }
 
+/** Uhrzeiten eines Events, eintägig oder mehrtägig. */
+export function formatEventTimes(event: EventWhen): string {
+  return formatTimeRange(event.event_time, event.end_time, isMultiDay(event));
+}
+
+/**
+ * Datum oder Zeitraum, z. B. "Fr., 17. Oktober 2026" oder
+ * "Fr., 23. Oktober – So., 25. Oktober 2026" (Jahr vorn nur bei Jahreswechsel).
+ */
+export function formatEventDateRange(
+  event: Pick<EventWhen, "event_date" | "end_date">,
+  options: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "long", year: "numeric" }
+): string {
+  if (!isMultiDay(event)) return formatEventDate(event.event_date, options);
+  const end = event.end_date as string;
+  const sameYear = event.event_date.slice(0, 4) === end.slice(0, 4);
+  const startOptions = sameYear ? { ...options, year: undefined } : options;
+  return `${formatEventDate(event.event_date, startOptions)} – ${formatEventDate(end, options)}`;
+}
+
 /** "Fr., 17. Oktober 2026 · 19:00 – 22:00 Uhr" */
-export function formatEventWhen(event: Pick<EventCore, "event_date" | "event_time" | "end_time">): string {
-  const time = formatTimeRange(event.event_time, event.end_time);
-  return [formatEventDate(event.event_date), time].filter(Boolean).join(" · ");
+export function formatEventWhen(event: EventWhen): string {
+  return [formatEventDateRange(event), formatEventTimes(event)].filter(Boolean).join(" · ");
+}
+
+/** Alle Tage eines Events als "yyyy-MM-dd" (eintägig: nur event_date). */
+export function eventDays(event: Pick<EventWhen, "event_date" | "end_date">): string[] {
+  const start = parseDate(event.event_date);
+  if (!start || !isMultiDay(event)) return [event.event_date];
+  const end = parseDate(event.end_date as string);
+  if (!end) return [event.event_date];
+  const days: string[] = [];
+  const last = Date.UTC(end[0], end[1] - 1, end[2]);
+  // Obergrenze wie in der DB (max. 31 Tage nach Beginn), damit kaputte Daten keine Endlosschleife bauen.
+  for (let i = 0; i <= MAX_EVENT_DAYS; i++) {
+    const t = Date.UTC(start[0], start[1] - 1, start[2] + i);
+    if (t > last) break;
+    days.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return days;
 }
 
 /** Offset von Europe/Berlin gegenüber UTC zu einem Zeitpunkt in ms. */
@@ -117,17 +179,27 @@ export function eventStartTimestamp(event: Pick<EventCore, "event_date" | "event
 
 /**
  * Ende des Events. Ohne Endzeit gilt das Event bis Tagesende als laufend
- * (ein Abendevent soll nicht um 19:01 als "vorbei" gelten).
+ * (ein Abendevent soll nicht um 19:01 als "vorbei" gelten). Mehrtägig: Endzeit am letzten Tag.
  */
-export function eventEndTimestamp(event: Pick<EventCore, "event_date" | "event_time" | "end_time">): number {
+export function eventEndTimestamp(event: EventWhen): number {
   const start = shortTime(event.event_time);
   const end = shortTime(event.end_time);
+  if (isMultiDay(event)) return berlinToTimestamp(event.end_date as string, end || "23:59");
   if (start && end) return berlinToTimestamp(event.event_date, end, end <= start ? 1 : 0);
   return berlinToTimestamp(event.event_date, "23:59");
 }
 
-export function isEventPast(event: Pick<EventCore, "event_date" | "event_time" | "end_time">, now = Date.now()): boolean {
+export function isEventPast(event: EventWhen, now = Date.now()): boolean {
   return eventEndTimestamp(event) < now;
+}
+
+/**
+ * Anmeldung möglich? Wie die RLS-Policy „selbst anmelden“: bis einschließlich Starttag (Berlin).
+ * Bei mehrtägigen Events also nicht mehr ab dem zweiten Tag, obwohl sie noch laufen.
+ */
+export function isRegistrationOpen(event: EventWhen, now = Date.now()): boolean {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: EVENT_TIME_ZONE }).format(new Date(now));
+  return !isEventPast(event, now) && today <= event.event_date;
 }
 
 export function eventPath(id: string): string {
@@ -135,7 +207,7 @@ export function eventPath(id: string): string {
 }
 
 /** Aufsteigend sortierte Events in anstehend (aufsteigend) und vergangen (neueste zuerst) teilen. */
-export function splitUpcomingPast<T extends Pick<EventCore, "event_date" | "event_time" | "end_time">>(
+export function splitUpcomingPast<T extends EventWhen>(
   events: T[],
   now = Date.now()
 ): { upcoming: T[]; past: T[] } {

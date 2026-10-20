@@ -20,6 +20,8 @@ export type DashboardEvent = {
   /** Heute oder morgen: Hinweis betont. */
   soon: boolean;
   requiresRegistration: boolean;
+  /** Anmeldung noch möglich (bis einschließlich Starttag, wie die RLS-Policy). */
+  registrationOpen: boolean;
   /** Eingeloggtes Mitglied ist angemeldet. */
   registered: boolean;
 };

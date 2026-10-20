@@ -2,7 +2,15 @@ import Link from "next/link";
 import { CircleCheck, Clock, MapPin } from "lucide-react";
 import { IcrLogo } from "@/components/brand/IcrLogo";
 import { cn } from "@/lib/utils";
-import { eventPath, formatEventWhen, formatTimeRange, type EventCore } from "@/lib/events";
+import {
+  eventPath,
+  formatEventDateRange,
+  formatEventTimes,
+  formatEventWhen,
+  isMultiDay,
+  isRegistrationOpen,
+  type EventCore,
+} from "@/lib/events";
 import { DateBlock, GLOW_TILE, STRETCHED_LINK } from "./event-display";
 import { RegistrationButton } from "./RegistrationButton";
 import { ShareEventButton } from "./ShareEventButton";
@@ -36,7 +44,13 @@ export function EventImageFallback({ className }: { className?: string }) {
  * unten Anmeldestatus mit Anmelden-Knopf. Die ganze Kachel öffnet die Detailseite.
  */
 export function EventTile({ event, isRegistered }: { event: TileEvent; isRegistered: boolean }) {
-  const time = formatTimeRange(event.event_time, event.end_time);
+  // Mehrtägig: Zeitraum vor die Uhrzeiten, der Datum-Block zeigt nur den ersten Tag.
+  const time = [
+    isMultiDay(event) ? formatEventDateRange(event, { day: "numeric", month: "short" }) : "",
+    formatEventTimes(event),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <article className={cn(GLOW_TILE, "flex h-full min-w-0 flex-col overflow-hidden")}>
@@ -89,13 +103,18 @@ export function EventTile({ event, isRegistered }: { event: TileEvent; isRegiste
                   {registrationCountLabel(event.registration_count)}
                 </span>
               )}
-              <RegistrationButton
-                eventId={event.id}
-                eventTitle={event.title}
-                when={formatEventWhen(event)}
-                isRegistered={isRegistered}
-                className="relative z-10"
-              />
+              {/* Laufende mehrtägige Events: ab Tag 2 keine Anmeldung mehr (wie die RLS-Policy). */}
+              {isRegistrationOpen(event) ? (
+                <RegistrationButton
+                  eventId={event.id}
+                  eventTitle={event.title}
+                  when={formatEventWhen(event)}
+                  isRegistered={isRegistered}
+                  className="relative z-10"
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground">Anmeldung geschlossen</span>
+              )}
             </>
           ) : (
             <span className="text-xs text-muted-foreground">Ohne Anmeldung</span>

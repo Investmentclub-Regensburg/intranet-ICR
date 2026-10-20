@@ -223,10 +223,12 @@ function formatEventDate(v: unknown): string {
   });
 }
 
-function formatTimeRange(start: unknown, end: unknown): string {
+// Mehrtägig (multiDay): Beginn gilt für den ersten, Ende für den letzten Tag – kein „Folgetag“.
+function formatTimeRange(start: unknown, end: unknown, multiDay = false): string {
   const s = str(start).slice(0, 5);
   const e = str(end).slice(0, 5);
   if (!s) return "";
+  if (multiDay) return e ? `Beginn ${s} Uhr · Ende ${e} Uhr` : `Beginn ${s} Uhr`;
   if (!e) return `${s} Uhr`;
   return `${s} – ${e} Uhr${e <= s ? " (Folgetag)" : ""}`;
 }
@@ -239,7 +241,9 @@ function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
   const e = (ev.payload?.event ?? {}) as Record<string, unknown>;
   const eventId = str(ev.payload?.event_id) || str(e.id);
   const title = str(e.title) || "Neues Event";
-  const when = [formatEventDate(e.event_date), formatTimeRange(e.event_time, e.end_time)].filter(Boolean).join(", ");
+  const multiDay = !!str(e.end_date) && str(e.end_date) > str(e.event_date);
+  const dates = multiDay ? `${formatEventDate(e.event_date)} bis ${formatEventDate(e.end_date)}` : formatEventDate(e.event_date);
+  const when = [dates, formatTimeRange(e.event_time, e.end_time, multiDay)].filter(Boolean).join(", ");
   const description = truncate(str(e.description), 600);
   const imageUrl = str(e.image_url);
   const needsRegistration = Boolean(e.requires_registration);

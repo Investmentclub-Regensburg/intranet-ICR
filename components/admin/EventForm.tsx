@@ -18,9 +18,11 @@ import {
   checkEventImage,
   eventFields,
   formFromEvent,
+  isFormMultiDay,
   removeUploadedEventImage,
   todayInBerlin,
   uploadEventImage,
+  validateEndDate,
   validateEventForm,
   type EventFormState,
 } from "./event-form-shared";
@@ -54,7 +56,9 @@ export function EventForm({ event }: Props) {
   const set = <K extends keyof EventFormState>(key: K, value: EventFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
-  const endBeforeStart = !!form.endTime && !!form.eventTime && form.endTime < form.eventTime;
+  const multiDay = isFormMultiDay(form);
+  const endDateError = validateEndDate(form);
+  const endBeforeStart = !multiDay && !!form.endTime && !!form.eventTime && form.endTime < form.eventTime;
   const dateInPast = !!form.eventDate && form.eventDate < todayInBerlin();
   const shownImage = imagePreview ?? existingImage;
 
@@ -146,7 +150,7 @@ export function EventForm({ event }: Props) {
         </Section>
 
         <Section title="Datum und Uhrzeit">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Datum" htmlFor="ev-date">
               <Input
                 id="ev-date"
@@ -154,6 +158,24 @@ export function EventForm({ event }: Props) {
                 value={form.eventDate}
                 onChange={(e) => set("eventDate", e.target.value)}
                 required
+                className="h-11"
+              />
+            </Field>
+            <Field
+              label={
+                <>
+                  Bis <span className="font-normal text-muted-foreground">(optional)</span>
+                </>
+              }
+              htmlFor="ev-end-date"
+            >
+              <Input
+                id="ev-end-date"
+                type="date"
+                value={form.endDate}
+                min={form.eventDate || undefined}
+                onChange={(e) => set("endDate", e.target.value)}
+                aria-invalid={!!endDateError || undefined}
                 className="h-11"
               />
             </Field>
@@ -180,13 +202,20 @@ export function EventForm({ event }: Props) {
               />
             </Field>
           </div>
-          {(dateInPast || endBeforeStart || !form.eventTime) && (
-            <p className="text-xs text-muted-foreground">
-              {dateInPast
+          {multiDay && form.eventTime && !endDateError && (
+            <p className="text-xs text-muted-foreground">Mehrtägig: Beginn gilt für den ersten Tag, Ende für den letzten.</p>
+          )}
+          {(endDateError || dateInPast || endBeforeStart || !form.eventTime) && (
+            <p className={endDateError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+              {endDateError
+                ? endDateError
+                : dateInPast
                 ? "Das Datum liegt in der Vergangenheit."
                 : endBeforeStart
                   ? "Ende liegt vor dem Beginn: Die Veranstaltung endet am Folgetag."
-                  : "Ohne Beginn gilt die Veranstaltung als ganztägig."}
+                  : multiDay
+                    ? "Ohne Beginn gilt die Veranstaltung an allen Tagen als ganztägig."
+                    : "Ohne Beginn gilt die Veranstaltung als ganztägig."}
             </p>
           )}
         </Section>
@@ -279,6 +308,7 @@ export function EventForm({ event }: Props) {
             title: form.title.trim(),
             description: form.description.trim() || null,
             event_date: form.eventDate,
+            end_date: multiDay ? form.endDate : null,
             event_time: form.eventTime || null,
             end_time: form.endTime || null,
             location: form.location.trim() || null,
@@ -301,7 +331,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
+function Field({ label, htmlFor, children }: { label: ReactNode; htmlFor: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
