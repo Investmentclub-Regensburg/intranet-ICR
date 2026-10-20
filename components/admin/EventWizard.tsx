@@ -420,11 +420,7 @@ export function EventWizard({
                       />
                     </div>
                   </div>
-                  {dateInPast ? (
-                    <Hint>Das Datum liegt in der Vergangenheit.</Hint>
-                  ) : (
-                    !form.endDate && <Hint>„Bis“ nur bei mehrtägigen Veranstaltungen, z. B. Ausflügen.</Hint>
-                  )}
+                  {dateInPast && <Hint>Das Datum liegt in der Vergangenheit.</Hint>}
                   {errorLine}
                   <WizardNav onBack={back}>
                     <NextButton onClick={() => next("date")} />

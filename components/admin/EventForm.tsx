@@ -202,9 +202,6 @@ export function EventForm({ event }: Props) {
               />
             </Field>
           </div>
-          {!form.endDate && (
-            <p className="text-xs text-muted-foreground">„Bis“ nur bei mehrtägigen Veranstaltungen, z. B. Ausflügen.</p>
-          )}
           {multiDay && form.eventTime && !endDateError && (
             <p className="text-xs text-muted-foreground">Mehrtägig: Beginn gilt für den ersten Tag, Ende für den letzten.</p>
           )}
