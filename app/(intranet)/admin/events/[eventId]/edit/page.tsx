@@ -4,7 +4,7 @@ import { IconLink } from "@/components/kit/IconButton";
 import { RevealHeading } from "@/components/kit/Reveal";
 import { EventForm } from "@/components/admin/EventForm";
 import { getEvent } from "@/app/(intranet)/events/actions";
-import { formatEventDate } from "@/lib/events";
+import { formatEventDateRange } from "@/lib/events";
 
 type Props = {
   params: Promise<{ eventId: string }>;
@@ -22,7 +22,7 @@ export default async function AdminEventEditPage({ params }: Props) {
           <ArrowLeft />
         </IconLink>
         <div className="min-w-0 space-y-2">
-          <p className="eyebrow">Bearbeiten · {formatEventDate(event.event_date)}</p>
+          <p className="eyebrow">Bearbeiten · {formatEventDateRange(event)}</p>
           <h1 className="text-[1.75rem] leading-[1.05] font-bold tracking-[-0.035em] break-words sm:text-4xl">
             {event.title}
           </h1>
@@ -35,6 +35,7 @@ export default async function AdminEventEditPage({ params }: Props) {
           title: event.title,
           description: event.description,
           event_date: event.event_date,
+          end_date: event.end_date,
           event_time: event.event_time,
           end_time: event.end_time,
           location: event.location,

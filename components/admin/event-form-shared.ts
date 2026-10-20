@@ -9,6 +9,7 @@ import {
   EVENT_IMAGE_BUCKET,
   EVENT_IMAGE_MAX_BYTES,
   EVENT_IMAGE_TYPES,
+  MAX_EVENT_DAYS,
   shortTime,
   type AnnouncementTarget,
   type EventCore,
@@ -19,6 +20,8 @@ export type EventFormState = {
   organizer: string;
   location: string;
   eventDate: string;
+  /** Letzter Tag bei mehrtägigen Events, "" = eintägig. */
+  endDate: string;
   eventTime: string;
   endTime: string;
   description: string;
@@ -30,6 +33,7 @@ export const EMPTY_EVENT_FORM: EventFormState = {
   organizer: "",
   location: "",
   eventDate: "",
+  endDate: "",
   eventTime: "",
   endTime: "",
   description: "",
@@ -42,6 +46,7 @@ export function formFromEvent(event: EventCore): EventFormState {
     organizer: event.organizer ?? "",
     location: event.location ?? "",
     eventDate: event.event_date,
+    endDate: event.end_date ?? "",
     eventTime: shortTime(event.event_time),
     endTime: shortTime(event.end_time),
     description: event.description ?? "",
@@ -57,10 +62,27 @@ export function todayInBerlin(): string {
 export function validateEventForm(form: EventFormState, announce: AnnouncementTarget | null): string {
   if (!form.title.trim()) return "Titel ist Pflicht.";
   if (!form.eventDate) return "Bitte ein Datum wählen.";
+  const dateError = validateEndDate(form);
+  if (dateError) return dateError;
   if (form.endTime && !form.eventTime) return "Für eine Endzeit bitte auch eine Startzeit angeben.";
-  if (form.endTime && form.endTime === form.eventTime) return "Endzeit muss nach der Startzeit liegen.";
+  if (!isFormMultiDay(form) && form.endTime && form.endTime === form.eventTime)
+    return "Endzeit muss nach der Startzeit liegen.";
   if (announce?.mode === "custom" && announce.emails.length === 0)
     return "Bitte mindestens eine E-Mail-Adresse hinzufügen oder die Mail deaktivieren.";
+  return "";
+}
+
+/** Mehrtägig, wenn ein Enddatum nach dem Starttag gewählt ist. */
+export function isFormMultiDay(form: Pick<EventFormState, "eventDate" | "endDate">): boolean {
+  return !!form.endDate && !!form.eventDate && form.endDate > form.eventDate;
+}
+
+/** Enddatum prüfen (gleicher Tag ist erlaubt und zählt als eintägig). "" = in Ordnung. */
+export function validateEndDate(form: Pick<EventFormState, "eventDate" | "endDate">): string {
+  if (!form.endDate || !form.eventDate) return "";
+  if (form.endDate < form.eventDate) return "Das Enddatum darf nicht vor dem Startdatum liegen.";
+  if (Date.parse(form.endDate) - Date.parse(form.eventDate) > MAX_EVENT_DAYS * 24 * 60 * 60 * 1000)
+    return `Ein Event darf höchstens ${MAX_EVENT_DAYS} Tage nach dem Start enden.`;
   return "";
 }
 
@@ -70,6 +92,7 @@ export function eventFields(form: EventFormState): EventFormInput {
     title: form.title,
     description: form.description,
     event_date: form.eventDate,
+    end_date: isFormMultiDay(form) ? form.endDate : "",
     event_time: form.eventTime,
     end_time: form.endTime,
     location: form.location,

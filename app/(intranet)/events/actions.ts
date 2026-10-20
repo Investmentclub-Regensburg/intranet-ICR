@@ -8,6 +8,7 @@ import { isSafeId } from "@/lib/validation";
 import {
   EVENT_IMAGE_BUCKET,
   MAX_CUSTOM_RECIPIENTS,
+  MAX_EVENT_DAYS,
   eventEndTimestamp,
   eventStartTimestamp,
   isValidEmail,
@@ -25,7 +26,7 @@ export type EventListItem = EventCore & {
 /** Intern (Cache): mit den User-IDs der Anmeldungen. */
 type CachedEvent = Omit<EventListItem, "is_registered"> & { registered_user_ids: string[] };
 
-export type MyEventItem = Pick<EventCore, "id" | "title" | "event_date" | "event_time" | "end_time" | "location">;
+export type MyEventItem = Pick<EventCore, "id" | "title" | "event_date" | "end_date" | "event_time" | "end_time" | "location">;
 
 export type MyEventsResult = {
   upcoming: MyEventItem[];
@@ -54,6 +55,7 @@ export type EventAnnouncement = {
 const EVENTS_TAG = "events";
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_EVENT_DAYS_MS = MAX_EVENT_DAYS * 24 * 60 * 60 * 1000;
 const IMAGE_PATH_RE = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|gif|webp)$/;
 
 async function requireAdmin(): Promise<{ userId: string; role: Role } | { error: string }> {
@@ -89,6 +91,7 @@ function toEventCore(e: Record<string, unknown>): EventCore {
     title: String(e.title ?? ""),
     description: str(e.description),
     event_date: String(e.event_date ?? ""),
+    end_date: str(e.end_date),
     event_time: str(e.event_time),
     end_time: str(e.end_time),
     location: str(e.location),
@@ -109,7 +112,7 @@ const fetchEvents = unstable_cache(
       admin
         .from("events")
         .select(
-          "id, title, description, event_date, event_time, end_time, location, organizer, image_url, requires_registration, created_at"
+          "id, title, description, event_date, end_date, event_time, end_time, location, organizer, image_url, requires_registration, created_at"
         )
         .order("event_date", { ascending: true })
         .order("event_time", { ascending: true, nullsFirst: true }),
@@ -134,7 +137,7 @@ const fetchEvents = unstable_cache(
       };
     });
   },
-  ["events-list-v3"],
+  ["events-list-v4"],
   { revalidate: 60, tags: [EVENTS_TAG] }
 );
 
@@ -166,6 +169,7 @@ export async function getMyEvents(): Promise<MyEventsResult> {
     id: e.id,
     title: e.title,
     event_date: e.event_date,
+    end_date: e.end_date,
     event_time: e.event_time,
     end_time: e.end_time,
     location: e.location,
@@ -264,6 +268,8 @@ export type EventFormInput = {
   title: string;
   description: string;
   event_date: string;
+  /** Letzter Tag bei mehrtägigen Events, "" = eintägig. */
+  end_date: string;
   event_time: string;
   end_time: string;
   location: string;
@@ -294,16 +300,24 @@ export type CreateEventResult = {
 function parseEventFields(input: EventFormInput) {
   const title = input.title?.trim() ?? "";
   const eventDate = input.event_date?.trim() ?? "";
+  const endDate = input.end_date?.trim() ?? "";
   const eventTime = input.event_time?.trim().slice(0, 5) ?? "";
   const endTime = input.end_time?.trim().slice(0, 5) ?? "";
 
   if (!title) return { error: "Titel ist Pflicht." };
   if (title.length > 200) return { error: "Titel ist zu lang (max. 200 Zeichen)." };
   if (!DATE_RE.test(eventDate) || Number.isNaN(Date.parse(eventDate))) return { error: "Bitte ein gültiges Datum wählen." };
+  if (endDate && (!DATE_RE.test(endDate) || Number.isNaN(Date.parse(endDate))))
+    return { error: "Bitte ein gültiges Enddatum wählen." };
+  if (endDate && endDate < eventDate) return { error: "Das Enddatum darf nicht vor dem Startdatum liegen." };
+  if (endDate && Date.parse(endDate) - Date.parse(eventDate) > MAX_EVENT_DAYS_MS)
+    return { error: `Ein Event darf höchstens ${MAX_EVENT_DAYS} Tage nach dem Start enden.` };
+  // Gleicher Tag = eintägig; die DB erlaubt end_date nur nach event_date.
+  const multiDay = !!endDate && endDate > eventDate;
   if (eventTime && !TIME_RE.test(eventTime)) return { error: "Ungültige Startzeit." };
   if (endTime && !TIME_RE.test(endTime)) return { error: "Ungültige Endzeit." };
   if (endTime && !eventTime) return { error: "Für eine Endzeit bitte auch eine Startzeit angeben." };
-  if (endTime && endTime === eventTime) return { error: "Endzeit muss nach der Startzeit liegen." };
+  if (!multiDay && endTime && endTime === eventTime) return { error: "Endzeit muss nach der Startzeit liegen." };
   if ((input.description ?? "").length > 5000) return { error: "Beschreibung ist zu lang (max. 5000 Zeichen)." };
 
   return {
@@ -312,6 +326,7 @@ function parseEventFields(input: EventFormInput) {
       title,
       description: input.description?.trim() || null,
       event_date: eventDate,
+      end_date: multiDay ? endDate : null,
       event_time: eventTime || null,
       end_time: endTime || null,
       location: input.location?.trim() || null,
@@ -528,7 +543,7 @@ async function enqueueAnnouncement(
   const admin = createServiceClient();
   const { data: row, error: evError } = await admin
     .from("events")
-    .select("id, title, description, event_date, event_time, end_time, location, organizer, image_url, requires_registration")
+    .select("id, title, description, event_date, end_date, event_time, end_time, location, organizer, image_url, requires_registration")
     .eq("id", eventId)
     .maybeSingle();
   if (evError || !row) return { count: 0, error: "Event nicht gefunden." };

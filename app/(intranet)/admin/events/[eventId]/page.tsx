@@ -15,7 +15,7 @@ import { ShareLinkButton } from "@/components/admin/ShareLinkButton";
 import { DeleteEventButton } from "@/components/admin/DeleteEventButton";
 import { SendAnnouncementDialog } from "@/components/admin/SendAnnouncementDialog";
 import { ROLE_LABELS, formatMoment } from "@/components/admin/format";
-import { eventPath, formatEventDate, formatTimeRange, isEventPast } from "@/lib/events";
+import { eventPath, formatEventDateRange, formatEventTimes, isEventPast } from "@/lib/events";
 
 type Props = {
   params: Promise<{ eventId: string }>;
@@ -33,7 +33,7 @@ export default async function AdminEventDetailPage({ params }: Props) {
   if (!data) notFound();
 
   const { event, participants, announcements } = data;
-  const time = formatTimeRange(event.event_time, event.end_time);
+  const time = formatEventTimes(event);
   const past = isEventPast(event);
 
   return (
@@ -45,7 +45,7 @@ export default async function AdminEventDetailPage({ params }: Props) {
           </IconLink>
           <div className="min-w-0 space-y-2">
             <p className="eyebrow">
-              {formatEventDate(event.event_date)}
+              {formatEventDateRange(event)}
               {past && " · vorbei"}
             </p>
             <h1 className="text-[1.75rem] leading-[1.05] font-bold tracking-[-0.035em] break-words sm:text-4xl">

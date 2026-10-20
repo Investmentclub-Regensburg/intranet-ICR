@@ -120,7 +120,7 @@ function EventTile({ event }: { event: DashboardEvent }) {
                 </span>
                 Angemeldet
               </motion.span>
-            ) : event.requiresRegistration ? (
+            ) : event.requiresRegistration && event.registrationOpen ? (
               <motion.div
                 key="register"
                 exit={{ opacity: 0, scale: 0.9 }}
@@ -135,7 +135,7 @@ function EventTile({ event }: { event: DashboardEvent }) {
               </motion.div>
             ) : (
               <span key="open" className="text-xs text-muted-foreground">
-                Ohne Anmeldung
+                {event.requiresRegistration ? "Anmeldung geschlossen" : "Ohne Anmeldung"}
               </span>
             )}
           </AnimatePresence>
