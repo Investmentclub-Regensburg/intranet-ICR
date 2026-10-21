@@ -17,7 +17,7 @@ export function BvhCsvDownloadButton({ unhandledCount }: Props) {
   async function handleClick() {
     setPending(true);
     try {
-      const { csv, error } = await buildBvhUnhandledRequestsCsv();
+      const { csv, error, warning } = await buildBvhUnhandledRequestsCsv();
       if (error || csv == null) {
         toast.error(error || "Export fehlgeschlagen.");
         return;
@@ -38,6 +38,7 @@ export function BvhCsvDownloadButton({ unhandledCount }: Props) {
           ? "Vorlage heruntergeladen (keine offenen Anfragen)."
           : "CSV wurde heruntergeladen."
       );
+      if (warning) toast.warning(warning);
     } catch {
       toast.error("Download fehlgeschlagen.");
     } finally {
