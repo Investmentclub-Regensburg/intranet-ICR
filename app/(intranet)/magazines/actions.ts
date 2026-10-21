@@ -13,6 +13,7 @@ import {
   joinCsvRow,
   vorstandFromRolle,
 } from "@/lib/bvh-mitglieder-csv";
+import { formatBvhPhone } from "@/lib/bvh-phone";
 
 export type RequestBvhResult = {
   ok: boolean;
@@ -183,6 +184,8 @@ export async function markBvhRequestHandled(id: string): Promise<{ error?: strin
 export async function buildBvhUnhandledRequestsCsv(): Promise<{
   csv: string | null;
   error: string;
+  /** Hinweis nach dem Download, z. B. wenn Telefonnummern für den BVH zu lang waren. */
+  warning?: string;
 }> {
   const auth = await requireRole(EXPORT_ROLES, "Nur der Vorstand darf diesen Export erstellen.");
   if (!auth.ok) return { csv: null, error: auth.error };
@@ -219,7 +222,7 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     const { data: profData, error: profErr } = await admin
       .from("profiles")
       .select(
-        'id, user_id, Vorname, Nachname, "E-Mail", Handynummer, Geburtsdatum, Anrede, "Straße", Hausnummer, PLZ, Ort, Rolle'
+        'id, user_id, Vorname, Nachname, "E-Mail", Anrede, Rolle'
       )
       .in("user_id", userIds);
     if (profErr) {
@@ -229,12 +232,12 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     profiles = (profData ?? []) as Record<string, unknown>[];
   }
 
-  // Adresse, Telefon, Geburtsdatum aus member_secrets (verschlüsselt); ohne Zeile aus dem Klartext.
+  // Adresse, Telefon, Geburtsdatum aus member_secrets (verschlüsselt).
   let secrets: Awaited<ReturnType<typeof readMemberSecretsMany>>;
   try {
     secrets = await readMemberSecretsMany(
       admin,
-      profiles.map((p) => ({ ...p, id: String(p.id ?? "") }))
+      profiles.map((p) => ({ id: String(p.id ?? "") }))
     );
   } catch (err) {
     console.error("buildBvhUnhandledRequestsCsv (member_secrets):", err instanceof Error ? err.message : "unbekannt");
@@ -256,6 +259,7 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
 
   const lines: string[] = [BVH_MITGLIEDER_CSV_HEADER];
   const seen = new Set<string>();
+  let phonesDropped = 0;
 
   for (const r of reqs as { user_id?: string }[]) {
     const uid = r.user_id ?? "";
@@ -268,7 +272,9 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     const firstName = String(prof.Vorname ?? prof.vorname ?? "").trim();
     const lastName = String(prof.Nachname ?? prof.nachname ?? "").trim();
     const sv = secrets.get(String(prof.id ?? "")) as MemberSecretValues | undefined;
-    const phone = (sv?.handynummer ?? "").trim();
+    const phoneRaw = (sv?.handynummer ?? "").trim();
+    const phone = formatBvhPhone(phoneRaw);
+    if (phoneRaw && !phone) phonesDropped++;
     const birthday = formatBirthdayIso(sv?.geburtsdatum);
     const gender = genderFromAnrede(
       String(prof?.Anrede ?? prof?.anrede ?? "").trim() || undefined
@@ -303,5 +309,12 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     );
   }
 
-  return { csv: lines.join("\n") + "\n", error: "" };
+  const warning =
+    phonesDropped === 0
+      ? undefined
+      : phonesDropped === 1
+        ? "Bei 1 Mitglied passt die Telefonnummer nicht ins BVH-Format und fehlt in der Datei."
+        : `Bei ${phonesDropped} Mitgliedern passen die Telefonnummern nicht ins BVH-Format und fehlen in der Datei.`;
+
+  return { csv: lines.join("\n") + "\n", error: "", warning };
 }
