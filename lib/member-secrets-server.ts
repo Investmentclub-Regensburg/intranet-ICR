@@ -33,7 +33,10 @@ type SecretsRow = {
 
 const ROW_COLUMNS = `profile_id, wrapped_dek, version, iban_hash, iban_last4, ${SECRET_FIELDS.join(", ")}`;
 
-/** Spalten in profiles (Klartext, Übergangsphase) je verschlüsseltem Feld. */
+/**
+ * Klartextspalten in profiles je verschlüsseltem Feld. Seit dem Abschluss (21.10.2026) leer und gesperrt;
+ * nur noch das Skript scripts/verschluesselung.mjs (Prüflauf, Notfall-Weg) liest sie.
+ */
 export const PLAIN_COLUMNS: Record<SecretField, string> = {
   iban: "IBAN",
   bic: "BIC",
@@ -93,9 +96,9 @@ function decryptRow(row: SecretsRow): MemberSecretValues {
 }
 
 /**
- * Entschlüsselte Werte eines Mitglieds. Gibt es eine member_secrets-Zeile, gilt NUR sie (kein Rückgriff
- * auf Klartext). Ohne Zeile: null – der Aufrufer nimmt dann die Klartextspalten (Übergangsphase).
- * Wirft, wenn die Zeile nicht entschlüsselt werden kann (falscher Key, Manipulation).
+ * Entschlüsselte Werte eines Mitglieds. Ohne member_secrets-Zeile: null – das Mitglied hat keine sensiblen
+ * Angaben (der Aufrufer nimmt emptySecretValues()). Wirft, wenn die Zeile nicht entschlüsselt werden kann
+ * (falscher Key, Manipulation).
  */
 export async function readMemberSecrets(
   admin: SupabaseClient,
@@ -136,14 +139,13 @@ export type MemberSecretsResult = MemberSecretValues | "unreadable";
 const BULK_CHUNK = 100;
 
 /**
- * Entschlüsselte Werte mehrerer Mitglieder (Admin-Tabelle, Exporte). `profiles` muss die Klartextspalten
- * (PLAIN_COLUMNS) enthalten, soweit der Aufrufer sie braucht: Für Mitglieder ohne member_secrets-Zeile
- * gelten sie (Übergangsphase), für Mitglieder mit Zeile NUR die Zeile. Eine nicht entschlüsselbare Zeile
- * ergibt "unreadable" – nie ein Rückgriff auf den Klartext. Wirft, wenn member_secrets nicht lesbar ist.
+ * Entschlüsselte Werte mehrerer Mitglieder (Admin-Tabelle, Exporte). Ohne member_secrets-Zeile sind alle
+ * Felder leer. Eine nicht entschlüsselbare Zeile ergibt "unreadable". Wirft, wenn member_secrets nicht
+ * lesbar ist.
  */
 export async function readMemberSecretsMany(
   admin: SupabaseClient,
-  profiles: ReadonlyArray<Record<string, unknown> & { id: string }>,
+  profiles: ReadonlyArray<{ id: string }>,
 ): Promise<Map<string, MemberSecretsResult>> {
   const ids = [...new Set(profiles.map((p) => p.id).filter(Boolean))];
   const rows = new Map<string, SecretsRow>();
@@ -162,7 +164,7 @@ export async function readMemberSecretsMany(
   for (const profile of profiles) {
     const row = rows.get(profile.id);
     if (!row) {
-      result.set(profile.id, plainToSecretValues(profile));
+      result.set(profile.id, emptySecretValues());
       continue;
     }
     try {
@@ -174,7 +176,14 @@ export async function readMemberSecretsMany(
   return result;
 }
 
-/** Klartextspalten aus profiles in das Format der verschlüsselten Felder bringen (Übergangsphase). */
+/** Alle Felder leer: Mitglied ohne member_secrets-Zeile. */
+export function emptySecretValues(): MemberSecretValues {
+  const values = {} as MemberSecretValues;
+  for (const field of SECRET_FIELDS) values[field] = null;
+  return values;
+}
+
+/** Klartextspalten aus profiles in das Format der verschlüsselten Felder bringen (nur Skript, PLAIN_COLUMNS). */
 export function plainToSecretValues(profile: Record<string, unknown> | null | undefined): MemberSecretValues {
   const values = {} as MemberSecretValues;
   for (const field of SECRET_FIELDS) {
@@ -193,10 +202,9 @@ export class MemberSecretsConflictError extends Error {
 }
 
 /**
- * Felder eines Mitglieds ändern: verschlüsselt speichern und (Übergangsphase) Klartext mitschreiben.
- * `changes` enthält nur die geänderten Felder; alle übrigen bleiben erhalten. Legt die Zeile bei Bedarf an
- * und übernimmt dabei die vorhandenen Klartextwerte, damit kein Feld verloren geht.
- * Erkennt IBAN-Änderungen (ibanChanged) und meldet sie über die Datenbank.
+ * Felder eines Mitglieds verschlüsselt speichern. `changes` enthält nur die geänderten Felder; alle übrigen
+ * bleiben erhalten. Legt die Zeile bei Bedarf an (dann sind die übrigen Felder leer).
+ * Erkennt IBAN-Änderungen (ibanChanged) und meldet sie über die Datenbank; die erste Hinterlegung zählt nicht.
  * `correctedBy`: Profil-ID des Vorstandsmitglieds bei einer Korrektur im Admin-Bereich (wird protokolliert).
  */
 export async function saveMemberSecrets(
@@ -211,22 +219,7 @@ export async function saveMemberSecrets(
   for (let attempt = 0; attempt < 2; attempt++) {
     const row = await loadRow(admin, profileId);
 
-    let current: MemberSecretValues;
-    let previousIban: string | null;
-    if (row) {
-      current = decryptRow(row);
-      previousIban = current.iban;
-    } else {
-      const { data: profile, error } = await admin
-        .from("profiles")
-        .select(Object.values(PLAIN_COLUMNS).map((c) => `"${c}"`).join(", "))
-        .eq("id", profileId)
-        .maybeSingle();
-      if (error || !profile) throw new MemberCryptoError("Profil nicht lesbar");
-      current = plainToSecretValues(profile as unknown as Record<string, unknown>);
-      previousIban = current.iban;
-    }
-
+    const current = row ? decryptRow(row) : emptySecretValues();
     const next: MemberSecretValues = { ...current };
     for (const field of SECRET_FIELDS) {
       if (field in changes) {
@@ -237,13 +230,7 @@ export async function saveMemberSecrets(
     if (next.iban) next.iban = normalizeIban(next.iban);
 
     const newIndex = next.iban ? ibanIndex(keyring, next.iban) : null;
-    let changed: boolean;
-    if (row) {
-      changed = next.iban ? ibanChanged(keyring, row.iban_hash, next.iban) : false;
-    } else {
-      // Noch keine Zeile: mit dem bisherigen Klartext vergleichen (erste Hinterlegung zählt nicht).
-      changed = Boolean(previousIban && next.iban && normalizeIban(previousIban) !== next.iban);
-    }
+    const changed = row && next.iban ? ibanChanged(keyring, row.iban_hash, next.iban) : false;
 
     const created = row ? null : createDataKey(keyring, profileId);
     const wrapped = row ? row.wrapped_dek : created!.wrapped;
@@ -263,10 +250,10 @@ export async function saveMemberSecrets(
       secrets = withDataKey(keyring, profileId, wrapped, encrypt);
     }
 
-    // Klartext nur für die geänderten Felder mitschreiben.
-    const plain: Record<string, string> = {};
+    // Nur die Namen der geänderten Felder (für das Korrekturprotokoll), keine Werte.
+    const changedFields: Record<string, null> = {};
     for (const field of SECRET_FIELDS) {
-      if (field in changes) plain[field] = next[field] ?? "";
+      if (field in changes) changedFields[field] = null;
     }
 
     const { error } = await admin.rpc("save_member_secrets", {
@@ -277,10 +264,8 @@ export async function saveMemberSecrets(
       p_iban_hash: newIndex,
       p_iban_last4: next.iban ? next.iban.slice(-4) : null,
       p_iban_changed: changed,
-      p_plain: plain,
-      // Nur bei Korrekturen mitsenden: So funktioniert das Profil auch, wenn die App vor der Migration
-      // 20261013100000 live geht (die alte Funktion kennt den Parameter nicht).
-      ...(options.correctedBy ? { p_corrected_by: options.correctedBy } : {}),
+      p_plain: changedFields,
+      p_corrected_by: options.correctedBy ?? null,
     });
     if (!error) return;
     if (!String(error.message ?? "").includes("member_secrets_conflict")) {
@@ -293,8 +278,8 @@ export async function saveMemberSecrets(
 
 /**
  * Registrierung: Chiffrate für pending_registrations (Mitglieds-ID = neue user_id = künftige profile_id).
- * null, wenn der Master Key nicht verfügbar oder nicht registriert ist – die Registrierung läuft dann nur
- * mit Klartext weiter (Übergangsphase; Phase 3 verschlüsselt nach).
+ * null, wenn der Master Key nicht verfügbar oder nicht registriert ist – die Registrierung wird dann
+ * abgewiesen (die Datenbank nimmt sensible Angaben nur verschlüsselt an).
  */
 export async function buildRegistrationSecrets(
   admin: SupabaseClient,

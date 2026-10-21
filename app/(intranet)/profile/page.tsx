@@ -16,7 +16,7 @@ import {
 } from "@/components/profile/profile-format";
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
-import { plainToSecretValues, readMemberSecrets } from "@/lib/member-secrets-server";
+import { emptySecretValues, readMemberSecrets } from "@/lib/member-secrets-server";
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
   const emailNotice = (await searchParams).email;
@@ -31,7 +31,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     supabase
       .from("profiles")
       .select(
-        'id, "Vorname", "Nachname", "Rolle", "Status", "Datum_Antrag", "Datum_Mandat", "Straße", "Hausnummer", "PLZ", "Ort", "Handynummer", "IBAN", "BIC"',
+        'id, "Vorname", "Nachname", "Rolle", "Status", "Datum_Antrag", "Datum_Mandat"',
       )
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -45,11 +45,11 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       .maybeSingle(),
   ]);
 
-  // Verschlüsselte Daten haben Vorrang; ohne member_secrets-Zeile gilt (Übergangsphase) der Klartext.
+  // Sensible Angaben nur aus member_secrets; ohne Zeile sind sie leer.
   // Nur die eigene Zeile (Profil-ID aus der eigenen, per RLS gelesenen Profilzeile).
   const profileId = String((profile as { id?: unknown } | null)?.id ?? "");
-  // Kann eine vorhandene Zeile nicht gelesen werden, KEIN Rückgriff auf den Klartext (der würde beim
-  // Speichern die verschlüsselte Fassung überschreiben) – stattdessen Hinweis statt Formular.
+  // Kann eine vorhandene Zeile nicht gelesen werden: Hinweis statt Formular (leere Felder würden beim
+  // Speichern die verschlüsselte Fassung überschreiben).
   let secrets: Awaited<ReturnType<typeof readMemberSecrets>> = null;
   let secretsUnavailable = false;
   if (profileId) {
@@ -60,9 +60,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       secretsUnavailable = true;
     }
   }
-  const sensitive = secretsUnavailable
-    ? plainToSecretValues(null)
-    : (secrets ?? plainToSecretValues(profile as Record<string, unknown> | null));
+  const sensitive = secrets ?? emptySecretValues();
 
   const p = {
     vorname: ((profile?.["Vorname"] as string) ?? "").trim(),

@@ -222,7 +222,7 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     const { data: profData, error: profErr } = await admin
       .from("profiles")
       .select(
-        'id, user_id, Vorname, Nachname, "E-Mail", Handynummer, Geburtsdatum, Anrede, "Straße", Hausnummer, PLZ, Ort, Rolle'
+        'id, user_id, Vorname, Nachname, "E-Mail", Anrede, Rolle'
       )
       .in("user_id", userIds);
     if (profErr) {
@@ -232,12 +232,12 @@ export async function buildBvhUnhandledRequestsCsv(): Promise<{
     profiles = (profData ?? []) as Record<string, unknown>[];
   }
 
-  // Adresse, Telefon, Geburtsdatum aus member_secrets (verschlüsselt); ohne Zeile aus dem Klartext.
+  // Adresse, Telefon, Geburtsdatum aus member_secrets (verschlüsselt).
   let secrets: Awaited<ReturnType<typeof readMemberSecretsMany>>;
   try {
     secrets = await readMemberSecretsMany(
       admin,
-      profiles.map((p) => ({ ...p, id: String(p.id ?? "") }))
+      profiles.map((p) => ({ id: String(p.id ?? "") }))
     );
   } catch (err) {
     console.error("buildBvhUnhandledRequestsCsv (member_secrets):", err instanceof Error ? err.message : "unbekannt");

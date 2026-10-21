@@ -183,7 +183,7 @@ export async function getFinanceExportData(
   const [profilesRes, overridesRes, lastXmlRes] = await Promise.all([
     supabase
       .from("profiles")
-      .select('"id", "Vorname", "Nachname", "IBAN", "BIC", "Status", "Rolle", "Datum_Kündigung", "Datum_Antrag", "E-Mail", iban_changed_at')
+      .select('"id", "Vorname", "Nachname", "Status", "Rolle", "Datum_Kündigung", "Datum_Antrag", "E-Mail", iban_changed_at')
       .range(0, 9999),
     supabase
       .from("finance_export_overrides")
@@ -198,20 +198,14 @@ export async function getFinanceExportData(
       .limit(1)
       .maybeSingle(),
   ]);
-  // Ohne Spalte iban_changed_at (Migration 20261009140000 fehlt) ohne Mandatsänderungen laden.
-  const { data: profiles, error } = profilesRes.error
-    ? await supabase
-        .from("profiles")
-        .select('"id", "Vorname", "Nachname", "IBAN", "BIC", "Status", "Rolle", "Datum_Kündigung", "Datum_Antrag", "E-Mail"')
-        .range(0, 9999)
-    : profilesRes;
+  const { data: profiles, error } = profilesRes;
   const lastXmlExportAt = lastXmlRes.data?.created_at ? String(lastXmlRes.data.created_at) : null;
 
   if (error || !profiles) {
     throw new Error("Fehler beim Laden der Profile aus der Datenbank.");
   }
 
-  // Bankdaten aus member_secrets (verschlüsselt); ohne Zeile aus dem Klartext (Übergangsphase).
+  // Bankdaten aus member_secrets (verschlüsselt).
   // Nicht entschlüsselbare Zeilen brechen ab – sonst fehlten Mitglieder still im Einzug.
   const abort = (message: string): FinanceExportResult => ({
     validMembers: [],
