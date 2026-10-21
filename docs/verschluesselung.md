@@ -1,6 +1,6 @@
 # Verschlüsselung der Mitgliedsdaten
 
-Stand: 13.10.2026. Phase 0 bis 3 sind gebaut und im Test-Projekt geprüft. In der Produktion seit 13.10.2026 ausgerollt bis Schritt 5; die Schritte 6 bis 9 (Klartext leeren) laufen per Skript (Rollout siehe unten).
+Stand: 21.10.2026. In der Produktion abgeschlossen: seit 21.10.2026 ist der Klartext geleert und der Endzustand gesetzt. Die Übergangslogik ist mit Migration `20261021120000_member_plaintext_cleanup.sql` entfernt (siehe „Aufräumen nach dem Abschluss“ am Ende). Die Abschnitte zu Phase 2 und 3 beschreiben den Weg dorthin.
 
 ## Ziel und Schutzumfang
 
@@ -138,10 +138,10 @@ E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
   - **Nie** `app.member_secrets_write` von Hand setzen. Dann wäre die verschlüsselte Fassung veraltet, und
     die Korrektur ginge beim nächsten Speichern verloren.
 - **Altbestand:** Mitglieder ohne `member_secrets`-Zeile bleiben wie bisher. Eine IBAN-Änderung im
-  Dashboard meldet der alte Trigger weiterhin.
+  Dashboard meldet der alte Trigger weiterhin. (Bis 21.10.2026; der Trigger ist seit dem Aufräumen gelöscht.)
 - **Registrierung ohne Key:** Ist kein Master Key konfiguriert oder registriert, läuft die Registrierung
   nur mit Klartext weiter. Phase 3 verschlüsselt dann nach. Profiländerungen werden dagegen abgelehnt
-  (fail closed).
+  (fail closed). (Bis 21.10.2026; seitdem wird die Registrierung ohne Key abgewiesen.)
 
 ### Rollout in die Produktion (Reihenfolge)
 
@@ -193,7 +193,7 @@ gewollt (fail closed).
 
 - **Lesen:** Finanzexport, BVH-Export und Mitgliedertabelle lesen über `readMemberSecretsMany`:
   - Mitglied mit `member_secrets`-Zeile: nur die Zeile, nie der Klartext.
-  - Mitglied ohne Zeile: Klartext (Übergangsphase bis zum Backfill).
+  - Mitglied ohne Zeile: Klartext (Übergangsphase bis zum Backfill; seit dem Aufräumen: alle Felder leer).
   - Nicht entschlüsselbare Zeile: Finanzexport und BVH-Export brechen mit Meldung ab (sonst fehlten
     Mitglieder still im Einzug), auch wenn das betroffene Mitglied gar nicht eingezogen würde. Bewusst
     streng: Eine solche Zeile bedeutet falscher Key oder Manipulation. Die Mitgliedertabelle zeigt
@@ -211,13 +211,13 @@ gewollt (fail closed).
     wann, welche Felder, nie Werte). Eine neue IBAN erzeugt das übliche IBAN-Event mit `by_board = true`;
     die Vorstandsmail nennt dann die Korrektur durch den Vorstand.
   - Das Geburtsdatum wird jetzt ebenfalls in den Klartext mitgeschrieben, damit beide Fassungen bis Phase 3
-    gleich bleiben.
+    gleich bleiben. (Bis 21.10.2026; seit dem Aufräumen gibt es keinen Dual Write mehr.)
 - **Finanzexport im Browser:** Die Vorschau zeigt nur gekürzte IBANs. Vollständige IBANs gehen nur beim
   Download an den Browser und jeder solche Abruf steht in `finance_exports`. CSV und XML weiter im Browser
   zu erzeugen ist eine bewusste Entscheidung: Die Datei landet ohnehin beim Vorstand, ein serverseitiger
   Aufbau brächte keinen zusätzlichen Schutz.
 - **Release:** Die Migration `20261013100000_member_secrets_board_correction.sql` ersetzt
-  `save_member_secrets` (`drop function`), daher braucht der PR das Label `destructive-ok`. Die App sendet
+  `save_member_secrets` (`drop function`; die CI wertet `drop function` nicht als destruktiv). Die App sendet
   `p_corrected_by` nur bei Korrekturen; Profiländerungen funktionieren also auch, falls die App kurz vor der
   Migration live geht. Korrekturen erst nach der Migration.
 
@@ -276,8 +276,7 @@ gewollt (fail closed).
        (sensible Schlüssel werden entfernt; ohne Chiffrate wird die Registrierung abgewiesen),
      - `profiles_block_sensitive_plain` weist jeden neuen sensiblen Klartextwert ab (App, Dashboard, SQL).
    - Mail „Neues Mitglied“ enthält keinen Ort mehr; gespeicherte Payloads werden bereinigt.
-   - Zurück (nur im Notfall, per SQL-Editor): `update public.member_crypto_state set plain_cleared_at = null;`
-     hebt den Endzustand auf; die geleerten Werte kommen nur aus dem Backup zurück.
+   - Zurück (nur im Notfall): siehe „Aufräumen nach dem Abschluss“ → Notfall-Weg.
    - Im Test-Projekt geprüft: 68 Profile geleert, Chiffrate byte-gleich vor/nach dem Leeren, 0 Profile mit
      Klartext, Klartext-Update/-Insert abgewiesen, Registrierung ohne Chiffrate abgewiesen, mit Chiffraten ohne
      sensible Schlüssel abgelegt, Profil speichern, Korrektur und Finanzexport im Endzustand ohne Klartext.
@@ -286,10 +285,50 @@ gewollt (fail closed).
    - Offene `pending_registrations`: `registration_meta_is_redundant` vergleicht mit dem Klartext. Nach einer
      Korrektur (oder nach dem Leeren) bleiben solche Einträge liegen und müssen gezielt bereinigt werden.
    - Erledigt mit 3b: Mail „Neues Mitglied“ ohne Ort.
-   - Später aufräumen (eigener PR): Klartext-Rückgriffe in den Lesern, Dual-Write-Zweig in
-     `save_member_secrets`, `profiles_guard_sensitive_plain`/`profiles_track_iban_change`, ggf. die leeren
-     Klartextspalten selbst.
+   - Aufgeräumt am 21.10.2026 (siehe unten). Die leeren Klartextspalten bleiben vorerst.
 6. **Recht auf Löschung:**
    - Die ganze `member_secrets`-Zeile löschen, nicht nur den Datenschlüssel, und die zugehörigen
      Events bereinigen.
    - Die Aufbewahrungsfrist der Backups im Verzeichnis der Verarbeitungstätigkeiten dokumentieren.
+
+## Aufräumen nach dem Abschluss (21.10.2026)
+
+Phase C lief in der Produktion am 21.10.2026 (414 Profile verschlüsselt und geleert, Endzustand gesetzt).
+Danach entfernt (App und Migration `20261021120000_member_plaintext_cleanup.sql`, ein PR):
+
+- **Leser:** Profilseite, Mitgliedertabelle, Korrekturdialog, Finanzexport und BVH-CSV laden keine
+  Klartextspalten mehr. Ohne `member_secrets`-Zeile sind alle sensiblen Felder leer (`emptySecretValues`).
+- **Speichern:** `saveMemberSecrets` liest keinen Klartext mehr; ohne Zeile beginnt es mit leeren Feldern.
+  `save_member_secrets` schreibt keinen Klartext mehr. `p_plain` trägt nur noch die Namen der geänderten Felder
+  (Korrekturprotokoll), Werte werden ignoriert; die Signatur ist unverändert. `iban_changed_at` setzt die
+  Funktion nur noch bei einer IBAN-Änderung.
+- **Trigger:** `profiles_track_iban_change` und `profiles_guard_sensitive_plain` sind gelöscht.
+- **Registrierung:** Die App schickt sensible Angaben nur verschlüsselt; ohne registrierten Key wird die
+  Registrierung immer abgewiesen. `provision_profile_for_auth_user` und `handle_pending_registration` setzen
+  keine sensiblen Spalten mehr. `registration_meta_is_redundant` vergleicht nur noch nicht sensible Felder.
+  `finish_pending_registration` kennt keine Registrierungen nur mit Klartext mehr.
+- **Konto-Metadaten:** `strip_registration_meta` entfernt sensible Angaben immer, jetzt auch beim Anlegen des
+  Kontos (Trigger `before insert or update` auf `auth.users`). Vorher blieben sie im Endzustand liegen.
+
+Bleibt:
+- die leeren Klartextspalten in `profiles` mit `profiles_block_sensitive_plain` (weist neuen Klartext ab),
+- `member_crypto_state` / `member_plain_cleared()` (frische Datenbanken wie CI und `seed.sql` starten im
+  Übergangszustand),
+- das Skript `scripts/verschluesselung.mjs`; `pruefen` funktioniert wie bisher.
+
+**Notfall-Weg (Master Key verloren, Klartext aus dem Backup):** ohne Code-Revert möglich (abgeleitet aus dem
+Code, nicht durchgespielt).
+1. `update public.member_crypto_state set plain_cleared_at = null;` (Sperre aus; bis `abschliessen` lässt
+   die Datenbank wieder Klartext zu, auch über das Dashboard).
+2. Die nicht mehr lesbaren `member_secrets`-Zeilen löschen und den Klartext aus dem Dump vor dem Leeren
+   zurückspielen. Änderungen und Neuanmeldungen seit diesem Dump sind verloren (ihre Zeilen waren mit dem
+   verlorenen Key verschlüsselt); diese Mitglieder müssen ihre Angaben neu eintragen.
+3. Neuen Key erzeugen, hinterlegen, in Vercel setzen und den Prüfwert registrieren.
+4. `verschluesseln` (übergibt den Klartext ausdrücklich an `saveMemberSecrets`; Profile mit offener
+   Registrierung überspringt es), `pruefen`, frischer Dump, `leeren`, `abschliessen`.
+
+Bis Schritt 4 durch ist, zeigt das Intranet die sensiblen Felder leer (kein Klartext-Rückgriff mehr).
+
+**Datenbanken im Übergangszustand** (frische Datenbank, CI, `seed.sql`): Dort pflegt nach dem Aufräumen
+niemand mehr den Klartext. `pruefen` meldet für Mitglieder, die danach speichern, Abweichungen. Für die
+Produktion und das Test-Projekt (beide im Endzustand) ohne Bedeutung.

@@ -1,8 +1,7 @@
 "use server";
 import { createClient } from "@/utils/supabase/server";
 import { createServiceClient } from "@/utils/supabase/service";
-import { assertKeyRegistered, buildRegistrationSecrets } from "@/lib/member-secrets-server";
-import { plainClearedAt } from "@/lib/member-secrets-backfill";
+import { assertKeyRegistered, buildRegistrationSecrets, type MemberSecretValues } from "@/lib/member-secrets-server";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import {
   FIELD_LIMITS,
@@ -192,9 +191,8 @@ export async function registerAction(
   const captcha = await checkTurnstile(formData);
   if (!captcha.ok) return { error: captcha.error, saved };
 
-  // Nach dem Abschluss der Verschlüsselung nimmt die Datenbank Registrierungsdaten nur noch verschlüsselt an.
-  // Deshalb VOR dem Anlegen des Kontos prüfen, dass verschlüsselt werden kann – sonst entstünde ein Konto
-  // ohne Angaben.
+  // Die Datenbank nimmt sensible Registrierungsdaten nur verschlüsselt an. Deshalb VOR dem Anlegen des
+  // Kontos prüfen, dass verschlüsselt werden kann – sonst entstünde ein Konto ohne Angaben.
   if (!(await canStoreRegistrationData())) {
     return {
       error: "Die Registrierung ist gerade nicht möglich. Bitte versuche es später erneut oder melde dich beim Vorstand.",
@@ -205,25 +203,27 @@ export async function registerAction(
   const supabase = await createClient();
 
   // Keys exakt wie vom SQL-Trigger erwartet (provision_profile_for_auth_user). Geprüfte, getrimmte
-  // Werte übergeben (nicht die Roh-Formulardaten).
+  // Werte übergeben (nicht die Roh-Formulardaten). Sensible Angaben nur verschlüsselt (siehe unten).
   const registration = {
     Vorname: vorname,
     Nachname: nachname,
-    Geburtsdatum: geburtstagRaw,
-    "Straße": strasse,
-    Hausnr: hausnummer,
-    Ort: ort,
-    PLZ: plz,
-    Handynummer: handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
     Fach: studiengang || null,
     Abschluss: abschluss || null,
     Semester: student === "Ja" ? String(semesterNumber) : "",
     "Uni/OTH": hochschultyp || null,
-    IBAN: ibanClean,
-    BIC: bicClean,
     "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
     // Der letzte Schritt lautet „Mit der Registrierung akzeptierst du die Vereinssatzung“.
     "Vereinsatzung-Bestätigung": true,
+  };
+  const sensitive: MemberSecretValues = {
+    iban: ibanClean,
+    bic: bicClean,
+    geburtsdatum: geburtstagRaw!,
+    strasse: strasse!,
+    hausnummer: hausnummer!,
+    plz: plz!,
+    ort: ort!,
+    handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
   };
 
   // Am Konto (und damit im Session-Cookie) stehen nur die Namen. Alles andere geht unten in
@@ -254,7 +254,7 @@ export async function registerAction(
 
   // Leere identities = Adresse ist schon registriert (Supabase verrät das nicht); dann nichts ablegen.
   if (authData.user.identities?.length) {
-    const stored = await storePendingRegistration(authData.user.id, registration);
+    const stored = await storePendingRegistration(authData.user.id, registration, sensitive);
     if (!stored) {
       return {
         error:
@@ -291,16 +291,11 @@ export async function registerAction(
   return { error: "", redirect: "/dashboard" };
 }
 
-/** Verschlüsselung möglich – oder (Übergangsphase, Klartext noch erlaubt) nicht nötig. */
+/** Verschlüsselung möglich (Master Key vorhanden und registriert)? */
 async function canStoreRegistrationData(): Promise<boolean> {
   try {
-    const admin = createServiceClient();
-    try {
-      await assertKeyRegistered(admin);
-      return true;
-    } catch {
-      return !(await plainClearedAt(admin));
-    }
+    await assertKeyRegistered(createServiceClient());
+    return true;
   } catch (err) {
     console.error("registerAction: Verschlüsselung prüfen", err instanceof Error ? err.message : "unbekannt");
     return false;
@@ -309,24 +304,19 @@ async function canStoreRegistrationData(): Promise<boolean> {
 
 /**
  * Registrierungsdaten bis zur E-Mail-Bestätigung in pending_registrations ablegen (nur Service Role;
- * die user_id stammt aus dem gerade erfolgten signUp, nicht aus dem Formular). Die sensiblen Felder
- * zusätzlich verschlüsselt (secrets); die Datenbank übernimmt sie bei der Bestätigung nach member_secrets.
- * Kein Rückfall mehr auf Zusatzdaten am Konto (die stünden im Klartext im Session-Cookie).
+ * die user_id stammt aus dem gerade erfolgten signUp, nicht aus dem Formular). Die sensiblen Felder nur
+ * verschlüsselt (secrets); die Datenbank übernimmt sie bei der Bestätigung nach member_secrets.
+ * Kein Rückfall auf Zusatzdaten am Konto (die stünden im Klartext im Session-Cookie).
  */
-async function storePendingRegistration(userId: string, data: Record<string, unknown>): Promise<boolean> {
+async function storePendingRegistration(
+  userId: string,
+  data: Record<string, unknown>,
+  sensitive: MemberSecretValues,
+): Promise<boolean> {
   try {
     const admin = createServiceClient();
-    const text = (key: string) => (typeof data[key] === "string" ? (data[key] as string) : null);
-    const secrets = await buildRegistrationSecrets(admin, userId, {
-      iban: text("IBAN"),
-      bic: text("BIC"),
-      geburtsdatum: text("Geburtsdatum"),
-      strasse: text("Straße"),
-      hausnummer: text("Hausnr"),
-      plz: text("PLZ"),
-      ort: text("Ort"),
-      handynummer: text("Handynummer"),
-    });
+    const secrets = await buildRegistrationSecrets(admin, userId, sensitive);
+    if (!secrets) return false;
     const { error } = await admin.from("pending_registrations").upsert({ user_id: userId, data, secrets });
     if (error) {
       console.error("registerAction: pending_registrations", error.code);

@@ -7,11 +7,10 @@ import { isUuid } from "@/lib/validation";
 import { berlinToday } from "@/lib/berlin-date";
 import {
   MemberSecretsConflictError,
+  emptySecretValues,
   readMemberSecrets,
   readMemberSecretsMany,
   saveMemberSecrets,
-  plainToSecretValues,
-  PLAIN_COLUMNS,
   type MemberSecretValues,
   type MemberSecretsResult,
 } from "@/lib/member-secrets-server";
@@ -49,19 +48,19 @@ export async function getAdminMembers(): Promise<AdminMemberRow[]> {
   const { data, error } = await admin
     .from("profiles")
     .select(
-      'id, Vorname, Nachname, "Studiengang / Fach", "E-Mail", Handynummer, Rolle, Status'
+      'id, Vorname, Nachname, "Studiengang / Fach", "E-Mail", Rolle, Status'
     )
     .order("Nachname", { ascending: true })
     .order("Vorname", { ascending: true });
 
   if (error) return [];
 
-  // Handynummer aus member_secrets (verschlüsselt); ohne Zeile aus dem Klartext (Übergangsphase).
+  // Handynummer aus member_secrets (verschlüsselt).
   let secrets: Map<string, MemberSecretsResult> | null = null;
   try {
     secrets = await readMemberSecretsMany(
       admin,
-      (data ?? []).map((p) => ({ ...(p as Record<string, unknown>), id: String((p as { id?: unknown }).id ?? "") }))
+      (data ?? []).map((p) => ({ id: String((p as { id?: unknown }).id ?? "") }))
     );
   } catch (err) {
     console.error("getAdminMembers: member_secrets", err instanceof Error ? err.message : "unbekannt");
@@ -165,7 +164,7 @@ async function loadCorrectionValues(
 ): Promise<{ name: string; values: MemberSecretValues } | { error: string }> {
   const { data: profile, error } = await admin
     .from("profiles")
-    .select(['"Vorname"', '"Nachname"', ...Object.values(PLAIN_COLUMNS).map((c) => `"${c}"`)].join(", "))
+    .select('"Vorname", "Nachname"')
     .eq("id", profileId)
     .maybeSingle();
   if (error) {
@@ -176,8 +175,7 @@ async function loadCorrectionValues(
   const p = profile as unknown as Record<string, unknown>;
   const name = [p.Vorname, p.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
   try {
-    // Mit member_secrets-Zeile gilt nur sie; ohne Zeile der Klartext (Übergangsphase).
-    const values = (await readMemberSecrets(admin, profileId)) ?? plainToSecretValues(p);
+    const values = (await readMemberSecrets(admin, profileId)) ?? emptySecretValues();
     return { name, values };
   } catch (err) {
     console.error("loadCorrectionValues:", err instanceof Error ? err.message : "unbekannt");

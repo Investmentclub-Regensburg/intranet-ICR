@@ -315,7 +315,8 @@ export async function backfillMemberSecrets(
     }
     let written = false;
     try {
-      await saveMemberSecrets(admin, profile.id, {});
+      // Alle Klartextwerte als Änderung übergeben: saveMemberSecrets liest selbst keinen Klartext mehr.
+      await saveMemberSecrets(admin, profile.id, plainToSecretValues(profile));
       written = true;
       const secret = await readMemberSecrets(admin, profile.id);
       const { data: fresh, error } = await admin.from("profiles").select(PROFILE_COLUMNS).eq("id", profile.id).maybeSingle();
