@@ -82,9 +82,9 @@ export function EventTile({ event, isRegistered }: { event: TileEvent; isRegiste
               </li>
             )}
             {event.location && (
-              <li className="flex min-w-0 items-center gap-2">
-                <MapPin className="size-3.5 shrink-0" aria-hidden />
-                <span className="truncate">{event.location}</span>
+              <li className="flex min-w-0 items-start gap-2">
+                <MapPin className="mt-[0.1875rem] size-3.5 shrink-0" aria-hidden />
+                <span className="line-clamp-2">{event.location}</span>
               </li>
             )}
           </ul>
@@ -131,12 +131,12 @@ export function PastEventTile({ event }: { event: TileEvent }) {
     <article className={cn(GLOW_TILE, "flex h-full min-w-0 items-center gap-4 p-4")}>
       <DateBlock date={event.event_date} size="sm" className="opacity-80" />
       <div className="min-w-0 flex-1 space-y-1">
-        <h3 className="truncate text-sm font-semibold text-foreground">
+        <h3 className="line-clamp-2 text-sm leading-snug font-semibold text-foreground">
           <Link href={eventPath(event.id)} className={STRETCHED_LINK}>
             {event.title}
           </Link>
         </h3>
-        <p className="truncate text-xs text-muted-foreground">
+        <p className="line-clamp-2 text-xs text-muted-foreground">
           {[
             event.location,
             event.requires_registration ? registrationCountLabel(event.registration_count, true) : null,

@@ -108,21 +108,22 @@ export default async function AdminEventDetailPage({ params }: Props) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Studiengang</TableHead>
-                    <TableHead>Rolle</TableHead>
-                    <TableHead>Angemeldet am</TableHead>
+                    <TableHead className="px-4 sm:px-5">Name</TableHead>
+                    <TableHead className="hidden sm:table-cell">Rolle</TableHead>
+                    <TableHead className="px-4 sm:px-5">Angemeldet am</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {participants.map((p) => (
                     <TableRow key={p.user_id}>
-                      <TableCell className="font-medium whitespace-nowrap">
-                        {[p.vorname, p.nachname].filter(Boolean).join(" ") || "—"}
+                      <TableCell className="px-4 py-3 sm:px-5">
+                        <p className="font-medium">{[p.vorname, p.nachname].filter(Boolean).join(" ") || "—"}</p>
+                        <p className="text-muted-foreground">{p.studiengang || "—"}</p>
                       </TableCell>
-                      <TableCell className="text-muted-foreground">{p.studiengang || "—"}</TableCell>
-                      <TableCell>{ROLE_LABELS[p.rolle.toLowerCase()] ?? (p.rolle || "—")}</TableCell>
-                      <TableCell className="whitespace-nowrap text-muted-foreground tabular-nums">
+                      <TableCell className="hidden py-3 sm:table-cell">
+                        {ROLE_LABELS[p.rolle.toLowerCase()] ?? (p.rolle || "—")}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 whitespace-nowrap text-muted-foreground tabular-nums sm:px-5">
                         {p.registered_at ? formatMoment(p.registered_at) : "—"}
                       </TableCell>
                     </TableRow>

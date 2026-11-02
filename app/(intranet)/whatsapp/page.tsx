@@ -48,19 +48,20 @@ export default async function WhatsAppPage() {
         className="max-w-3xl rounded-2xl border border-border bg-card p-5 sm:p-8"
       >
         {inviteUrl && qrDataUrl ? (
-          <div className="grid items-center gap-8 md:grid-cols-[auto_minmax(0,1fr)]">
-            {/* QR links (Desktop); auf dem Handy unter dem Knopf, dort tippt man eher. */}
-            <div className="order-2 mx-auto rounded-2xl border border-border bg-white p-3 md:order-1">
+          <div className="grid items-center gap-8 lg:grid-cols-[auto_minmax(0,1fr)]">
+            {/* QR links (Desktop); auf dem Handy unter dem Knopf, dort tippt man eher.
+                Nebeneinander erst ab lg: zwischen md und lg nimmt die Sidebar die Breite. */}
+            <div className="order-2 mx-auto rounded-2xl border border-border bg-white p-3 lg:order-1">
               <Image
                 src={qrDataUrl}
                 alt="QR-Code zur WhatsApp-Gruppe des Investment Club Regensburg"
                 width={288}
                 height={288}
-                className="size-48 rounded-lg md:size-56"
+                className="size-48 rounded-lg lg:size-56"
                 unoptimized
               />
             </div>
-            <div className="order-1 min-w-0 space-y-5 md:order-2">
+            <div className="order-1 min-w-0 space-y-5 lg:order-2">
               <div className="flex items-start gap-4">
                 <span className="tile-icon size-11 rounded-xl">
                   <MessageCircle className="size-5" aria-hidden />
