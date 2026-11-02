@@ -196,7 +196,9 @@ export function TaskBoard({ data }: { data: BoardData }) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* Drei Spalten erst ab xl: zwischen md und xl nimmt die Sidebar so viel Breite,
+          dass die Karten auf unter 220 px schrumpfen würden. */}
+      <div className="grid gap-4 xl:grid-cols-3">
         {COLUMNS.map((col, ci) => {
           const items = visible.filter((t) => t.status === col.key).sort(sortTasks);
           return (
@@ -301,7 +303,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
               {data.archived.map((task) => (
                 <li key={task.id} className="flex items-center gap-3 px-5 py-2.5">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{task.title}</p>
+                    <p className="text-sm font-medium [overflow-wrap:anywhere]">{task.title}</p>
                     <p className="text-xs text-muted-foreground">
                       {task.assigneeIds.length > 0
                         ? task.assigneeIds.map((id) => members.get(id)?.name ?? "Ehemalig").join(", ")
@@ -427,7 +429,7 @@ function TaskCard({
       </button>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2.5 text-xs">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
           <AssigneeStack assignees={assignees} />
           {task.deadline && (
             <span className={cn("flex shrink-0 items-center gap-1 font-medium", deadlineTone)}>

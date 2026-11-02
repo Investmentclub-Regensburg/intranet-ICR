@@ -34,7 +34,7 @@ export function ProfileOverview({ data }: { data: ProfileOverviewData }) {
           <p className="text-xl leading-tight font-bold tracking-[-0.03em] sm:text-2xl">
             Hallo {data.vorname || "du"}
           </p>
-          <p className="mt-1 truncate text-sm text-muted-foreground">{data.email}</p>
+          <p className="mt-1 text-sm [overflow-wrap:anywhere] text-muted-foreground">{data.email}</p>
         </div>
       </div>
 
