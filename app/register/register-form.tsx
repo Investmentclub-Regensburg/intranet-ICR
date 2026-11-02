@@ -711,6 +711,15 @@ export function RegisterForm() {
             >
               Vereinssatzung
             </Link>
+            . Wie wir deine Daten verarbeiten, steht in der{" "}
+            <Link
+              href="/datenschutz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-primary hover:underline"
+            >
+              Datenschutzerklärung
+            </Link>
             .
           </p>
           {state.error && (
