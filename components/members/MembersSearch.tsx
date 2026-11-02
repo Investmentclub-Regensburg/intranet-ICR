@@ -37,8 +37,8 @@ function MemberTile({ member }: { member: MemberRow }) {
         {initials(member.name) || "?"}
       </span>
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-foreground">{member.name}</p>
-        <p className="truncate text-xs text-muted-foreground">{member.studiengang || "Ohne Angabe"}</p>
+        <p className="text-sm leading-snug font-semibold [overflow-wrap:anywhere] text-foreground">{member.name}</p>
+        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{member.studiengang || "Ohne Angabe"}</p>
       </div>
     </li>
   );

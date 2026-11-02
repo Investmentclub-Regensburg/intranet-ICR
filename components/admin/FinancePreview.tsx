@@ -264,7 +264,7 @@ export function FinancePreview({
                       <p className="font-medium text-foreground">
                         {row.firstName} {row.lastName}
                       </p>
-                      {row.email && <p className="text-xs text-muted-foreground">{row.email}</p>}
+                      {row.email && <p className="text-xs [overflow-wrap:anywhere] text-muted-foreground">{row.email}</p>}
                     </td>
                     <td className="px-3 py-2.5">
                       <CategoryBadge category={row.category} manual={row.override !== null} />
