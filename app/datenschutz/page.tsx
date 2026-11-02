@@ -63,8 +63,7 @@ export default function DatenschutzPage() {
       <h3>Hosting bei Vercel</h3>
       <p>
         Das Intranet wird bei Vercel betrieben. Anbieter ist die Vercel Inc., 440 N Barranca Avenue #4133, Covina, CA
-        91723, USA. Die Anwendung läuft in einem Rechenzentrum in Dublin (Irland); Dateien wie Schriften, Bilder und
-        Skripte liefert Vercel über ein weltweites Servernetz aus.
+        91723, USA. Die Anwendung läuft in einem Rechenzentrum in der EU.
       </p>
       <p>
         Beim Aufruf des Intranets verarbeitet Vercel technisch notwendige Daten und speichert sie für einen begrenzten
@@ -83,7 +82,8 @@ export default function DatenschutzPage() {
         fehlerfreien Bereitstellung des Intranets.
       </p>
       <p>
-        Mit Vercel besteht ein Vertrag über Auftragsverarbeitung. Eine Verarbeitung in den USA ist nicht ausgeschlossen;
+        Mit Vercel besteht ein Vertrag über Auftragsverarbeitung. Eine Verarbeitung außerhalb der EU, insbesondere in
+        den USA, ist nicht ausgeschlossen;
         Vercel ist nach dem EU-US Data Privacy Framework zertifiziert (Art. 45 DSGVO), zusätzlich gelten die
         EU-Standardvertragsklauseln.
       </p>
@@ -93,7 +93,7 @@ export default function DatenschutzPage() {
         Die Daten des Intranets speichern wir bei Supabase: Mitglieds- und Kontodaten, Anmeldungen zu Veranstaltungen,
         Beiträge am Schwarzen Brett und Bilder zu Veranstaltungen. Supabase übernimmt außerdem die Anmeldung mit E-Mail
         und Passwort. Anbieter ist die Supabase Pte. Ltd., Singapur. Unsere Datenbank liegt in einem Rechenzentrum in
-        Irland (EU). Passwörter speichert Supabase nur als nicht umkehrbaren Hashwert.
+        der EU. Passwörter werden nicht im Klartext gespeichert.
       </p>
       <p>
         Mit Supabase besteht ein Vertrag über Auftragsverarbeitung. Soweit Supabase oder seine Unterauftragnehmer von
@@ -104,10 +104,9 @@ export default function DatenschutzPage() {
 
       <h3>Verschlüsselung sensibler Angaben</h3>
       <p>
-        IBAN, BIC, Geburtsdatum, Anschrift und Handynummer speichern wir zusätzlich verschlüsselt (AES-256). Der Schlüssel
-        liegt nicht in der Datenbank, sondern nur in der Umgebung, in der die Anwendung läuft. Auch Supabase kann diese
-        Angaben daher nicht im Klartext lesen. Entschlüsselt werden sie nur, wenn Sie Ihr Profil aufrufen oder eine
-        berechtigte Person sie für die unten beschriebenen Zwecke benötigt.
+        IBAN, BIC, Geburtsdatum, Anschrift und Handynummer speichern wir zusätzlich verschlüsselt. Entschlüsselt werden
+        sie nur, wenn Sie Ihr Profil aufrufen oder eine berechtigte Person sie für die unten beschriebenen Zwecke
+        benötigt.
       </p>
 
       <h2>3. Allgemeine Hinweise und Pflicht&shy;informationen</h2>
@@ -316,11 +315,10 @@ export default function DatenschutzPage() {
 
       <h3>Prüfung der IBAN</h3>
       <p>
-        Wenn Sie im Mitgliedsantrag Ihre IBAN eingeben, prüft unser Server sie über den öffentlichen Prüfdienst
-        openiban.com auf Gültigkeit und ermittelt die zugehörige BIC. Übermittelt wird nur die IBAN, nicht Ihr Name oder
-        andere Angaben; die Anfrage stellt unser Server, nicht Ihr Browser. Nach Angaben des Dienstes werden dort keine
-        Daten gespeichert und keine Protokolle geschrieben. Der Dienst wird über das Netz von Cloudflare ausgeliefert;
-        eine Verarbeitung außerhalb der EU ist daher nicht ausgeschlossen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f
+        Wenn Sie im Mitgliedsantrag Ihre IBAN eingeben, prüfen wir sie über den öffentlichen Prüfdienst openiban.com auf
+        Gültigkeit und ermitteln die zugehörige BIC. Übermittelt wird nur die IBAN, nicht Ihr Name, Ihre IP-Adresse oder
+        andere Angaben. Nach Angaben des Dienstes werden dort keine Daten gespeichert. Eine Verarbeitung außerhalb der
+        EU ist nicht ausgeschlossen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f
         DSGVO; wir haben ein berechtigtes Interesse daran, Tippfehler in der Bankverbindung früh zu erkennen und
         Rücklastschriften zu vermeiden.
       </p>
@@ -329,9 +327,8 @@ export default function DatenschutzPage() {
       <p>
         Bei der Registrierung, der Anmeldung und beim Zurücksetzen des Passworts schützen wir das Intranet mit Cloudflare
         Turnstile vor automatisierten Anfragen (Bots). Anbieter ist die Cloudflare, Inc., 101 Townsend St., San
-        Francisco, CA 94107, USA. Turnstile wertet dazu technische Merkmale Ihres Browsers aus, insbesondere IP-Adresse,
-        Browserkennung (User-Agent) und Merkmale der verschlüsselten Verbindung. Zur Prüfung des Ergebnisses übermittelt
-        unser Server zusätzlich Ihre IP-Adresse an Cloudflare. Cloudflare verwendet diese Merkmale nach eigenen Angaben
+        Francisco, CA 94107, USA. Turnstile wertet dazu technische Merkmale Ihres Browsers und Ihrer Verbindung aus,
+        insbesondere IP-Adresse und Browserkennung (User-Agent). Cloudflare verwendet diese Merkmale nach eigenen Angaben
         außerdem in eigener Verantwortung, um die Bot-Erkennung zu verbessern (
         <a href="https://www.cloudflare.com/turnstile-privacy-policy/" rel="noopener">
           Datenschutzhinweise zu Turnstile
@@ -346,23 +343,23 @@ export default function DatenschutzPage() {
       </p>
       <p>
         Zusätzlich begrenzen wir die Zahl der Versuche bei Registrierung, Anmeldung, Passwort-Reset und Änderung der
-        E-Mail-Adresse. Dafür speichern wir die IP-Adresse bzw. E-Mail-Adresse nur als nicht umkehrbaren, gekürzten
-        Hashwert und löschen ihn nach einem Tag (Art. 6 Abs. 1 lit. f DSGVO, Schutz vor Missbrauch).
+        E-Mail-Adresse. Dafür speichern wir die IP-Adresse bzw. E-Mail-Adresse nur pseudonymisiert und löschen sie nach
+        einem Tag (Art. 6 Abs. 1 lit. f DSGVO, Schutz vor Missbrauch).
       </p>
 
       <h3>Anmeldung, Cookies und lokaler Speicher</h3>
       <p>
-        Wenn Sie sich anmelden, speichert Ihr Browser ein Cookie mit Ihrer Sitzung (Name beginnt mit „sb-“), damit Sie
-        angemeldet bleiben. Beim Zurücksetzen des Passworts kommt kurzzeitig ein weiteres Cookie für die Prüfung des
-        Links hinzu. Das Sitzungs-Cookie wird gelöscht, wenn Sie sich abmelden, und läuft sonst spätestens nach 400 Tagen
-        ab. Ihre Wahl zwischen hellem und dunklem Design speichert Ihr Browser im lokalen Speicher (Eintrag „theme“);
-        dieser Eintrag verlässt Ihr Gerät nicht.
+        Wenn Sie sich anmelden, speichert Ihr Browser ein Cookie mit Ihrer Sitzung, damit Sie angemeldet bleiben. Beim
+        Zurücksetzen des Passworts kommt kurzzeitig ein weiteres Cookie für die Prüfung des Links hinzu. Das
+        Sitzungs-Cookie wird gelöscht, wenn Sie sich abmelden, und läuft sonst spätestens nach 400 Tagen ab. Ihre Wahl
+        zwischen hellem und dunklem Design speichert Ihr Browser im lokalen Speicher; dieser Eintrag verlässt Ihr Gerät
+        nicht.
       </p>
       <p>
         Weitere Cookies setzen wir nicht. Die genannten Cookies und Einträge sind für die Nutzung des Intranets unbedingt
         erforderlich (§ 25 Abs. 2 Nr. 2 TDDDG); Rechtsgrundlage der Verarbeitung ist Art. 6 Abs. 1 lit. b DSGVO. Zur
-        Sicherheit Ihres Kontos protokolliert Supabase Anmeldevorgänge einschließlich Zeitpunkt und IP-Adresse (Art. 6
-        Abs. 1 lit. f DSGVO).
+        Sicherheit Ihres Kontos protokollieren wir Anmeldevorgänge einschließlich Zeitpunkt und IP-Adresse (Art. 6 Abs.
+        1 lit. f DSGVO).
       </p>
 
       <h3>Was andere Mitglieder sehen</h3>
@@ -439,8 +436,8 @@ export default function DatenschutzPage() {
 
       <h3>WhatsApp-Gruppe</h3>
       <p>
-        Aktive Mitglieder finden im Intranet den Einladungslink zu unserer WhatsApp-Gruppe, auch als QR-Code. Den QR-Code
-        erzeugt unser Server selbst; beim Aufruf der Seite werden keine Daten an WhatsApp übertragen. Erst wenn Sie den
+        Aktive Mitglieder finden im Intranet den Einladungslink zu unserer WhatsApp-Gruppe, auch als QR-Code. Beim
+        Aufruf der Seite werden keine Daten an WhatsApp übertragen. Erst wenn Sie den
         Link öffnen und der Gruppe beitreten, verarbeitet WhatsApp Ihre Daten. Anbieter ist für Nutzer in der EU die
         WhatsApp Ireland Limited, Merrion Road, Dublin 4, D04 X2K5, Irland; es gilt die{" "}
         <a href="https://www.whatsapp.com/legal/privacy-policy-eea" rel="noopener">
@@ -453,8 +450,8 @@ export default function DatenschutzPage() {
       <p>
         Verweise auf LinkedIn-Profile, das Portal des BVH oder Links in Beiträgen und Veranstaltungen sind einfache
         Links. Inhalte oder Skripte dieser Anbieter sind nicht eingebunden. Daten werden erst übertragen, wenn Sie einen
-        Link anklicken; dort gelten die Datenschutzhinweise des jeweiligen Anbieters. Schriften und Symbole liefern wir
-        von unserem eigenen Server aus; eine Verbindung zu Google Fonts oder anderen Schriftanbietern findet nicht statt.
+        Link anklicken; dort gelten die Datenschutzhinweise des jeweiligen Anbieters. Schriften und Symbole laden wir
+        nicht von externen Anbietern wie Google Fonts.
       </p>
 
       <h2>5. E-Mails</h2>
@@ -502,12 +499,12 @@ export default function DatenschutzPage() {
       </p>
       <p>Daneben gelten folgende Fristen:</p>
       <ul>
-        <li>Hashwerte zum Schutz vor Missbrauch: ein Tag</li>
+        <li>Pseudonymisierte Daten zum Schutz vor Missbrauch: ein Tag</li>
         <li>Text zum Kündigungsgrund: aus den E-Mail-Daten nach 30 Tagen, aus der Kündigungsübersicht nach 24 Monaten</li>
         <li>Nachrichten und Versandprotokolle bei Resend: bis zu 30 Tage</li>
       </ul>
 
-      <p className="pt-6 text-sm">Stand: Oktober 2026</p>
+      <p className="pt-6 text-sm">Stand: November 2026</p>
     </LegalPage>
   );
 }
