@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { Aurora } from "@/components/brand/Aurora";
 import { IcrLogo } from "@/components/brand/IcrLogo";
+import { LegalLinks } from "@/components/legal/LegalLinks";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,7 +47,10 @@ export function AuthFrame({
       </aside>
 
       <main className="flex justify-center px-5 py-10 sm:px-10 lg:items-start lg:px-12 lg:pt-[calc(14vh+5.5rem)] lg:pb-16 xl:px-16">
-        <div className={cn("w-full", width === "wide" ? "max-w-2xl" : "max-w-md")}>{children}</div>
+        <div className={cn("w-full", width === "wide" ? "max-w-2xl" : "max-w-md")}>
+          {children}
+          <LegalLinks className="mt-12" />
+        </div>
       </main>
     </div>
   );

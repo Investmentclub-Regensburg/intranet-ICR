@@ -23,6 +23,7 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { navItemVariants } from "@/components/layout/nav-icon-motion";
 import { IcrLogo } from "@/components/brand/IcrLogo";
 import { IconButton } from "@/components/kit/IconButton";
+import { LegalLinks } from "@/components/legal/LegalLinks";
 import {
   EVENT_SECTIONS,
   VERWALTUNG_SECTIONS,
@@ -481,6 +482,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
         </Link>
         <LogoutButton />
       </div>
+      <LegalLinks className="mt-2 px-2" />
     </div>
   );
 
