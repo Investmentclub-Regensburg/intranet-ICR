@@ -1,6 +1,8 @@
 // Datenformen der Übersicht (/dashboard). Fertig formatiert auf dem Server
 // (Zeitzone Europe/Berlin), damit die Kacheln nur noch anzeigen.
 
+import type { RegistrationPhase } from "@/lib/events";
+
 export type DashboardEvent = {
   id: string;
   title: string;
@@ -20,10 +22,12 @@ export type DashboardEvent = {
   /** Heute oder morgen: Hinweis betont. */
   soon: boolean;
   requiresRegistration: boolean;
-  /** Anmeldung noch möglich (bis einschließlich Starttag, wie die RLS-Policy). */
-  registrationOpen: boolean;
+  /** Offen, ausgebucht, manuell geschlossen oder Anmeldeschluss vorbei (wie die DB). */
+  registrationPhase: RegistrationPhase;
   /** Eingeloggtes Mitglied ist angemeldet. */
   registered: boolean;
+  /** Eingeloggtes Mitglied steht auf der Warteliste. */
+  waitlisted: boolean;
 };
 
 export type DashboardNewsItem = {

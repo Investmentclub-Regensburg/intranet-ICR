@@ -10,8 +10,12 @@ import {
   EVENT_IMAGE_MAX_BYTES,
   EVENT_IMAGE_TYPES,
   MAX_EVENT_DAYS,
+  MAX_PARTICIPANTS_LIMIT,
+  capacityBelowRegistrationsMessage,
+  parseMaxParticipants,
   shortTime,
   type AnnouncementTarget,
+  type EventCapacity,
   type EventCore,
 } from "@/lib/events";
 
@@ -26,6 +30,9 @@ export type EventFormState = {
   endTime: string;
   description: string;
   requiresRegistration: boolean;
+  /** Max. Teilnehmende als Eingabe, "" = unbegrenzt. */
+  maxParticipants: string;
+  registrationClosed: boolean;
 };
 
 export const EMPTY_EVENT_FORM: EventFormState = {
@@ -38,9 +45,11 @@ export const EMPTY_EVENT_FORM: EventFormState = {
   endTime: "",
   description: "",
   requiresRegistration: false,
+  maxParticipants: "",
+  registrationClosed: false,
 };
 
-export function formFromEvent(event: EventCore): EventFormState {
+export function formFromEvent(event: EventCore & EventCapacity): EventFormState {
   return {
     title: event.title,
     organizer: event.organizer ?? "",
@@ -51,7 +60,21 @@ export function formFromEvent(event: EventCore): EventFormState {
     endTime: shortTime(event.end_time),
     description: event.description ?? "",
     requiresRegistration: event.requires_registration,
+    maxParticipants: event.max_participants === null ? "" : String(event.max_participants),
+    registrationClosed: event.registration_closed,
   };
+}
+
+/**
+ * Teilnehmerzahl prüfen. minimum = bestehende Anmeldungen (beim Bearbeiten; die Zahl darf nicht
+ * darunter liegen). "" = in Ordnung.
+ */
+export function validateMaxParticipants(form: Pick<EventFormState, "requiresRegistration" | "maxParticipants">, minimum = 0): string {
+  if (!form.requiresRegistration) return "";
+  const max = parseMaxParticipants(form.maxParticipants);
+  if (max === undefined) return `Teilnehmerzahl bitte als ganze Zahl von 1 bis ${MAX_PARTICIPANTS_LIMIT} angeben.`;
+  if (max !== null && max < minimum) return capacityBelowRegistrationsMessage(minimum);
+  return "";
 }
 
 export function todayInBerlin(): string {
@@ -59,8 +82,14 @@ export function todayInBerlin(): string {
 }
 
 /** Prüfung vor dem Absenden (die Server Action prüft zusätzlich selbst). "" = in Ordnung. */
-export function validateEventForm(form: EventFormState, announce: AnnouncementTarget | null): string {
+export function validateEventForm(
+  form: EventFormState,
+  announce: AnnouncementTarget | null,
+  registrationCount = 0
+): string {
   if (!form.title.trim()) return "Titel ist Pflicht.";
+  const capacityError = validateMaxParticipants(form, registrationCount);
+  if (capacityError) return capacityError;
   if (!form.eventDate) return "Bitte ein Datum wählen.";
   const dateError = validateEndDate(form);
   if (dateError) return dateError;
@@ -98,6 +127,8 @@ export function eventFields(form: EventFormState): EventFormInput {
     location: form.location,
     organizer: form.organizer,
     requires_registration: form.requiresRegistration,
+    max_participants: form.requiresRegistration ? (parseMaxParticipants(form.maxParticipants) ?? null) : null,
+    registration_closed: form.requiresRegistration && form.registrationClosed,
   };
 }
 

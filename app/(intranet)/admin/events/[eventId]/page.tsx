@@ -5,6 +5,7 @@ import {
   getAnnouncementRecipientCount,
   getEventWithParticipants,
   type EventAnnouncement,
+  type EventParticipant,
 } from "@/app/(intranet)/events/actions";
 import { requireUser } from "@/utils/supabase/guards";
 import { IconLink } from "@/components/kit/IconButton";
@@ -14,8 +15,16 @@ import { StatusPill } from "@/components/kit/StatusCard";
 import { ShareLinkButton } from "@/components/admin/ShareLinkButton";
 import { DeleteEventButton } from "@/components/admin/DeleteEventButton";
 import { SendAnnouncementDialog } from "@/components/admin/SendAnnouncementDialog";
+import { RegistrationClosedButton } from "@/components/admin/RegistrationClosedButton";
 import { ROLE_LABELS, formatMoment } from "@/components/admin/format";
-import { MAIL_TO_ALL_ENABLED, eventPath, formatEventDateRange, formatEventTimes, isEventPast } from "@/lib/events";
+import {
+  MAIL_TO_ALL_ENABLED,
+  eventPath,
+  formatEventDateRange,
+  formatEventTimes,
+  isEventPast,
+  isRegistrationOpen,
+} from "@/lib/events";
 
 type Props = {
   params: Promise<{ eventId: string }>;
@@ -32,7 +41,7 @@ export default async function AdminEventDetailPage({ params }: Props) {
   ]);
   if (!data) notFound();
 
-  const { event, participants, announcements } = data;
+  const { event, participants, waitlist, announcements } = data;
   const time = formatEventTimes(event);
   const canCustomMail = auth.ok && auth.role === "board";
   const past = isEventPast(event);
@@ -85,54 +94,57 @@ export default async function AdminEventDetailPage({ params }: Props) {
       </RevealHeading>
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <section className="min-w-0 space-y-4" aria-labelledby="teilnehmer">
-          <PageHeader
-            as="h2"
-            title={
-              <span id="teilnehmer">
-                Teilnehmer
-                {event.requires_registration && (
-                  <span className="ml-2 text-base font-semibold text-muted-foreground tabular-nums">
-                    {participants.length}
+        <div className="min-w-0 space-y-10">
+          <section className="space-y-4" aria-labelledby="teilnehmer">
+            <PageHeader
+              as="h2"
+              title={
+                <span id="teilnehmer">
+                  Teilnehmer
+                  {event.requires_registration && (
+                    <span className="ml-2 text-base font-semibold text-muted-foreground tabular-nums">
+                      {participants.length}
+                      {event.max_participants !== null && ` / ${event.max_participants}`}
+                    </span>
+                  )}
+                </span>
+              }
+              action={
+                event.requires_registration && isRegistrationOpen(event) ? (
+                  <RegistrationClosedButton
+                    eventId={event.id}
+                    closed={event.registration_closed}
+                    waitlistCount={waitlist.length}
+                  />
+                ) : undefined
+              }
+            />
+            {!event.requires_registration ? (
+              <EmptyState title="Ohne Anmeldung." hint="Für diese Veranstaltung melden sich Mitglieder nicht an." />
+            ) : participants.length === 0 ? (
+              <EmptyState title="Noch keine Anmeldungen." />
+            ) : (
+              <ParticipantTable rows={participants} dateLabel="Angemeldet am" />
+            )}
+          </section>
+
+          {event.requires_registration && waitlist.length > 0 && (
+            <section className="space-y-4" aria-labelledby="warteliste">
+              <PageHeader
+                as="h2"
+                title={
+                  <span id="warteliste">
+                    Warteliste
+                    <span className="ml-2 text-base font-semibold text-muted-foreground tabular-nums">
+                      {waitlist.length}
+                    </span>
                   </span>
-                )}
-              </span>
-            }
-          />
-          {!event.requires_registration ? (
-            <EmptyState title="Ohne Anmeldung." hint="Für diese Veranstaltung melden sich Mitglieder nicht an." />
-          ) : participants.length === 0 ? (
-            <EmptyState title="Noch keine Anmeldungen." />
-          ) : (
-            <div className="overflow-hidden rounded-2xl border border-border bg-card">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="px-4 sm:px-5">Name</TableHead>
-                    <TableHead className="hidden sm:table-cell">Rolle</TableHead>
-                    <TableHead className="px-4 sm:px-5">Angemeldet am</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {participants.map((p) => (
-                    <TableRow key={p.user_id}>
-                      <TableCell className="px-4 py-3 sm:px-5">
-                        <p className="font-medium">{[p.vorname, p.nachname].filter(Boolean).join(" ") || "—"}</p>
-                        <p className="text-muted-foreground">{p.studiengang || "—"}</p>
-                      </TableCell>
-                      <TableCell className="hidden py-3 sm:table-cell">
-                        {ROLE_LABELS[p.rolle.toLowerCase()] ?? (p.rolle || "—")}
-                      </TableCell>
-                      <TableCell className="px-4 py-3 whitespace-nowrap text-muted-foreground tabular-nums sm:px-5">
-                        {p.registered_at ? formatMoment(p.registered_at) : "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                }
+              />
+              <ParticipantTable rows={waitlist} dateLabel="Eingetragen am" numbered />
+            </section>
           )}
-        </section>
+        </div>
 
         <section className="space-y-4" aria-labelledby="mailversand">
           <PageHeader as="h2" title={<span id="mailversand">Mailversand</span>} />
@@ -143,6 +155,55 @@ export default async function AdminEventDetailPage({ params }: Props) {
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+/** Teilnehmer bzw. Warteliste; numbered = Nachrück-Reihenfolge. */
+function ParticipantTable({
+  rows,
+  dateLabel,
+  numbered = false,
+}: {
+  rows: EventParticipant[];
+  dateLabel: string;
+  numbered?: boolean;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {numbered && (
+              <TableHead className="w-10 pl-4 sm:pl-5">
+                <span className="sr-only">Platz</span>
+              </TableHead>
+            )}
+            <TableHead className="px-4 sm:px-5">Name</TableHead>
+            <TableHead className="hidden sm:table-cell">Rolle</TableHead>
+            <TableHead className="px-4 sm:px-5">{dateLabel}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((p, i) => (
+            <TableRow key={p.user_id}>
+              {numbered && (
+                <TableCell className="py-3 pl-4 text-muted-foreground tabular-nums sm:pl-5">{i + 1}</TableCell>
+              )}
+              <TableCell className="px-4 py-3 sm:px-5">
+                <p className="font-medium">{[p.vorname, p.nachname].filter(Boolean).join(" ") || "—"}</p>
+                <p className="text-muted-foreground">{p.studiengang || "—"}</p>
+              </TableCell>
+              <TableCell className="hidden py-3 sm:table-cell">
+                {ROLE_LABELS[p.rolle.toLowerCase()] ?? (p.rolle || "—")}
+              </TableCell>
+              <TableCell className="px-4 py-3 whitespace-nowrap text-muted-foreground tabular-nums sm:px-5">
+                {p.registered_at ? formatMoment(p.registered_at) : "—"}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

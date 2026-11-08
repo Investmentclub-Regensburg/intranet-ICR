@@ -1,21 +1,25 @@
 import Link from "next/link";
-import { CircleCheck, Clock, MapPin } from "lucide-react";
+import { CircleCheck, Clock, Hourglass, MapPin } from "lucide-react";
 import { IcrLogo } from "@/components/brand/IcrLogo";
 import { cn } from "@/lib/utils";
 import {
+  canChangeRegistration,
+  capacityLabel,
   eventPath,
   formatEventDateRange,
   formatEventTimes,
   formatEventWhen,
   isMultiDay,
-  isRegistrationOpen,
+  registrationPhase,
+  type EventCapacity,
   type EventCore,
+  type RegistrationStatus,
 } from "@/lib/events";
 import { DateBlock, GLOW_TILE, STRETCHED_LINK } from "./event-display";
 import { RegistrationButton } from "./RegistrationButton";
 import { ShareEventButton } from "./ShareEventButton";
 
-type TileEvent = EventCore & { registration_count: number };
+type TileEvent = EventCore & EventCapacity & { registration_count: number };
 
 /** Zusagen als kurzer Text: "Noch keine Zusagen", "1 Zusage", "12 Zusagen". */
 export function registrationCountLabel(count: number, past = false): string {
@@ -43,7 +47,9 @@ export function EventImageFallback({ className }: { className?: string }) {
  * Kachel einer kommenden Veranstaltung: Bild mit Datum-Block, Titel, Zeit und Ort,
  * unten Anmeldestatus mit Anmelden-Knopf. Die ganze Kachel öffnet die Detailseite.
  */
-export function EventTile({ event, isRegistered }: { event: TileEvent; isRegistered: boolean }) {
+export function EventTile({ event, status }: { event: TileEvent; status: RegistrationStatus }) {
+  // Laufende mehrtägige Events: ab Tag 2 keine Anmeldung mehr (wie die RLS-Policy).
+  const phase = registrationPhase(event, event.registration_count);
   // Mehrtägig: Zeitraum vor die Uhrzeiten, der Datum-Block zeigt nur den ersten Tag.
   const time = [
     isMultiDay(event) ? formatEventDateRange(event, { day: "numeric", month: "short" }) : "",
@@ -93,23 +99,29 @@ export function EventTile({ event, isRegistered }: { event: TileEvent; isRegiste
         <div className="mt-auto flex min-h-9 items-center justify-between gap-3 border-t border-border pt-4">
           {event.requires_registration ? (
             <>
-              {isRegistered ? (
+              {status === "registered" ? (
                 <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
                   <CircleCheck className="size-4" aria-hidden />
                   Du bist dabei
                 </span>
+              ) : status === "waitlisted" ? (
+                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                  <Hourglass className="size-4" aria-hidden />
+                  Warteliste
+                </span>
               ) : (
                 <span className="text-xs text-muted-foreground">
-                  {registrationCountLabel(event.registration_count)}
+                  {capacityLabel(event.registration_count, event.max_participants) ??
+                    registrationCountLabel(event.registration_count)}
                 </span>
               )}
-              {/* Laufende mehrtägige Events: ab Tag 2 keine Anmeldung mehr (wie die RLS-Policy). */}
-              {isRegistrationOpen(event) ? (
+              {canChangeRegistration(phase, status) ? (
                 <RegistrationButton
                   eventId={event.id}
                   eventTitle={event.title}
                   when={formatEventWhen(event)}
-                  isRegistered={isRegistered}
+                  status={status}
+                  full={phase === "full"}
                   className="relative z-10"
                 />
               ) : (

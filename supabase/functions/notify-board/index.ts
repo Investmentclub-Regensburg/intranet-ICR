@@ -17,6 +17,8 @@
 // Events vom Typ task_assigned (Aufgabe neu zugeteilt, von den Server Actions des Aufgaben-Boards)
 // gehen ebenso an payload.assignee_profile_id; Reply-To ist die Person, die zugeteilt hat.
 // Events vom Typ iban_changed gehen an den Vorstand (nur die letzten 4 Stellen der IBAN).
+// Events vom Typ event_waitlist_promoted (von der Warteliste nachgerückt, DB-Funktion
+// event_fill_from_waitlist) gehen an das Mitglied (Adresse aus dem Profil zu payload.user_id).
 //
 // Secrets (Dashboard → Edge Functions → Secrets oder `supabase secrets set`):
 //   NOTIFY_BOARD_SECRET  – muss dem Vault-Secret notify_board_secret entsprechen
@@ -39,6 +41,7 @@ type EventType =
   | "alumni_requested"
   | "alumni_decided"
   | "event_announcement"
+  | "event_waitlist_promoted"
   | "task_deadline"
   | "task_assigned"
   | "iban_changed"
@@ -287,7 +290,7 @@ function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
 type MemberRecipient = { email: string; vorname: string };
 
 /**
- * Empfänger für Mails an ein Mitglied (alumni_decided, member_cancellation_confirmed): ausschließlich aus dem Profil bzw.
+ * Empfänger für Mails an ein Mitglied (alumni_decided, member_cancellation_confirmed, event_waitlist_promoted): ausschließlich aus dem Profil bzw.
  * Auth-Konto zu payload.user_id – nie aus frei befüllbaren Feldern des Ereignisses.
  */
 async function resolveMemberRecipient(
@@ -488,6 +491,36 @@ function buildMail(
         subject: title,
         html: wrapHtml(title, intro, r.html, adminLink("/profile", "Mein Profil öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
+        to: recipient ? [recipient] : [],
+        replyTo: TO_EMAILS[0],
+      };
+    }
+    case "event_waitlist_promoted": {
+      const vorname = str(extra.recipient?.vorname);
+      // Empfänger nur aus dem Profil des nachgerückten Kontos (siehe resolveMemberRecipient).
+      const recipient = extra.recipient?.email ?? "";
+      const e = (p.event ?? {}) as Record<string, unknown>;
+      const eventId = str(p.event_id);
+      const eventTitle = str(e.title) || "Veranstaltung";
+      const multiDay = !!str(e.end_date) && str(e.end_date) > str(e.event_date);
+      const dates = multiDay
+        ? `${formatEventDate(e.event_date)} bis ${formatEventDate(e.end_date)}`
+        : formatEventDate(e.event_date);
+      const when = [dates, formatTimeRange(e.event_time, e.end_time, multiDay)].filter(Boolean).join(", ");
+      const title = `Du bist dabei: ${eventTitle}`;
+      const intro =
+        `${greeting(vorname)} bei „${eventTitle}“ ist ein Platz frei geworden. Du bist von der Warteliste nachgerückt ` +
+        "und jetzt verbindlich angemeldet. Falls du doch nicht kannst, melde dich bitte im Intranet ab, damit jemand anderes nachrücken kann.";
+      const rows: Array<[string, string]> = [["Wann", when]];
+      if (str(e.location)) rows.push(["Wo", str(e.location)]);
+      const r = renderRows(rows);
+      const link = UUID_RE.test(eventId) ? adminLink(`/events/${eventId}`, "Zum Event") : undefined;
+      return {
+        subject: title,
+        html: wrapHtml(title, intro, r.html, link, {
+          footer: "Automatische Nachricht aus dem ICR Intranet. Antworten auf diese E-Mail gehen an den Vorstand.",
+        }),
+        text: [title, "", intro, "", r.text, link ? `\n${link.label}: ${link.href}` : ""].join("\n"),
         to: recipient ? [recipient] : [],
         replyTo: TO_EMAILS[0],
       };
@@ -711,7 +744,9 @@ async function processEvents(
       }
 
       const recipient =
-        ev.type === "alumni_decided" || ev.type === "member_cancellation_confirmed"
+        ev.type === "alumni_decided" ||
+        ev.type === "member_cancellation_confirmed" ||
+        ev.type === "event_waitlist_promoted"
           ? await resolveMemberRecipient(supabase, ev)
           : ev.type === "task_deadline" || ev.type === "task_assigned"
             ? await resolveAssigneeRecipient(supabase, ev)

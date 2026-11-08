@@ -13,7 +13,7 @@ export function IntranetPageTransition({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div key={pathname} className="intranet-page-fade-in h-full">
+    <div key={pathname} className="intranet-page-fade-in">
       {children}
     </div>
   );

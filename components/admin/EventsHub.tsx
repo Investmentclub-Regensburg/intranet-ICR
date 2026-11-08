@@ -7,7 +7,7 @@ import { IconButton, IconLink } from "@/components/kit/IconButton";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { Segmented } from "@/components/kit/Segmented";
 import { AddTile, Tile, TileGrid } from "@/components/kit/Tile";
-import { formatEventWhen, type EventCore } from "@/lib/events";
+import { formatEventWhen, type EventCapacity, type EventCore } from "@/lib/events";
 import { ChoiceTiles } from "@/components/kit/ChoiceTiles";
 import { RevealHeading } from "@/components/kit/Reveal";
 import { DeleteEventButton } from "./DeleteEventButton";
@@ -18,7 +18,19 @@ import { ShareLinkButton } from "./ShareLinkButton";
 export type AdminEventTile = Pick<
   EventCore,
   "id" | "title" | "event_date" | "end_date" | "event_time" | "end_time" | "location" | "requires_registration"
-> & { registration_count: number };
+> &
+  EventCapacity & { registration_count: number; waitlist_count: number };
+
+function registrationSummary(e: AdminEventTile): string {
+  if (!e.requires_registration) return "Ohne Anmeldung";
+  return [
+    `${e.registration_count}${e.max_participants !== null ? ` / ${e.max_participants}` : ""} angemeldet`,
+    e.waitlist_count > 0 ? `${e.waitlist_count} Warteliste` : "",
+    e.registration_closed ? "geschlossen" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 type Props = {
   view: "choose" | "manage";
@@ -151,7 +163,7 @@ function EventTile({ event, past }: { event: AdminEventTile; past: boolean }) {
       footer={
         <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
           <Users className="size-3.5" aria-hidden />
-          {event.requires_registration ? `${event.registration_count} angemeldet` : "Ohne Anmeldung"}
+          {registrationSummary(event)}
         </span>
       }
     >

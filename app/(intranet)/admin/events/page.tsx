@@ -18,7 +18,10 @@ function toTile(e: EventListItem): AdminEventTile {
     end_time: e.end_time,
     location: e.location,
     requires_registration: e.requires_registration,
+    max_participants: e.max_participants,
+    registration_closed: e.registration_closed,
     registration_count: e.registration_count,
+    waitlist_count: e.waitlist_count,
   };
 }
 

@@ -53,6 +53,23 @@ Migration: `migrations_archive/20261003120000_events_overhaul.sql`
 - Anmelden geht nur bei Events mit `requires_registration`, die noch nicht vorbei sind.
 - Jedes Event hat eine teilbare Detailseite `/events/<id>`. Nicht eingeloggte Besucher landen nach dem Login dort.
 
+### Teilnehmerzahl, Schließen, Warteliste
+
+Migration: `migrations/20261108120000_event_capacity_waitlist.sql`
+
+- `events.max_participants` (null = unbegrenzt) und `events.registration_closed` (manuell geschlossen) setzen
+  Admin/Vorstand beim Bearbeiten bzw. auf `/admin/events/<id>`. Die Zahl darf nicht unter die bestehenden
+  Anmeldungen sinken (Trigger `events_capacity_change`).
+- Anmelden läuft über `public.event_join(event_id)`: unter einer Sperre auf der Event-Zeile → `registered`
+  oder, wenn ausgebucht, `waitlisted` (Tabelle `event_waitlist`). Der Trigger `event_registrations_capacity`
+  begrenzt zusätzlich jedes direkte Insert.
+- Nachrücken automatisch (`event_fill_from_waitlist`) bei Abmeldung, höherer Teilnehmerzahl oder Wiederöffnen,
+  solange die Anmeldung offen ist (nicht geschlossen, bis einschließlich Starttag). Wer nachrückt, bekommt
+  eine Mail (Typ `event_waitlist_promoted`). Bei geschlossener Anmeldung bleibt Abmelden möglich, nachgerückt
+  wird erst nach dem Wiederöffnen.
+- Die Edge Function `notify-board` muss den Typ `event_waitlist_promoted` kennen: **vor** dem Release nach
+  `prod` neu deployen, sonst landet die Mail als Testmail beim Vorstand statt beim Mitglied.
+
 ### Event-Mail an Mitglieder
 
 Beim Anlegen (oder später auf `/admin/events/<id>` → „Mail senden“) schreibt die Server Action eine Zeile

@@ -46,6 +46,26 @@ export type EventCore = {
   requires_registration: boolean;
 };
 
+/** Obergrenze für max_participants (wie Check events_max_participants_range in der DB). */
+export const MAX_PARTICIPANTS_LIMIT = 10000;
+
+/** Kapazität und manuelles Schließen der Anmeldung (Spalten an events). */
+export type EventCapacity = {
+  /** Max. Teilnehmende, null = unbegrenzt. */
+  max_participants: number | null;
+  /** Vom Vorstand manuell geschlossen. */
+  registration_closed: boolean;
+};
+
+/** Eigener Stand bei einem Event mit Anmeldung. */
+export type RegistrationStatus = "registered" | "waitlisted" | "none";
+
+/**
+ * open: Anmelden möglich · full: ausgebucht, Warteliste möglich · closed: manuell geschlossen ·
+ * ended: Anmeldeschluss vorbei (Starttag überschritten oder Event vorbei).
+ */
+export type RegistrationPhase = "open" | "full" | "closed" | "ended";
+
 export type AnnouncementTarget =
   | { mode: "all" }
   | { mode: "custom"; emails: string[] };
@@ -200,6 +220,55 @@ export function isEventPast(event: EventWhen, now = Date.now()): boolean {
 export function isRegistrationOpen(event: EventWhen, now = Date.now()): boolean {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: EVENT_TIME_ZONE }).format(new Date(now));
   return !isEventPast(event, now) && today <= event.event_date;
+}
+
+export function isEventFull(event: Pick<EventCapacity, "max_participants">, registrationCount: number): boolean {
+  return event.max_participants !== null && registrationCount >= event.max_participants;
+}
+
+/** Anmeldephase wie in der DB (Policy „selbst anmelden“ und event_join()). */
+export function registrationPhase(
+  event: EventWhen & EventCapacity,
+  registrationCount: number,
+  now = Date.now()
+): RegistrationPhase {
+  if (!isRegistrationOpen(event, now)) return "ended";
+  if (event.registration_closed) return "closed";
+  if (isEventFull(event, registrationCount)) return "full";
+  return "open";
+}
+
+/**
+ * Knopf zum An-/Abmelden bzw. für die Warteliste zeigen? Nach Anmeldeschluss nie; bei manuell
+ * geschlossener Anmeldung nur zum Abmelden bzw. Austragen.
+ */
+export function canChangeRegistration(phase: RegistrationPhase, status: RegistrationStatus): boolean {
+  if (phase === "ended") return false;
+  if (phase === "closed") return status !== "none";
+  return true;
+}
+
+/** "Ausgebucht" oder "12 von 30 Plätzen belegt"; null ohne Begrenzung. */
+export function capacityLabel(registrationCount: number, maxParticipants: number | null): string | null {
+  if (maxParticipants === null) return null;
+  if (registrationCount >= maxParticipants) return "Ausgebucht";
+  return `${registrationCount} von ${maxParticipants} Plätzen belegt`;
+}
+
+/** Fehlertext, wenn die Teilnehmerzahl unter die bestehenden Anmeldungen gesenkt werden soll. */
+export function capacityBelowRegistrationsMessage(registrationCount: number): string {
+  return registrationCount === 1
+    ? "Es ist bereits 1 Person angemeldet. Die Teilnehmerzahl darf nicht darunter liegen."
+    : `Es sind bereits ${registrationCount} Personen angemeldet. Die Teilnehmerzahl darf nicht darunter liegen.`;
+}
+
+/** "" = leer (unbegrenzt), sonst ganze Zahl 1 … MAX_PARTICIPANTS_LIMIT. undefined = ungültig. */
+export function parseMaxParticipants(value: string): number | null | undefined {
+  const v = value.trim();
+  if (!v) return null;
+  if (!/^\d+$/.test(v)) return undefined;
+  const n = Number(v);
+  return n >= 1 && n <= MAX_PARTICIPANTS_LIMIT ? n : undefined;
 }
 
 export function eventPath(id: string): string {
