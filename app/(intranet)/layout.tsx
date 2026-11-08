@@ -40,7 +40,7 @@ export default async function IntranetLayout({
           className="w-full px-4 pt-6 pb-24 outline-none sm:px-6 md:h-screen md:flex-1 md:overflow-y-auto md:px-8 md:pt-10 md:pb-28 lg:px-12 lg:pb-32"
         >
           {/* Inhaltsbreite wie die Website (container-page), zentriert. */}
-          <div className="mx-auto h-full w-full max-w-6xl">
+          <div className="mx-auto w-full max-w-6xl">
             <IntranetPageTransition>
               {children}
             </IntranetPageTransition>
