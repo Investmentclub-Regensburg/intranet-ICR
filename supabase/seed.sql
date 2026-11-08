@@ -83,6 +83,11 @@ begin
     ('00000000-0000-4000-b000-000000000002', 'Vortrag Börse (Test)', 'Erfundenes Event ohne Anmeldung.', current_date + 21, '18:00', 'Hörsaal H2', false)
   on conflict (id) do nothing;
 
+  -- Ein Platz: zweite Anmeldung landet auf der Warteliste.
+  insert into public.events (id, title, description, event_date, event_time, location, requires_registration, max_participants)
+  values ('00000000-0000-4000-b000-000000000003', 'Workshop, 1 Platz (Test)', 'Erfundenes Event mit Platzbegrenzung.', current_date + 10, '17:00', 'Regensburg', true, 1)
+  on conflict (id) do nothing;
+
   insert into public.news (id, title, content, author_id)
   values ('00000000-0000-4000-c000-000000000001', 'Willkommen im Test-Intranet', 'Diese Nachricht ist erfunden.', '00000000-0000-4000-a000-000000000002')
   on conflict (id) do nothing;

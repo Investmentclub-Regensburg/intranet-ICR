@@ -46,7 +46,7 @@ export default async function EventsPage() {
               <EventTile
                 key={e.id}
                 event={e}
-                isRegistered={!!user && e.is_registered}
+                status={!user ? "none" : e.is_registered ? "registered" : e.is_waitlisted ? "waitlisted" : "none"}
               />
             ))}
           </TileGrid>

@@ -42,7 +42,10 @@ export default async function AdminEventEditPage({ params }: Props) {
           organizer: event.organizer,
           image_url: event.image_url,
           requires_registration: event.requires_registration,
+          max_participants: event.max_participants,
+          registration_closed: event.registration_closed,
         }}
+        registrationCount={event.registration_count}
       />
     </div>
   );

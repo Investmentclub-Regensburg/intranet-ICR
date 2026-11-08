@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/kit/IconButton";
 import { updateEvent, type UpdateEventInput } from "@/app/(intranet)/events/actions";
 import { EventCard } from "@/components/events/EventCard";
-import type { EventCore } from "@/lib/events";
+import { MAX_PARTICIPANTS_LIMIT, type EventCapacity, type EventCore } from "@/lib/events";
 import { Switch } from "./bits";
 import {
   EVENT_IMAGE_ACCEPT,
@@ -24,19 +24,22 @@ import {
   uploadEventImage,
   validateEndDate,
   validateEventForm,
+  validateMaxParticipants,
   type EventFormState,
 } from "./event-form-shared";
 
 type Props = {
   /** Die Veranstaltung, die bearbeitet wird. Anlegen läuft über den EventWizard. */
-  event: EventCore;
+  event: EventCore & EventCapacity;
+  /** Bestehende Anmeldungen: Untergrenze für die Teilnehmerzahl. */
+  registrationCount: number;
 };
 
 const textareaClass =
   "flex w-full rounded-lg border border-input bg-card px-3 py-2.5 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 md:text-sm";
 
 /** Bearbeiten bleibt ein Formular (wer ändert, sucht ein Feld), mit Live-Vorschau. */
-export function EventForm({ event }: Props) {
+export function EventForm({ event, registrationCount }: Props) {
   const router = useRouter();
   const [form, setForm] = useState<EventFormState>(() => formFromEvent(event));
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -60,6 +63,7 @@ export function EventForm({ event }: Props) {
   const endDateError = validateEndDate(form);
   const endBeforeStart = !multiDay && !!form.endTime && !!form.eventTime && form.endTime < form.eventTime;
   const dateInPast = !!form.eventDate && form.eventDate < todayInBerlin();
+  const capacityError = validateMaxParticipants(form, registrationCount);
   const shownImage = imagePreview ?? existingImage;
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -84,7 +88,7 @@ export function EventForm({ event }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const problem = validateEventForm(form, null);
+    const problem = validateEventForm(form, null, registrationCount);
     setError(problem);
     if (problem) return;
 
@@ -267,7 +271,9 @@ export function EventForm({ event }: Props) {
             )}
             <p className="text-xs text-muted-foreground">JPG, PNG, GIF oder WebP, max. 5 MB, Querformat.</p>
           </div>
+        </Section>
 
+        <Section title="Anmeldung">
           <Switch
             id="ev-reg"
             checked={form.requiresRegistration}
@@ -279,6 +285,44 @@ export function EventForm({ event }: Props) {
             <p className="rounded-lg border border-primary/25 bg-brand-tint px-3 py-2 text-xs">
               Bestehende Anmeldungen bleiben gespeichert, sind für Mitglieder aber nicht mehr sichtbar.
             </p>
+          )}
+          {form.requiresRegistration && (
+            <>
+              <Field
+                label={
+                  <>
+                    Max. Teilnehmer <span className="font-normal text-muted-foreground">(optional)</span>
+                  </>
+                }
+                htmlFor="ev-max"
+              >
+                <Input
+                  id="ev-max"
+                  type="number"
+                  inputMode="numeric"
+                  min={Math.max(1, registrationCount)}
+                  max={MAX_PARTICIPANTS_LIMIT}
+                  step={1}
+                  value={form.maxParticipants}
+                  onChange={(e) => set("maxParticipants", e.target.value)}
+                  placeholder="Unbegrenzt"
+                  aria-invalid={!!capacityError || undefined}
+                  className="h-11 sm:max-w-48"
+                />
+              </Field>
+              {(capacityError || registrationCount > 0) && (
+                <p className={capacityError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+                  {capacityError || `Bereits ${registrationCount} angemeldet.`}
+                </p>
+              )}
+              <Switch
+                id="ev-closed"
+                checked={form.registrationClosed}
+                onChange={(v) => set("registrationClosed", v)}
+                label="Anmeldung geschlossen"
+                hint="Keine neuen Anmeldungen, Abmelden bleibt möglich."
+              />
+            </>
           )}
         </Section>
 

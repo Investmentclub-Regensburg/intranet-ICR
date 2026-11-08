@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { ArrowLeft, CalendarDays, CircleCheck, Clock, MapPin, Pencil, UserRound, UsersRound } from "lucide-react";
+import { ArrowLeft, CalendarDays, CircleCheck, Clock, Hourglass, MapPin, Pencil, UserRound, UsersRound } from "lucide-react";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { roleOf } from "@/utils/supabase/guards";
 import { getEvent } from "../actions";
@@ -13,7 +13,15 @@ import { LinkifiedText } from "@/components/kit/LinkifiedText";
 import { RegistrationButton } from "@/components/events/RegistrationButton";
 import { ShareEventButton } from "@/components/events/ShareEventButton";
 import { registrationCountLabel } from "@/components/events/EventTile";
-import { formatEventDateRange, formatEventTimes, formatEventWhen, isEventPast, isRegistrationOpen } from "@/lib/events";
+import {
+  canChangeRegistration,
+  formatEventDateRange,
+  formatEventTimes,
+  formatEventWhen,
+  isEventPast,
+  registrationPhase,
+  type RegistrationStatus,
+} from "@/lib/events";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -46,10 +54,15 @@ export default async function EventDetailPage({ params }: Props) {
   if (!event) notFound();
 
   const past = isEventPast(event);
-  const registrationOpen = isRegistrationOpen(event);
+  const phase = registrationPhase(event, event.registration_count);
   const role = roleOf(profile as Record<string, unknown> | null);
   const canManage = role === "admin" || role === "board";
   const isRegistered = !!user && event.is_registered;
+  const status: RegistrationStatus = isRegistered ? "registered" : user && event.is_waitlisted ? "waitlisted" : "none";
+  const seats =
+    event.max_participants !== null
+      ? `${event.registration_count} von ${event.max_participants} Plätzen belegt`
+      : registrationCountLabel(event.registration_count);
   const time = formatEventTimes(event);
   const paragraphs = (event.description ?? "").split(/\n{2,}/).filter((p) => p.trim());
 
@@ -119,7 +132,7 @@ export default async function EventDetailPage({ params }: Props) {
               <p className="text-sm text-muted-foreground">
                 {past ? "Diese Veranstaltung ist vorbei." : "Ohne Anmeldung. Komm einfach vorbei."}
               </p>
-            ) : !registrationOpen ? (
+            ) : phase === "ended" ? (
               <div className="space-y-1">
                 <p className="text-sm font-semibold text-foreground">Anmeldung geschlossen</p>
                 <p className="text-sm text-muted-foreground">
@@ -130,24 +143,34 @@ export default async function EventDetailPage({ params }: Props) {
             ) : (
               <>
                 <div className="space-y-1">
-                  {isRegistered ? (
+                  {status === "registered" ? (
                     <p className="inline-flex items-center gap-2 text-sm font-semibold text-primary">
                       <CircleCheck className="size-4" aria-hidden />
                       Du bist angemeldet
                     </p>
+                  ) : status === "waitlisted" ? (
+                    <p className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <Hourglass className="size-4" aria-hidden />
+                      Du stehst auf der Warteliste
+                    </p>
                   ) : (
-                    <p className="text-sm font-semibold text-foreground">Anmeldung offen</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {phase === "closed" ? "Anmeldung geschlossen" : phase === "full" ? "Ausgebucht" : "Anmeldung offen"}
+                    </p>
                   )}
-                  <p className="text-sm text-muted-foreground">{registrationCountLabel(event.registration_count)}</p>
+                  <p className="text-sm text-muted-foreground">{seats}</p>
                 </div>
-                <RegistrationButton
-                  eventId={event.id}
-                  eventTitle={event.title}
-                  when={formatEventWhen(event)}
-                  isRegistered={isRegistered}
-                  size="default"
-                  block
-                />
+                {canChangeRegistration(phase, status) && (
+                  <RegistrationButton
+                    eventId={event.id}
+                    eventTitle={event.title}
+                    when={formatEventWhen(event)}
+                    status={status}
+                    full={phase === "full"}
+                    size="default"
+                    block
+                  />
+                )}
               </>
             )}
           </div>

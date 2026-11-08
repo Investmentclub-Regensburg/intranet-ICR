@@ -16,14 +16,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { IconButton } from "@/components/kit/IconButton";
-import { toggleRegistration } from "@/app/(intranet)/events/actions";
+import { leaveEvent } from "@/app/(intranet)/events/actions";
 
 type Props = {
   eventId: string;
   eventTitle: string;
 };
 
-/** Abmelden als Icon-Aktion in der Kachel, mit Bestätigung. Logik wie bisher (toggleRegistration). */
+/** Abmelden als Icon-Aktion in der Kachel, mit Bestätigung (leaveEvent). */
 export function UnregisterEventButton({ eventId, eventTitle }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -32,9 +32,11 @@ export function UnregisterEventButton({ eventId, eventTitle }: Props) {
   async function handleUnregister() {
     setLoading(true);
     try {
-      const { error } = await toggleRegistration(eventId, true);
-      if (error) toast.error(error);
-      else {
+      const { error } = await leaveEvent(eventId, "registered");
+      if (error) {
+        toast.error(error);
+        router.refresh();
+      } else {
         setOpen(false);
         toast.success("Abgemeldet.");
         router.refresh();

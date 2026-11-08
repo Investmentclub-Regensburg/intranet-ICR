@@ -59,9 +59,11 @@ import { createEvent } from "@/app/(intranet)/events/actions";
 import {
   MAIL_TO_ALL_DISABLED_HINT,
   MAIL_TO_ALL_ENABLED,
+  MAX_PARTICIPANTS_LIMIT,
   eventPath,
   formatEventDateRange,
   formatTimeRange,
+  parseMaxParticipants,
   type AnnouncementTarget,
 } from "@/lib/events";
 import { RecipientEmailsInput } from "./AnnouncementRecipients";
@@ -77,6 +79,7 @@ import {
   uploadEventImage,
   validateEndDate,
   validateEventForm,
+  validateMaxParticipants,
   type EventFormState,
 } from "./event-form-shared";
 
@@ -140,6 +143,7 @@ export function EventWizard({
   const set = <K extends keyof EventFormState>(key: K, value: EventFormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
   const multiDay = isFormMultiDay(form);
+  const maxParticipants = form.requiresRegistration ? parseMaxParticipants(form.maxParticipants) : null;
 
   const announce: AnnouncementTarget | null =
     mailMode === "all" ? { mode: "all" } : mailMode === "custom" ? { mode: "custom", emails } : null;
@@ -197,7 +201,7 @@ export function EventWizard({
         if (!organizerMode && !otherOrganizer.trim()) return "Bitte „ICR“ wählen oder einen Veranstalter eintragen.";
         return "";
       case "registration":
-        return registration ? "" : "Bitte wählen.";
+        return registration ? validateMaxParticipants(form) : "Bitte wählen.";
       case "mail":
         if (!mailMode) return "Bitte wählen.";
         if (mailMode === "custom" && emails.length === 0) return "Bitte mindestens eine Adresse hinzufügen.";
@@ -316,7 +320,11 @@ export function EventWizard({
       key: "registration",
       label: "Anmeldung",
       Icon: Users,
-      value: form.requiresRegistration ? "Mit Anmeldung" : "Ohne Anmeldung",
+      value: !form.requiresRegistration
+        ? "Ohne Anmeldung"
+        : maxParticipants
+          ? `Mit Anmeldung, max. ${maxParticipants}`
+          : "Mit Anmeldung",
     });
   if (done("mail"))
     rows.push({
@@ -616,7 +624,6 @@ export function EventWizard({
                       onChange={() => {
                         setRegistration("ja");
                         set("requiresRegistration", true);
-                        autoNext("registration");
                       }}
                       Icon={UserCheck}
                       label="Ja, mit Anmeldung"
@@ -636,9 +643,29 @@ export function EventWizard({
                       hint="einfach vorbeikommen"
                     />
                   </div>
+                  {registration === "ja" && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="wiz-max">
+                        Max. Teilnehmer <span className="font-normal text-muted-foreground">(optional)</span>
+                      </Label>
+                      <Input
+                        id="wiz-max"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={MAX_PARTICIPANTS_LIMIT}
+                        step={1}
+                        value={form.maxParticipants}
+                        onChange={(e) => set("maxParticipants", e.target.value)}
+                        onKeyDown={enterNext("registration")}
+                        placeholder="Unbegrenzt"
+                        className="h-12 text-base sm:max-w-48"
+                      />
+                    </div>
+                  )}
                   {errorLine}
                   <WizardNav onBack={back}>
-                    <span />
+                    {registration === "ja" ? <NextButton onClick={() => next("registration")} /> : <span />}
                   </WizardNav>
                 </WizardStep>
 
@@ -711,7 +738,9 @@ export function EventWizard({
                       footer={
                         form.requiresRegistration && (
                           <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
-                            <span>0 Personen nehmen teil</span>
+                            <span>
+                              {maxParticipants ? `0 von ${maxParticipants} Plätzen belegt` : "0 Personen nehmen teil"}
+                            </span>
                             <Button size="sm" disabled>
                               Anmelden
                             </Button>
