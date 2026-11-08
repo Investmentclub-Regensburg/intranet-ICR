@@ -18,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { toggleRegistration } from "@/app/(intranet)/events/actions";
+import { joinEvent } from "@/app/(intranet)/events/actions";
 import { EventImageFallback } from "@/components/events/EventTile";
 import { eventPath } from "@/lib/events";
 import { cn } from "@/lib/utils";
@@ -120,7 +120,11 @@ function EventTile({ event }: { event: DashboardEvent }) {
                 </span>
                 Angemeldet
               </motion.span>
-            ) : event.requiresRegistration && event.registrationOpen ? (
+            ) : event.waitlisted ? (
+              <span key="waitlisted" className="text-xs font-semibold text-foreground">
+                Warteliste
+              </span>
+            ) : event.requiresRegistration && event.registrationPhase === "open" ? (
               <motion.div
                 key="register"
                 exit={{ opacity: 0, scale: 0.9 }}
@@ -135,7 +139,11 @@ function EventTile({ event }: { event: DashboardEvent }) {
               </motion.div>
             ) : (
               <span key="open" className="text-xs text-muted-foreground">
-                {event.requiresRegistration ? "Anmeldung geschlossen" : "Ohne Anmeldung"}
+                {!event.requiresRegistration
+                  ? "Ohne Anmeldung"
+                  : event.registrationPhase === "full"
+                    ? "Ausgebucht"
+                    : "Anmeldung geschlossen"}
               </span>
             )}
           </AnimatePresence>
@@ -166,14 +174,19 @@ function RegisterButton({
   async function handleConfirm() {
     setLoading(true);
     try {
-      const { error } = await toggleRegistration(eventId, false);
+      const { error, status } = await joinEvent(eventId);
       if (error) {
         toast.error(error);
         return;
       }
       setOpen(false);
-      toast.success("Angemeldet.");
-      onRegistered();
+      if (status === "waitlisted") {
+        // Inzwischen ausgebucht (Anzeige war noch nicht aktuell).
+        toast.success("Inzwischen ausgebucht. Du stehst auf der Warteliste.");
+      } else {
+        toast.success("Angemeldet.");
+        onRegistered();
+      }
       router.refresh();
     } finally {
       setLoading(false);

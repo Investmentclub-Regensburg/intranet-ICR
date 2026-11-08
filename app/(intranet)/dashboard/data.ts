@@ -3,7 +3,8 @@ import { cache } from "react";
 import { getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { requireRole, requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
-import { EVENT_TIME_ZONE, formatEventDate, formatEventDateRange, formatEventTimes, isEventPast, isMultiDay, isRegistrationOpen } from "@/lib/events";
+import { getEvents } from "@/app/(intranet)/events/actions";
+import { EVENT_TIME_ZONE, formatEventDate, formatEventDateRange, formatEventTimes, isEventPast, isMultiDay, registrationPhase } from "@/lib/events";
 import type { AdminCounts, DashboardEvent, DashboardNewsItem } from "@/components/dashboard/types";
 
 /*
@@ -101,6 +102,8 @@ export type DashboardEvents = {
 /**
  * Kommende Events und die eigenen Anmeldungen, beides mit der Sitzung des Mitglieds (RLS:
  * Events lesen alle Eingeloggten, Anmeldungen hier nur die eigenen per user_id).
+ * Belegung und eigener Wartelisten-Stand kommen aus der gecachten Event-Liste (getEvents: nur
+ * Zahlen und der eigene Stand, keine fremden User-IDs).
  * Einmal pro Request (React cache), weil zwei Abschnitte der Seite sie brauchen.
  */
 export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null> => {
@@ -113,16 +116,20 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
   // haben ein end_date ab heute.
   const from = isoDate(today, -1);
 
-  const [eventsRes, regsRes] = await Promise.all([
+  const [eventsRes, regsRes, eventStats] = await Promise.all([
     supabase
       .from("events")
-      .select("id, title, event_date, end_date, event_time, end_time, location, requires_registration, image_url")
+      .select(
+        "id, title, event_date, end_date, event_time, end_time, location, requires_registration, max_participants, registration_closed, image_url"
+      )
       .or(`event_date.gte.${from},end_date.gte.${isoDate(today)}`)
       .order("event_date", { ascending: true })
       .order("event_time", { ascending: true, nullsFirst: true })
       .limit(60),
     supabase.from("event_registrations").select("event_id").eq("user_id", auth.user.id),
+    getEvents(),
   ]);
+  const statsById = new Map(eventStats.map((e) => [e.id, e]));
 
   if (eventsRes.error) {
     console.error("getDashboardEvents (Events):", eventsRes.error);
@@ -144,6 +151,12 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
     };
     if (!e.event_date || isEventPast(e, now)) continue;
     const days = daysBetween(today, e.event_date);
+    const stats = statsById.get(String(row.id));
+    const max = Number(row.max_participants);
+    const capacity = {
+      max_participants: row.max_participants !== null && Number.isInteger(max) && max > 0 ? max : null,
+      registration_closed: row.registration_closed === true,
+    };
     upcoming.push({
       id: String(row.id),
       title: String(row.title ?? ""),
@@ -163,8 +176,9 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
       relative: relativeLabel(days),
       soon: days <= 1,
       requiresRegistration: !!row.requires_registration,
-      registrationOpen: isRegistrationOpen(e, now),
+      registrationPhase: registrationPhase({ ...e, ...capacity }, stats?.registration_count ?? 0, now),
       registered: mine.has(String(row.id)),
+      waitlisted: stats?.is_waitlisted ?? false,
     });
   }
 

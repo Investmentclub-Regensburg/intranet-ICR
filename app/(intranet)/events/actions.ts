@@ -10,22 +10,33 @@ import {
   MAIL_TO_ALL_ENABLED,
   MAX_CUSTOM_RECIPIENTS,
   MAX_EVENT_DAYS,
+  MAX_PARTICIPANTS_LIMIT,
+  capacityBelowRegistrationsMessage,
   eventEndTimestamp,
   eventStartTimestamp,
   isValidEmail,
   type AnnouncementTarget,
+  type EventCapacity,
   type EventCore,
+  type RegistrationStatus,
 } from "@/lib/events";
 
-export type EventListItem = EventCore & {
-  created_at: string;
-  registration_count: number;
-  /** Ist die angemeldete Person für dieses Event angemeldet? (Keine fremden User-IDs nach außen.) */
-  is_registered: boolean;
-};
+export type EventListItem = EventCore &
+  EventCapacity & {
+    created_at: string;
+    registration_count: number;
+    waitlist_count: number;
+    /** Ist die angemeldete Person für dieses Event angemeldet? (Keine fremden User-IDs nach außen.) */
+    is_registered: boolean;
+    /** Steht die angemeldete Person auf der Warteliste? */
+    is_waitlisted: boolean;
+  };
 
-/** Intern (Cache): mit den User-IDs der Anmeldungen. */
-type CachedEvent = Omit<EventListItem, "is_registered"> & { registered_user_ids: string[] };
+/** Intern (Cache): mit den User-IDs der Anmeldungen und der Warteliste. */
+type CachedEvent = Omit<EventListItem, "is_registered" | "is_waitlisted"> & {
+  registered_user_ids: string[];
+  waitlisted_user_ids: string[];
+};
 
 export type MyEventItem = Pick<EventCore, "id" | "title" | "event_date" | "end_date" | "event_time" | "end_time" | "location">;
 
@@ -104,6 +115,24 @@ function toEventCore(e: Record<string, unknown>): EventCore {
   };
 }
 
+function toEventCapacity(e: Record<string, unknown>): EventCapacity {
+  const max = Number(e.max_participants);
+  return {
+    max_participants: e.max_participants !== null && Number.isInteger(max) && max > 0 ? max : null,
+    registration_closed: e.registration_closed === true,
+  };
+}
+
+function groupUserIds(rows: Record<string, unknown>[] | null): Map<string, string[]> {
+  const byEvent = new Map<string, string[]>();
+  for (const r of rows ?? []) {
+    const list = byEvent.get(r.event_id as string) ?? [];
+    list.push(r.user_id as string);
+    byEvent.set(r.event_id as string, list);
+  }
+  return byEvent;
+}
+
 // ---------------------------------------------------------------------------
 // Lesen
 // ---------------------------------------------------------------------------
@@ -111,36 +140,45 @@ function toEventCore(e: Record<string, unknown>): EventCore {
 const fetchEvents = unstable_cache(
   async (): Promise<CachedEvent[]> => {
     const admin = createServiceClient();
-    const [{ data: events, error }, { data: regs }] = await Promise.all([
+    const [{ data: events, error }, { data: regs }, { data: waiting, error: waitError }] = await Promise.all([
       admin
         .from("events")
         .select(
-          "id, title, description, event_date, end_date, event_time, end_time, location, organizer, image_url, requires_registration, created_at"
+          "id, title, description, event_date, end_date, event_time, end_time, location, organizer, image_url, requires_registration, max_participants, registration_closed, created_at"
         )
         .order("event_date", { ascending: true })
         .order("event_time", { ascending: true, nullsFirst: true }),
       admin.from("event_registrations").select("event_id, user_id").range(0, 49999),
+      admin
+        .from("event_waitlist")
+        .select("event_id, user_id")
+        .order("created_at", { ascending: true })
+        .range(0, 49999),
     ]);
-    if (error || !events) return [];
-
-    const byEvent = new Map<string, string[]>();
-    for (const r of regs ?? []) {
-      const list = byEvent.get(r.event_id as string) ?? [];
-      list.push(r.user_id as string);
-      byEvent.set(r.event_id as string, list);
+    if (error || !events) {
+      if (error) console.error("fetchEvents:", error);
+      return [];
     }
+    if (waitError) console.error("fetchEvents (Warteliste):", waitError);
+
+    const registered = groupUserIds(regs);
+    const waitlisted = groupUserIds(waiting);
 
     return events.map((e) => {
-      const ids = byEvent.get(e.id as string) ?? [];
+      const ids = registered.get(e.id as string) ?? [];
+      const waitIds = waitlisted.get(e.id as string) ?? [];
       return {
         ...toEventCore(e),
+        ...toEventCapacity(e),
         created_at: String(e.created_at ?? ""),
         registration_count: ids.length,
+        waitlist_count: waitIds.length,
         registered_user_ids: ids,
+        waitlisted_user_ids: waitIds,
       };
     });
   },
-  ["events-list-v4"],
+  ["events-list-v5"],
   { revalidate: 60, tags: [EVENTS_TAG] }
 );
 
@@ -149,9 +187,10 @@ export async function getEvents(): Promise<EventListItem[]> {
   const auth = await requireUser();
   if (!auth.ok) return [];
   const userId = auth.user.id;
-  return (await fetchEvents()).map(({ registered_user_ids, ...e }) => ({
+  return (await fetchEvents()).map(({ registered_user_ids, waitlisted_user_ids, ...e }) => ({
     ...e,
     is_registered: registered_user_ids.includes(userId),
+    is_waitlisted: waitlisted_user_ids.includes(userId),
   }));
 }
 
@@ -190,6 +229,8 @@ export async function getMyEvents(): Promise<MyEventsResult> {
 export async function getEventWithParticipants(eventId: string): Promise<{
   event: EventListItem;
   participants: EventParticipant[];
+  /** In Nachrück-Reihenfolge; registered_at = eingetragen am. */
+  waitlist: EventParticipant[];
   announcements: EventAnnouncement[];
 } | null> {
   const auth = await requireAdmin();
@@ -200,9 +241,14 @@ export async function getEventWithParticipants(eventId: string): Promise<{
   if (!event) return null;
 
   const admin = createServiceClient();
-  const [{ data: regs }, { data: notifications }] = await Promise.all([
+  const [{ data: regs }, { data: waiting }, { data: notifications }] = await Promise.all([
     admin
       .from("event_registrations")
+      .select("user_id, created_at")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: true }),
+    admin
+      .from("event_waitlist")
       .select("user_id, created_at")
       .eq("event_id", eventId)
       .order("created_at", { ascending: true }),
@@ -215,7 +261,7 @@ export async function getEventWithParticipants(eventId: string): Promise<{
       .limit(20),
   ]);
 
-  const userIds = (regs ?? []).map((r) => r.user_id as string).filter(Boolean);
+  const userIds = [...(regs ?? []), ...(waiting ?? [])].map((r) => r.user_id as string).filter(Boolean);
   const { data: profiles } = userIds.length
     ? await admin
         .from("profiles")
@@ -226,7 +272,7 @@ export async function getEventWithParticipants(eventId: string): Promise<{
   const profileByUser = new Map<string, Record<string, unknown>>();
   for (const p of profiles ?? []) profileByUser.set(String(p.user_id), p);
 
-  const participants: EventParticipant[] = (regs ?? []).map((r) => {
+  const toParticipant = (r: Record<string, unknown>): EventParticipant => {
     const p = profileByUser.get(r.user_id as string) ?? {};
     return {
       user_id: r.user_id as string,
@@ -236,7 +282,9 @@ export async function getEventWithParticipants(eventId: string): Promise<{
       rolle: String(p["Rolle"] ?? "").trim(),
       registered_at: String(r.created_at ?? ""),
     };
-  });
+  };
+  const participants = (regs ?? []).map(toParticipant);
+  const waitlist = (waiting ?? []).map(toParticipant);
 
   const announcements: EventAnnouncement[] = (notifications ?? []).map((n) => {
     const payload = (n.payload ?? {}) as Record<string, unknown>;
@@ -252,7 +300,7 @@ export async function getEventWithParticipants(eventId: string): Promise<{
     };
   });
 
-  return { event, participants, announcements };
+  return { event, participants, waitlist, announcements };
 }
 
 /** Anzahl aktiver Mitglieder, die eine Rundmail bekämen (für die Anzeige im Admin-Formular). */
@@ -278,6 +326,9 @@ export type EventFormInput = {
   location: string;
   organizer: string;
   requires_registration: boolean;
+  /** null = unbegrenzt. */
+  max_participants: number | null;
+  registration_closed: boolean;
 };
 
 export type CreateEventInput = EventFormInput & {
@@ -323,6 +374,11 @@ function parseEventFields(input: EventFormInput) {
   if (!multiDay && endTime && endTime === eventTime) return { error: "Endzeit muss nach der Startzeit liegen." };
   if ((input.description ?? "").length > 5000) return { error: "Beschreibung ist zu lang (max. 5000 Zeichen)." };
 
+  const requiresRegistration = !!input.requires_registration;
+  const max = input.max_participants ?? null;
+  if (max !== null && (!Number.isInteger(max) || max < 1 || max > MAX_PARTICIPANTS_LIMIT))
+    return { error: `Teilnehmerzahl bitte als ganze Zahl von 1 bis ${MAX_PARTICIPANTS_LIMIT} angeben.` };
+
   return {
     error: "",
     row: {
@@ -334,9 +390,24 @@ function parseEventFields(input: EventFormInput) {
       end_time: endTime || null,
       location: input.location?.trim() || null,
       organizer: input.organizer?.trim() || null,
-      requires_registration: !!input.requires_registration,
+      requires_registration: requiresRegistration,
+      // Ohne Anmeldung gibt es weder Begrenzung noch Schließen.
+      max_participants: requiresRegistration ? max : null,
+      registration_closed: requiresRegistration && !!input.registration_closed,
     },
   };
+}
+
+async function countRegistrations(eventId: string): Promise<number | null> {
+  const { count, error } = await createServiceClient()
+    .from("event_registrations")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", eventId);
+  if (error) {
+    console.error("countRegistrations:", error);
+    return null;
+  }
+  return count ?? 0;
 }
 
 /** Öffentliche URL zu einem frisch hochgeladenen Bild – nur aus dem eigenen Upload-Ordner, keine beliebigen URLs. */
@@ -361,7 +432,8 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
   const auth = await requireAdmin();
   if ("error" in auth) return fail(auth.error);
 
-  const parsed = parseEventFields(input);
+  // Neue Veranstaltungen starten immer mit offener Anmeldung.
+  const parsed = parseEventFields({ ...input, registration_closed: false });
   if (!parsed.row) return fail(parsed.error);
 
   let imageUrl: string | null = null;
@@ -403,9 +475,21 @@ export async function updateEvent(eventId: string, input: UpdateEventInput): Pro
   if (!parsed.row) return { error: parsed.error };
 
   const supabase = await getCachedSupabase();
-  const { data: current } = await supabase.from("events").select("image_url").eq("id", eventId).maybeSingle();
+  const { data: current } = await supabase
+    .from("events")
+    .select("image_url, max_participants")
+    .eq("id", eventId)
+    .maybeSingle();
   if (!current) return { error: "Event nicht gefunden." };
   const oldImageUrl = (current.image_url as string | null) ?? null;
+
+  // Vorab prüfen für eine verständliche Meldung; verbindlich prüft der DB-Trigger events_capacity_change.
+  const newMax = parsed.row.max_participants;
+  if (newMax !== null && newMax !== current.max_participants) {
+    const count = await countRegistrations(eventId);
+    if (count === null) return { error: "Änderungen konnten nicht gespeichert werden." };
+    if (newMax < count) return { error: capacityBelowRegistrationsMessage(count) };
+  }
 
   let imageUrl = oldImageUrl;
   if (input.image === "remove") {
@@ -420,6 +504,16 @@ export async function updateEvent(eventId: string, input: UpdateEventInput): Pro
     .update({ ...parsed.row, image_url: imageUrl })
     .eq("id", eventId)
     .select("id");
+  if (error?.message === "capacity_below_registrations") {
+    // Zwischen Vorabprüfung und Speichern hat sich noch jemand angemeldet.
+    const count = await countRegistrations(eventId);
+    return {
+      error:
+        count === null
+          ? "Die Teilnehmerzahl darf nicht unter der Zahl der Anmeldungen liegen."
+          : capacityBelowRegistrationsMessage(count),
+    };
+  }
   if (error || !updated?.length) {
     console.error("updateEvent:", error);
     return { error: "Änderungen konnten nicht gespeichert werden." };
@@ -454,32 +548,92 @@ export async function deleteEvent(eventId: string): Promise<{ error: string }> {
   return { error: "" };
 }
 
-export async function toggleRegistration(
-  eventId: string,
-  isRegistered: boolean
-): Promise<{ error: string }> {
+const JOIN_ERRORS: Record<string, string> = {
+  registration_closed: "Die Anmeldung ist geschlossen.",
+  event_not_found: "Event nicht gefunden.",
+  not_allowed: "Anmelden können nur aktive Mitglieder.",
+};
+
+/**
+ * Anmelden oder, wenn ausgebucht, auf die Warteliste. Entscheidet die DB (event_join) unter einer
+ * Sperre auf dem Event, damit auch der letzte Platz nur einmal vergeben wird.
+ */
+export async function joinEvent(eventId: string): Promise<{ error: string; status: RegistrationStatus }> {
   const auth = await requireUser();
-  if (!auth.ok) return { error: auth.error };
-  const user = auth.user;
-  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
+  if (!auth.ok) return { error: auth.error, status: "none" };
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden.", status: "none" };
 
   const supabase = await getCachedSupabase();
-  if (isRegistered) {
-    const { error } = await supabase
+  const { data, error } = await supabase.rpc("event_join", { p_event_id: eventId });
+
+  if (error?.code === "PGRST202") {
+    // Funktion fehlt noch (Migration 20261108120000 nicht ausgeführt): direkt anmelden wie bisher.
+    const { error: insertError } = await supabase
       .from("event_registrations")
-      .delete()
-      .eq("event_id", eventId)
-      .eq("user_id", user.id);
-    if (error) return { error: "Abmeldung fehlgeschlagen." };
-  } else {
-    const { error } = await supabase
-      .from("event_registrations")
-      .insert({ event_id: eventId, user_id: user.id });
-    if (error?.code === "23505") return { error: "Du bist bereits angemeldet." };
-    if (error) return { error: "Anmeldung nicht möglich (Event vorbei oder ohne Anmeldung)." };
+      .insert({ event_id: eventId, user_id: auth.user.id });
+    if (insertError && insertError.code !== "23505") {
+      return { error: "Anmeldung nicht möglich (Event vorbei oder ohne Anmeldung).", status: "none" };
+    }
+    invalidateEvents();
+    return { error: "", status: "registered" };
+  }
+  if (error) {
+    const known = JOIN_ERRORS[error.message];
+    if (!known) console.error("joinEvent:", error);
+    return { error: known ?? "Anmeldung fehlgeschlagen. Bitte erneut versuchen.", status: "none" };
   }
 
   invalidateEvents();
+  return { error: "", status: data === "waitlisted" ? "waitlisted" : "registered" };
+}
+
+/** Abmelden bzw. von der Warteliste austragen. Ein frei gewordener Platz wird in der DB sofort nachbesetzt. */
+export async function leaveEvent(
+  eventId: string,
+  from: Exclude<RegistrationStatus, "none">
+): Promise<{ error: string }> {
+  const auth = await requireUser();
+  if (!auth.ok) return { error: auth.error };
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
+
+  const supabase = await getCachedSupabase();
+  const { data: deleted, error } = await supabase
+    .from(from === "waitlisted" ? "event_waitlist" : "event_registrations")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("user_id", auth.user.id)
+    .select("id");
+  if (error) {
+    console.error("leaveEvent:", error);
+    return { error: from === "waitlisted" ? "Austragen fehlgeschlagen." : "Abmeldung fehlgeschlagen." };
+  }
+
+  invalidateEvents();
+  // Stand hat sich inzwischen geändert (z. B. von der Warteliste nachgerückt): nichts gelöscht.
+  if (!deleted?.length) return { error: "Dein Stand hat sich geändert. Bitte prüfe ihn auf der Seite." };
+  return { error: "" };
+}
+
+/** Anmeldung manuell schließen oder wieder öffnen (Admin/Vorstand). Beim Öffnen rückt die Warteliste nach. */
+export async function setRegistrationClosed(eventId: string, closed: boolean): Promise<{ error: string }> {
+  const auth = await requireAdmin();
+  if ("error" in auth) return { error: auth.error };
+  if (!isSafeId(eventId)) return { error: "Event nicht gefunden." };
+
+  const supabase = await getCachedSupabase();
+  const { data: updated, error } = await supabase
+    .from("events")
+    .update({ registration_closed: closed })
+    .eq("id", eventId)
+    .eq("requires_registration", true)
+    .select("id");
+  if (error || !updated?.length) {
+    if (error) console.error("setRegistrationClosed:", error);
+    return { error: "Änderung konnte nicht gespeichert werden." };
+  }
+
+  invalidateEvents();
+  revalidatePath(`/admin/events/${eventId}`);
   return { error: "" };
 }
 
