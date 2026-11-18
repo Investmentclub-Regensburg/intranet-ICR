@@ -9,6 +9,7 @@ import {
   GESPEICHERTE_FELDER,
   SCHREIBBARE_FELDER,
   bewerteProfil,
+  eindeutigeMaengel,
   fehlerOhneDaten,
   formatierePruefung,
   formatiereProbelauf,
@@ -71,6 +72,30 @@ test("Land fehlt → gilt als DE (PLZ 4-stellig ist Mangel)", () => {
   assert.deepEqual(b.maengel, [{ feld: "plz", code: "format" }]);
   assert.equal(b.status.land, "gueltig");
   assert.equal(b.status.plz, "offen");
+});
+
+test("unbekanntes Land (nach PR 2): land_unbekannt je Profil nur einmal gezählt", () => {
+  // Simuliert ein gespeichertes Land-Feld, wie es nach PR 2 über GESPEICHERTE_FELDER käme.
+  const b = bewerte(AKTIV, daten({ plz: "1010" }));
+  const mitLand = {
+    ...b,
+    maengel: [
+      { feld: "plz", code: "land_unbekannt" },
+      { feld: "land", code: "land_unbekannt" },
+    ],
+  };
+  const z = zaehleAlle([mitLand]);
+  assert.deepEqual(z.maengel, { land: { land_unbekannt: 1 } });
+  assert.equal(z.aktivMitMangel, 1);
+  assert.deepEqual(eindeutigeMaengel(mitLand.maengel), [{ feld: "land", code: "land_unbekannt" }]);
+  // Ohne Mangel am Land bleibt ein plz-Eintrag stehen (kein stilles Verschlucken).
+  assert.equal(eindeutigeMaengel([{ feld: "plz", code: "land_unbekannt" }]).length, 1);
+});
+
+test("unsichtbares Format-Zeichen im Ort → zeichen", () => {
+  const b = bewerte(AKTIV, daten({ ort: "Regens­burg" }));
+  assert.deepEqual(b.maengel, [{ feld: "ort", code: "zeichen" }]);
+  assert.deepEqual(b.aenderungen, {});
 });
 
 test("Handy: deutsche Belege → sicher (E.164), Rest vorschlag oder offen", () => {

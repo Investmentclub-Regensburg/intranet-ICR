@@ -67,9 +67,11 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
   for (const feld of GESPEICHERTE_FELDER) daten[feld] = werte?.[feld] ?? null;
   const kontext = heute ? { alumni, wer: "mitglied", heute } : { alumni, wer: "mitglied" };
 
+  // Ohne `handyLand` (regeln-fuer-aufrufer.md Punkt 1): sonst fehlt der Hinweis `vorwahl_ergaenzt`.
   const pruefung = pruefeBestand(daten, kontext);
   const reparatur = repariereMitgliederdaten(daten, kontext);
-  const mangelFelder = new Set(pruefung.maengel.map((m) => m.feld));
+  const maengel = eindeutigeMaengel(pruefung.maengel);
+  const mangelFelder = new Set(maengel.map((m) => m.feld));
 
   const status = {};
   for (const feld of AUSGABE_FELDER) {
@@ -101,7 +103,17 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
     }
   }
 
-  return { ...basis, maengel: pruefung.maengel, hinweise: pruefung.hinweise, status, aenderungen };
+  return { ...basis, maengel, hinweise: pruefung.hinweise, status, aenderungen };
+}
+
+/**
+ * Mängel je Profil eindeutig (regeln-fuer-aufrufer.md Punkt 4): `land_unbekannt` steht im Regelwerk an `land`
+ * UND `plz` – gezählt und angezeigt wird er nur am Feld `land`.
+ */
+export function eindeutigeMaengel(maengel) {
+  const landUnbekannt = maengel.some((m) => m.feld === "land" && m.code === "land_unbekannt");
+  if (!landUnbekannt) return maengel;
+  return maengel.filter((m) => !(m.feld === "plz" && m.code === "land_unbekannt"));
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -160,7 +172,7 @@ export function zaehle(z, b) {
   }
   if (b.maengel.length) z.aktivMitMangel++;
   if (b.hinweise.length) z.aktivMitHinweis++;
-  for (const m of b.maengel) erhoehe(z.maengel, m.feld, m.code);
+  for (const m of eindeutigeMaengel(b.maengel)) erhoehe(z.maengel, m.feld, m.code);
   for (const h of b.hinweise) erhoehe(z.hinweise, h.feld, h.code);
   for (const feld of AUSGABE_FELDER) z.status[feld][b.status[feld]]++;
   const felder = Object.keys(b.aenderungen);
