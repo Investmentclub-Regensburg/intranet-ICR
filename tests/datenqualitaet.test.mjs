@@ -1,6 +1,8 @@
 // Tests für scripts/lib/datenqualitaet.mjs (Paket „Mitgliederdaten“, PR 3). Alle Daten sind erfunden.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +10,14 @@ import {
   AUSGABE_FELDER,
   GESPEICHERTE_FELDER,
   SCHREIBBARE_FELDER,
+  abbruchBeiSignal,
+  bestaetigungswort,
   bewerteProfil,
+  gegenprobe,
+  ibanStandStimmt,
+  ladeAlle,
+  pruefeTestziel,
+  schreibeAlle,
   eindeutigeMaengel,
   fehlerOhneDaten,
   formatierePruefung,
@@ -92,10 +101,20 @@ test("unbekanntes Land (nach PR 2): land_unbekannt je Profil nur einmal gezählt
   assert.equal(eindeutigeMaengel([{ feld: "plz", code: "land_unbekannt" }]).length, 1);
 });
 
-test("unsichtbares Format-Zeichen im Ort → zeichen", () => {
-  const b = bewerte(AKTIV, daten({ ort: "Regens­burg" }));
+test("Bidi-Steuerzeichen im Ort → zeichen (nicht still bereinigt)", () => {
+  const b = bewerte(AKTIV, daten({ ort: `Regens${String.fromCodePoint(0x202e)}burg` }));
   assert.deepEqual(b.maengel, [{ feld: "ort", code: "zeichen" }]);
   assert.deepEqual(b.aenderungen, {});
+});
+
+test("harmloses Zeichen in Straße/Hausnummer (Regelwerk K2) → sicher bereinigt, nur geänderte Felder", () => {
+  const b = bewerte(AKTIV, daten({ strasse: `Linden${String.fromCodePoint(0xad)}weg` }));
+  assert.deepEqual(b.maengel, []);
+  assert.equal(b.status.strasse, "sicher");
+  assert.equal(b.status.hausnummer, "gueltig");
+  assert.deepEqual(b.aenderungen, { strasse: "Lindenweg" });
+  const nfd = bewerte(AKTIV, daten({ strasse: "Hauptstra\u00dfe 3".normalize("NFD"), hausnummer: null }));
+  assert.equal(nfd.status.strasse, "sicher");
 });
 
 test("Handy: deutsche Belege → sicher (E.164), Rest vorschlag oder offen", () => {
@@ -436,4 +455,146 @@ test("liegtIn: Windows ohne Groß-/Kleinschreibung, Nachbarordner nicht", () => 
   assert.ok(liegtIn("C:\\Repo\\a\\b.tsv", "c:\\repo", "win32"));
   assert.ok(!liegtIn("C:\\Repo2\\b.tsv", "C:\\Repo", "win32"));
   assert.ok(!liegtIn("C:\\b.tsv", "C:\\Repo", "win32"));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Fixrunde Review PR 3 (P1–P9)
+// ---------------------------------------------------------------------------------------------------
+
+test("P1: „lokal“ nur mit ausdrücklichem --url, nie Port 8100", () => {
+  const f = (argv, env = {}) => leseArgumente(argv, env, REPO).fehler;
+  assert.ok(f(["pruefen", "--projekt", "lokal"], { ICR_SUPABASE_URL: "http://127.0.0.1:56321" }));
+  assert.ok(f(["pruefen", "--projekt", "lokal", "--url", "http://localhost:8100"]));
+  assert.ok(f(["pruefen", "--projekt", "lokal", "--url", "http://127.0.0.1:8100"]));
+  const ok = leseArgumente(["pruefen", "--projekt", "lokal", "--url", "http://127.0.0.1:56321"], { ICR_SUPABASE_URL: "http://localhost:8100" }, REPO);
+  assert.equal(ok.fehler, undefined);
+  assert.equal(ok.url, "http://127.0.0.1:56321");
+  // prod über den Tunnel bleibt möglich
+  assert.equal(f(["pruefen", "--projekt", "prod", "--url", "http://localhost:8100"]), undefined);
+});
+
+test("P1: Bestätigungswort enthält Ziel und Anzahl", () => {
+  assert.equal(bestaetigungswort("http://127.0.0.1:56321", 7), "REPARIEREN http://127.0.0.1:56321 7");
+  assert.equal(bestaetigungswort("rkegvieoejmyutkowwwf", 0), "REPARIEREN rkegvieoejmyutkowwwf 0");
+});
+
+/** Fake-Ziel: Profilzahl und Konten. */
+function fakeZiel(profilAnzahl, emails) {
+  return {
+    from: () => ({ select: () => Promise.resolve({ count: profilAnzahl, error: null }) }),
+    auth: {
+      admin: {
+        listUsers: ({ page, perPage }) =>
+          Promise.resolve({
+            data: { users: emails.slice((page - 1) * perPage, page * perPage).map((email) => ({ email })) },
+            error: null,
+          }),
+      },
+    },
+  };
+}
+
+test("P1: Testziel-Sicherung bricht bei > 200 Profilen oder fremder Adresse ab", async () => {
+  const test201 = Array.from({ length: 201 }, (_, i) => `t${i}@test.icr.local`);
+  assert.equal(await pruefeTestziel(fakeZiel(64, test201.slice(0, 64))), null);
+  assert.equal(await pruefeTestziel(fakeZiel(200, test201.slice(0, 200))), null);
+  assert.match(await pruefeTestziel(fakeZiel(201, test201)), /mehr als 200 Profile/);
+  assert.match(await pruefeTestziel(fakeZiel(64, ["a@test.icr.local", "vorstand@investmentclub-regensburg.de"])), /1 Konten außerhalb/);
+  // fremde Adresse erst auf Seite 2
+  assert.match(await pruefeTestziel(fakeZiel(150, [...test201.slice(0, 200), "x@gmail.com"])), /außerhalb/);
+  assert.match(await pruefeTestziel(fakeZiel(10, [null])), /außerhalb/);
+  const kaputt = { from: () => ({ select: () => Promise.resolve({ count: null, error: { message: "x" } }) }) };
+  assert.ok(await pruefeTestziel(kaputt));
+  // Meldungen ohne Adressen
+  const meldung = await pruefeTestziel(fakeZiel(64, ["vorstand@investmentclub-regensburg.de"]));
+  assert.ok(!meldung.includes("investmentclub"));
+});
+
+test("P2: Strg+C (Signal-Simulation) beendet nach dem laufenden Profil, zweites Strg+C sofort", async () => {
+  const prozess = new EventEmitter();
+  let sofort = 0;
+  const abbruch = abbruchBeiSignal(prozess, () => sofort++);
+  const bearbeitet = [];
+  const lauf = await schreibeAlle([1, 2, 3, 4, 5], async (n) => {
+    bearbeitet.push(n);
+    if (n === 2) prozess.emit("SIGINT"); // während Profil 2
+    await new Promise((r) => setImmediate(r));
+  }, abbruch);
+  assert.deepEqual(bearbeitet, [1, 2]);
+  assert.deepEqual(lauf, { bearbeitet: 2, abgebrochen: true });
+  assert.equal(sofort, 0);
+  prozess.emit("SIGINT");
+  assert.equal(sofort, 1);
+  abbruch.aufheben();
+  assert.equal(prozess.listenerCount("SIGINT"), 0);
+
+  const ohne = await schreibeAlle([1, 2, 3], async () => {}, { angefordert: false });
+  assert.deepEqual(ohne, { bearbeitet: 3, abgebrochen: false });
+
+  const r = neuesReparaturErgebnis();
+  Object.assign(r, { geplant: 7, bearbeitet: 2, abgebrochen: true, geaendert: 2 });
+  assert.match(formatiereReparatur(r), /abgebrochen nach 2 von 7/);
+});
+
+test("P3: IBAN-Stand nur bei normalisierter IBAN mit passendem Fingerabdruck", () => {
+  const passt = () => false;
+  const geaendert = () => true;
+  const kaputt = () => {
+    throw new Error("Fingerabdruck beschädigt");
+  };
+  assert.equal(ibanStandStimmt(null, null, kaputt), true);
+  assert.equal(ibanStandStimmt("", "h1.x.y", kaputt), true);
+  assert.equal(ibanStandStimmt(IBAN_DE, "h1", passt), true);
+  assert.equal(ibanStandStimmt(IBAN_DE, "h1", geaendert), false);
+  assert.equal(ibanStandStimmt(IBAN_DE, "h1", kaputt), false);
+  assert.equal(ibanStandStimmt("de89 3704 0044 0532 0130 00", "h1", passt), false);
+  assert.equal(ibanStandStimmt(42, "h1", passt), false);
+});
+
+test("P4: Straße und Hausnummer nur gemeinsam", () => {
+  const paar = { strasse: "Hauptstraße", hausnummer: "12" };
+  assert.deepEqual([...gegenprobe(paar, new Set())], []);
+  assert.deepEqual([...gegenprobe(paar, new Set(["hausnummer"]))].sort(), ["hausnummer", "strasse"]);
+  assert.deepEqual([...gegenprobe(paar, new Set(["strasse"]))].sort(), ["hausnummer", "strasse"]);
+  assert.deepEqual([...gegenprobe({ ...paar, bic: "" }, new Set(["hausnummer"]))].sort(), ["hausnummer", "strasse"]);
+  assert.deepEqual([...gegenprobe({ handynummer: "+4917612345678", bic: "" }, new Set(["plz"]))], []);
+  assert.deepEqual([...gegenprobe({ handynummer: "+4917612345678", bic: "" }, new Set(["bic"]))], ["bic"]);
+  // nur Straße bereinigt, Hausnummer hat (alten) Mangel → Straße bleibt, nichts wird halb geschrieben
+  assert.deepEqual([...gegenprobe({ strasse: "Lindenweg" }, new Set(["hausnummer"]))], ["strasse"]);
+});
+
+test("P5: Paging ohne Abfrage hinter dem Ende (0/500/1000/1001 Zeilen)", async () => {
+  for (const gesamt of [0, 1, 499, 500, 501, 1000, 1001]) {
+    const tabelle = Array.from({ length: gesamt }, (_, i) => ({ id: i }));
+    const abfragen = [];
+    const abfrage = (von, bis) => {
+      abfragen.push(von);
+      // PostgREST: Offset hinter dem Ende → 416
+      if (gesamt > 0 && von >= gesamt) return Promise.resolve({ data: null, error: { code: "PGRST103" }, count: gesamt });
+      return Promise.resolve({ data: tabelle.slice(von, bis + 1), error: null, count: gesamt });
+    };
+    const zeilen = await ladeAlle(abfrage, "Test", 500);
+    assert.equal(zeilen.length, gesamt, String(gesamt));
+    assert.equal(abfragen.length, Math.max(1, Math.ceil(gesamt / 500)), String(gesamt));
+  }
+  // Zahl passt nicht → Abbruch
+  const luecke = () => Promise.resolve({ data: [{ id: 1 }], error: null, count: 3 });
+  await assert.rejects(() => ladeAlle(luecke, "Test", 500), /unvollständig/);
+  const ohneZahl = () => Promise.resolve({ data: [], error: null, count: null });
+  await assert.rejects(() => ladeAlle(ohneZahl, "Test", 500), /Gesamtzahl/);
+});
+
+test("P7: --liste überschreibt nie", () => {
+  const vorhanden = path.join(os.tmpdir(), `dq-vorhanden-${process.pid}.tsv`);
+  writeFileSync(vorhanden, "x");
+  try {
+    assert.match(leseArgumente(["pruefen", "--projekt", "test", "--liste", vorhanden], {}, REPO).fehler, /gibt es schon/);
+  } finally {
+    rmSync(vorhanden, { force: true });
+  }
+});
+
+test("P9: Etikett für gekündigt + Antrag offen", () => {
+  const text = formatierePruefung(zaehleAlle([]));
+  assert.match(text, /gekündigt \+ Antrag offen: mit Mangel oder nicht lesbar/);
 });

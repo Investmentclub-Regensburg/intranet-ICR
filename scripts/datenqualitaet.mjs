@@ -9,7 +9,8 @@
 //   reparieren --probelauf   Zählungen je Feld: gueltig / sicher / vorschlag / offen. Ändert nichts.
 //   reparieren               Schreibt nur „sicher“ (Handy → E.164, Straße/Hausnummer abtrennen, BIC mit
 //                            falschem Format leeren) über saveMemberSecrets. Braucht --vorstand <Profil-ID>
-//                            (Korrekturprotokoll member_data_corrections) und das Bestätigungswort.
+//                            (Korrekturprotokoll member_data_corrections) und das Bestätigungswort
+//                            „REPARIEREN <ziel> <anzahl>“. Strg+C beendet nach dem laufenden Profil.
 // Optionen:
 //   --liste <datei>          TSV mit Profil-ID + Mängel-Codes (keine Werte), nur außerhalb des Repos.
 //
@@ -20,21 +21,25 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import {
+  abbruchBeiSignal,
+  bestaetigungswort,
   bewerteProfil,
   fehlerOhneDaten,
   formatierePruefung,
   formatiereProbelauf,
   formatiereReparatur,
+  ibanStandStimmt,
+  ladeAlle,
   leseArgumente,
   listeTsv,
   mitVersionsSperre,
   neuesReparaturErgebnis,
+  pruefeTestziel,
+  schreibeAlle,
   zaehleAlle,
 } from "./lib/datenqualitaet.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-/** Seitengröße beim Laden (unter dem PostgREST-Limit max_rows = 1000). */
-const SEITE = 500;
 
 /** Gewollter Abbruch mit eigener (datenfreier) Meldung. Kein process.exit: offene Verbindungen schließen sauber. */
 class Abbruch extends Error {}
@@ -124,10 +129,16 @@ async function main() {
   if (!process.env.MEMBER_DATA_MASTER_KEY_ID) {
     process.env.MEMBER_DATA_MASTER_KEY_ID = await ask("Master-Key-ID (z. B. prod-2026-10): ");
   }
+  // Ältere Keys (Rotation, Review P6): optional, verdeckt; nur im Terminal gefragt, leer = keine.
+  if (process.env.MEMBER_DATA_OLD_MASTER_KEYS === undefined && process.stdin.isTTY) {
+    const alt = await ask("Ältere Master Keys „id:base64,…“ (leer = keine): ", { hidden: true });
+    if (alt) process.env.MEMBER_DATA_OLD_MASTER_KEYS = alt;
+  }
 
   // Erst jetzt laden: die Bibliotheken lesen die Umgebung.
   const { createClient } = await import("@supabase/supabase-js");
   const { getKeyring } = await import("../lib/member-crypto-server.ts");
+  const { ibanChanged } = await import("../lib/member-crypto.ts");
   const {
     MemberSecretsConflictError,
     assertKeyRegistered,
@@ -153,24 +164,16 @@ async function main() {
   }
   console.log("Key passt zum registrierten Prüfwert.");
 
+  // „lokal“ nur gegen eine Testdatenbank wie seed.sql (Review P1).
+  if (projekt === "lokal") {
+    const grund = await pruefeTestziel(admin);
+    if (grund) fail(`${grund} Für die Produktion --projekt prod verwenden.`);
+    console.log("Testdatenbank bestätigt (höchstens 200 Profile, nur Testkonten).");
+  }
+
   // ---------------------------------------------------------------------------------------------------
   // Laden und Bewerten
   // ---------------------------------------------------------------------------------------------------
-
-  /** Alle Zeilen seitenweise; Abbruch, wenn die Zahl nicht zur Gesamtzahl passt. */
-  async function ladeAlle(abfrage, label) {
-    const zeilen = [];
-    let gesamt = null;
-    for (let von = 0; ; von += SEITE) {
-      const { data, error, count } = await abfrage(von, von + SEITE - 1);
-      if (error) throw new Error(`${label} nicht lesbar`);
-      if (gesamt === null) gesamt = count;
-      zeilen.push(...(data ?? []));
-      if (!data || data.length < SEITE) break;
-    }
-    if (gesamt === null || zeilen.length !== gesamt) throw new Error(`${label} unvollständig geladen`);
-    return zeilen;
-  }
 
   async function ladeUndBewerte() {
     const profile = await ladeAlle(
@@ -199,7 +202,8 @@ async function main() {
 
   function schreibeListe(eintraege) {
     if (!liste) return;
-    writeFileSync(liste, listeTsv(eintraege), { encoding: "utf8", mode: 0o600 });
+    // Nie überschreiben (Review P7): „wx“ bricht ab, wenn es die Datei inzwischen gibt.
+    writeFileSync(liste, listeTsv(eintraege), { encoding: "utf8", mode: 0o600, flag: "wx" });
     console.log(`\nListe geschrieben (${eintraege.length} Profile geprüft).`);
   }
 
@@ -236,25 +240,42 @@ async function main() {
       if (offen.length === 0) {
         console.log("\nNichts zu reparieren: 0 Profile geändert.");
       } else {
+        if (vorher.nichtLesbar > 0) {
+          console.log(
+            `\nAchtung: ${vorher.nichtLesbar} Profile nicht lesbar (alter Master Key? MEMBER_DATA_OLD_MASTER_KEYS) – sie werden übersprungen.`
+          );
+        }
         console.log(`\nSchreibt ${offen.length} Profile über saveMemberSecrets (protokolliert in member_data_corrections).`);
-        const antwort = await ask(`Zum Bestätigen „REPARIEREN ${ziel}“ eingeben: `);
-        if (antwort !== `REPARIEREN ${ziel}`) fail("Nicht bestätigt – nichts geändert.");
+        const wort = bestaetigungswort(ziel, offen.length);
+        const antwort = await ask(`Zum Bestätigen „${wort}“ eingeben: `);
+        if (antwort !== wort) fail("Nicht bestätigt – nichts geändert.");
+        // Eingabe sofort schließen, damit Strg+C beim Prozess ankommt (Review P2).
+        rl?.close();
+        rl = null;
 
+        const keyring = getKeyring();
         const r = neuesReparaturErgebnis();
-        for (const { id, profil } of offen) {
+        r.geplant = offen.length;
+        const abbruch = abbruchBeiSignal();
+        const schritt = async ({ id, profil }) => {
           // Frisch lesen und neu bewerten: geschrieben wird genau der geprüfte Stand (Version).
           let frisch;
           try {
             frisch = await readMemberSecretsWithMeta(admin, id);
           } catch {
             r.nichtLesbar++;
-            continue;
+            return;
           }
           const b = bewerteProfil({ profil, werte: frisch ? frisch.values : emptySecretValues(), hatZeile: Boolean(frisch) });
           const aenderungen = b.aenderungen;
           if (Object.keys(aenderungen).length === 0) {
             r.inzwischenErledigt++;
-            continue;
+            return;
+          }
+          // Nie eine IBAN-Änderung auslösen (Review P3).
+          if (!ibanStandStimmt(frisch?.values.iban ?? null, frisch?.iban_hash ?? null, (h, i) => ibanChanged(keyring, h, i))) {
+            r.ibanAbgleich++;
+            return;
           }
           try {
             await saveMemberSecrets(mitVersionsSperre(admin, frisch ? frisch.version : null), id, aenderungen, {
@@ -266,8 +287,13 @@ async function main() {
             if (err instanceof MemberSecretsConflictError) r.konflikt++;
             else r.fehler++;
           }
-          process.stdout.write(`\r  bearbeitet: ${r.geaendert + r.konflikt + r.fehler + r.nichtLesbar + r.inzwischenErledigt} von ${offen.length}   `);
-        }
+        };
+        const lauf = await schreibeAlle(offen, schritt, abbruch, (n) =>
+          process.stdout.write(`\r  bearbeitet: ${n} von ${offen.length}   `)
+        );
+        abbruch.aufheben();
+        r.bearbeitet = lauf.bearbeitet;
+        r.abgebrochen = lauf.abgebrochen;
         console.log(`\n\n${formatiereReparatur(r)}`);
         const nachher = await ladeUndBewerte();
         console.log(`\n${formatierePruefung(zaehleAlle(nachher.map((e) => e.bewertung)))}`);

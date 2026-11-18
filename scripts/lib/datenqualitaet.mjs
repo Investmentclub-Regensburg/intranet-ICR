@@ -4,7 +4,7 @@
 // Grundsatz: Alles, was hier formatiert wird, enthält nur Zahlen, Feldnamen und Codes – nie Werte, Namen,
 // E-Mails oder Profil-IDs. Einzige Ausnahme ist die TSV-Liste (`listeTsv`), die nur auf ausdrücklichen Wunsch
 // (`--liste <datei>`) und nur außerhalb des Repos geschrieben wird: Profil-ID + Codes, keine Werte.
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   HINWEIS_CODES,
@@ -14,6 +14,7 @@ import {
   repariereMitgliederdaten,
 } from "../../lib/member-rules.ts";
 import { isActiveMemberProfile, isAlumniProfile, isCancelledProfile } from "../../lib/profile-status.ts";
+import { normalizeIban } from "../../lib/member-crypto.ts";
 
 /**
  * Verschlüsselte Felder, die das Skript aus member_secrets liest und prüft (= SECRET_FIELDS vor PR 2).
@@ -73,37 +74,51 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
   const maengel = eindeutigeMaengel(pruefung.maengel);
   const mangelFelder = new Set(maengel.map((m) => m.feld));
 
-  const status = {};
-  for (const feld of AUSGABE_FELDER) {
-    let s = reparatur.status[feld];
-    if (feld === "hausnummer" && reparatur.status.strasse === "sicher") s = "sicher";
-    // „sicher“ nur für Felder, die das Skript schreibt (IBAN-Schreibweise: Prüfung normalisiert ohnehin).
-    if (s === "sicher" && !SCHREIBBARE_FELDER.includes(feld)) s = undefined;
-    if (s !== "sicher" && s !== "vorschlag") s = mangelFelder.has(feld) ? "offen" : "gueltig";
-    status[feld] = s;
+  // Kandidaten: SCHREIBBARE_FELDER mit Reparatur „sicher“, deren Wert sich wirklich ändert. Straße und
+  // Hausnummer kommen aus einer Reparatur (Abtrennen oder nur Bereinigen, Regelwerk K2).
+  const kandidaten = {};
+  for (const feld of SCHREIBBARE_FELDER) {
+    const quelle = feld === "hausnummer" ? "strasse" : feld;
+    if (reparatur.status[quelle] !== "sicher") continue;
+    const wert = reparatur.sicher[feld];
+    if (typeof wert === "string" && wert !== (daten[feld] ?? "")) kandidaten[feld] = wert;
   }
 
-  let aenderungen = {};
+  // Gegenprobe: Jedes geänderte Feld muss danach mangelfrei sein. Straße und Hausnummer nur gemeinsam
+  // (Review P4): hat eines danach einen Mangel, wird keines von beiden geschrieben.
+  const verworfen = Object.keys(kandidaten).length
+    ? gegenprobe(kandidaten, new Set(pruefeBestand({ ...daten, ...kandidaten }, kontext).maengel.map((m) => m.feld)))
+    : new Set();
+
+  const status = {};
+  for (const feld of AUSGABE_FELDER) {
+    // „sicher“ nur für Felder, die das Skript tatsächlich ändert (IBAN nie; die Prüfung normalisiert ohnehin).
+    if (feld in kandidaten) status[feld] = verworfen.has(feld) ? "offen" : "sicher";
+    else if (reparatur.status[feld] === "vorschlag") status[feld] = "vorschlag";
+    else status[feld] = mangelFelder.has(feld) ? "offen" : "gueltig";
+  }
+
+  const aenderungen = {};
   if (gruppe === "aktiv") {
-    for (const feld of SCHREIBBARE_FELDER) {
-      if (status[feld] !== "sicher") continue;
-      const wert = reparatur.sicher[feld];
-      if (typeof wert === "string") aenderungen[feld] = wert;
-    }
-    // Gegenprobe: Jedes geänderte Feld muss danach mangelfrei sein, sonst wird es nicht geschrieben.
-    if (Object.keys(aenderungen).length) {
-      const nachher = pruefeBestand({ ...daten, ...aenderungen }, kontext);
-      const nochMangel = new Set(nachher.maengel.map((m) => m.feld));
-      const sauber = {};
-      for (const [feld, wert] of Object.entries(aenderungen)) {
-        if (nochMangel.has(feld)) status[feld] = "offen";
-        else sauber[feld] = wert;
-      }
-      aenderungen = sauber;
-    }
+    for (const [feld, wert] of Object.entries(kandidaten)) if (!verworfen.has(feld)) aenderungen[feld] = wert;
   }
 
   return { ...basis, maengel, hinweise: pruefung.hinweise, status, aenderungen };
+}
+
+/**
+ * Gegenprobe nach der Reparatur: verworfen wird jedes Feld, das danach noch einen Mangel hat. Straße und
+ * Hausnummer gehören zusammen (Review P4): hat eines von beiden danach einen Mangel, wird keines geschrieben.
+ *   kandidaten  geplante Änderungen { feld: wert }
+ *   nochMangel  Felder mit Mangel im Datensatz NACH den Änderungen
+ */
+export function gegenprobe(kandidaten, nochMangel) {
+  const verworfen = new Set(Object.keys(kandidaten).filter((f) => nochMangel.has(f)));
+  const paar = ["strasse", "hausnummer"].filter((f) => f in kandidaten);
+  if (paar.length && (nochMangel.has("strasse") || nochMangel.has("hausnummer"))) {
+    for (const f of paar) verworfen.add(f);
+  }
+  return verworfen;
 }
 
 /**
@@ -194,7 +209,7 @@ export function zaehleAlle(bewertungen) {
 // ---------------------------------------------------------------------------------------------------
 
 const zahl = (n) => String(Number.isFinite(n) ? n : 0);
-const zeile = (label, n, breite = 50) => `  ${label.padEnd(breite)} ${zahl(n).padStart(5)}`;
+const zeile = (label, n, breite = 56) => `  ${label.padEnd(breite)} ${zahl(n).padStart(5)}`;
 
 function codeTabelle(tabelle, codes) {
   const zeilen = [];
@@ -215,7 +230,7 @@ function kopf(z) {
     zeile("  davon ohne member_secrets-Zeile", z.ohneZeileAktiv),
     zeile("nicht betroffen: gekündigt (nur gezählt)", z.gekuendigt),
     zeile("nicht betroffen: Antrag offen (nur gezählt)", z.antragOffen),
-    zeile("  davon mit Mangel oder nicht lesbar", z.nichtBetroffenMitMangel),
+    zeile("gekündigt + Antrag offen: mit Mangel oder nicht lesbar", z.nichtBetroffenMitMangel),
     zeile("Profile ohne member_secrets-Zeile (alle)", z.ohneZeileGesamt),
     zeile("nicht lesbar (alle)", z.nichtLesbar),
   ];
@@ -260,15 +275,27 @@ export function formatiereProbelauf(z) {
 
 /** Ergebnis von `reparieren`. */
 export function neuesReparaturErgebnis() {
-  return { geaendert: 0, felder: {}, konflikt: 0, nichtLesbar: 0, inzwischenErledigt: 0, fehler: 0 };
+  return {
+    geplant: 0,
+    geaendert: 0,
+    felder: {},
+    konflikt: 0,
+    ibanAbgleich: 0,
+    nichtLesbar: 0,
+    inzwischenErledigt: 0,
+    fehler: 0,
+    abgebrochen: false,
+    bearbeitet: 0,
+  };
 }
 
 export function formatiereReparatur(r) {
   return [
-    "Reparatur fertig",
+    r.abgebrochen ? `Reparatur abgebrochen nach ${zahl(r.bearbeitet)} von ${zahl(r.geplant)} Profilen (Strg+C)` : "Reparatur fertig",
     zeile("Profile geändert", r.geaendert),
     ...SCHREIBBARE_FELDER.map((feld) => zeile(`  ${feld}`, r.felder[feld] ?? 0)),
     zeile("übersprungen: Versionskonflikt (nicht wiederholt)", r.konflikt),
+    zeile("übersprungen: IBAN-Fingerabdruck passt nicht", r.ibanAbgleich),
     zeile("übersprungen: inzwischen nichts mehr zu tun", r.inzwischenErledigt),
     zeile("übersprungen: nicht lesbar", r.nichtLesbar),
     zeile("Fehler", r.fehler),
@@ -316,6 +343,8 @@ const WERT_FLAGS = ["--projekt", "--url", "--vorstand", "--liste"];
 const SCHALTER = ["--probelauf"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
+/** Dokumentierter SSH-Tunnel zur Produktion (README „Betrieb auf eigenem Server“) – nie als „lokal“. */
+const PROD_TUNNEL_PORT = "8100";
 
 /** Eigene Supabase-URL: nur http(s), ohne Pfad. Liefert { origin, host } oder { fehler }. */
 export function normalisiereUrl(roh) {
@@ -400,7 +429,9 @@ export function leseArgumente(argv, env = {}, repoWurzel = null) {
   if (!projekt || !Object.hasOwn(PROJEKTE, projekt)) {
     return { fehler: "--projekt prod, --projekt test oder --projekt lokal (mit --url) angeben." };
   }
-  const roheUrl = werte["--url"] ?? env.ICR_SUPABASE_URL;
+  // „lokal“ nur mit ausdrücklichem --url (Review P1): ein dauerhaft gesetztes ICR_SUPABASE_URL (Prod-Tunnel)
+  // darf nie still als „lokal“ gelten.
+  const roheUrl = projekt === "lokal" ? werte["--url"] : (werte["--url"] ?? env.ICR_SUPABASE_URL);
   let url;
   if (roheUrl) {
     // Wie scripts/verschluesselung.mjs: Ein dauerhaft gesetztes ICR_SUPABASE_URL darf „test“ nicht umlenken.
@@ -409,6 +440,9 @@ export function leseArgumente(argv, env = {}, repoWurzel = null) {
     if (n.fehler) return { fehler: n.fehler };
     if (projekt === "lokal" && !LOOPBACK.has(n.host)) {
       return { fehler: "--projekt lokal nur mit einer Adresse auf diesem Rechner (localhost, 127.0.0.1)." };
+    }
+    if (projekt === "lokal" && new URL(n.origin).port === PROD_TUNNEL_PORT) {
+      return { fehler: `Port ${PROD_TUNNEL_PORT} ist der Tunnel zur Produktion – dafür --projekt prod verwenden.` };
     }
     url = n.origin;
   } else if (projekt === "lokal") {
@@ -430,6 +464,7 @@ export function leseArgumente(argv, env = {}, repoWurzel = null) {
     if (!repoWurzel || !listePfadErlaubt(liste, repoWurzel)) {
       return { fehler: "--liste muss außerhalb des Repos liegen (das Repo ist öffentlich)." };
     }
+    if (existsSync(liste)) return { fehler: "--liste: Die Datei gibt es schon – nichts wird überschrieben." };
   }
 
   return {
@@ -486,4 +521,100 @@ export function fehlerOhneDaten(err) {
           .slice(0, 8)
       : [];
   return [name, ...stellen.map((s) => `  ${s}`)].join("\n");
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Laden, Sicherungen, Schreibschleife (Review P1–P3, P5)
+// ---------------------------------------------------------------------------------------------------
+
+/** Seitengröße beim Laden (unter dem PostgREST-Limit max_rows = 1000). */
+export const SEITE = 500;
+
+/**
+ * Alle Zeilen seitenweise laden (Review P5): feste Seiten per `range`, die Gesamtzahl kommt aus der ersten
+ * Antwort; es wird nie eine Seite hinter dem Ende abgefragt (PostgREST antwortet dort ggf. mit 416).
+ * Abbruch, wenn die geladene Zahl nicht zur Gesamtzahl passt.
+ */
+export async function ladeAlle(abfrage, label, seite = SEITE) {
+  const zeilen = [];
+  let gesamt = null;
+  for (let von = 0; ; von += seite) {
+    const { data, error, count } = await abfrage(von, von + seite - 1);
+    if (error) throw new Error(`${label} nicht lesbar`);
+    if (gesamt === null) gesamt = count;
+    if (typeof gesamt !== "number") throw new Error(`${label}: Gesamtzahl fehlt`);
+    zeilen.push(...(data ?? []));
+    if (zeilen.length >= gesamt || !data || data.length < seite) break;
+  }
+  if (zeilen.length !== gesamt) throw new Error(`${label} unvollständig geladen`);
+  return zeilen;
+}
+
+/** Höchstzahl an Profilen und Pflicht-Domain eines Testziels (wie seed.sql / Vorschau-Testdaten). */
+export const TESTZIEL = Object.freeze({ maxProfile: 200, domain: "@test.icr.local" });
+
+/**
+ * Sicherung für `--projekt lokal` (Review P1): Abbruch, wenn die Ziel-DB mehr als 200 Profile hat oder ein
+ * Login-Konto nicht auf @test.icr.local endet. Liefert null oder eine Meldung (ohne Adressen).
+ */
+export async function pruefeTestziel(admin) {
+  const { count, error } = await admin.from("profiles").select("id", { count: "exact", head: true });
+  if (error || typeof count !== "number") return "Ziel nicht prüfbar (Profile nicht zählbar).";
+  if (count > TESTZIEL.maxProfile) return `Ziel hat mehr als ${TESTZIEL.maxProfile} Profile – keine Testdatenbank.`;
+  for (let seite = 1; seite <= 50; seite++) {
+    const { data, error: e } = await admin.auth.admin.listUsers({ page: seite, perPage: TESTZIEL.maxProfile });
+    if (e || !data) return "Ziel nicht prüfbar (Konten nicht lesbar).";
+    const fremd = data.users.filter((u) => typeof u.email !== "string" || !u.email.toLowerCase().endsWith(TESTZIEL.domain));
+    if (fremd.length) return `Ziel hat ${fremd.length} Konten außerhalb von ${TESTZIEL.domain} – keine Testdatenbank.`;
+    if (data.users.length < TESTZIEL.maxProfile) return null;
+  }
+  return "Ziel hat zu viele Konten – keine Testdatenbank.";
+}
+
+/** Bestätigungswort mit Ziel und Zahl der zu ändernden Profile (Review P1). */
+export function bestaetigungswort(ziel, anzahl) {
+  return `REPARIEREN ${ziel} ${anzahl}`;
+}
+
+/**
+ * IBAN-Stand vor dem Speichern (Review P3): saveMemberSecrets schreibt die IBAN bei jedem Speichern neu und
+ * meldet eine IBAN-Änderung, wenn der Fingerabdruck nicht passt. Das Skript speichert nur, wenn die
+ * gespeicherte IBAN schon normalisiert ist und ihr Fingerabdruck passt – so entsteht nie eine Meldung.
+ *   ibanGeaendert(hash, iban) = ibanChanged(keyring, hash, iban); wirft bei beschädigtem Fingerabdruck.
+ */
+export function ibanStandStimmt(iban, ibanHash, ibanGeaendert) {
+  if (iban === null || iban === undefined || iban === "") return true;
+  if (typeof iban !== "string" || normalizeIban(iban) !== iban) return false;
+  try {
+    return ibanGeaendert(ibanHash, iban) === false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Strg+C während des Schreibens (Review P2): setzt nur ein Flag, die Schleife endet nach dem laufenden
+ * Profil. Ein zweites Strg+C beendet sofort (`sofort`). `aufheben()` entfernt den Handler.
+ */
+export function abbruchBeiSignal(prozess = process, sofort = () => process.exit(130)) {
+  const zustand = { angefordert: false };
+  const handler = () => {
+    if (zustand.angefordert) sofort();
+    zustand.angefordert = true;
+  };
+  prozess.on("SIGINT", handler);
+  zustand.aufheben = () => prozess.off("SIGINT", handler);
+  return zustand;
+}
+
+/** Profile nacheinander bearbeiten, bis fertig oder ein Abbruch angefordert ist. */
+export async function schreibeAlle(eintraege, schritt, abbruch, fortschritt = () => {}) {
+  let bearbeitet = 0;
+  for (const eintrag of eintraege) {
+    if (abbruch.angefordert) break;
+    await schritt(eintrag);
+    bearbeitet++;
+    fortschritt(bearbeitet);
+  }
+  return { bearbeitet, abgebrochen: bearbeitet < eintraege.length };
 }
