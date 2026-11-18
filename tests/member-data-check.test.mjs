@@ -8,13 +8,18 @@ import {
   berlinTagesbeginn,
   istAbfrageFaellig,
   istBestaetigungOffen,
+  layoutModus,
   leseDatenCheckEinstellungen,
   letzterStichtag,
   spaeterBis,
   spaeterGrenze,
 } from "../lib/member-data-check.ts";
 import {
+  ANSCHRIFT_FEHLT,
+  _resetStartWarnung,
   bauDatenCheckAnsicht,
+  bestaetigeStand,
+  datenCheckEinstellungen,
   bestaetigungsAenderungen,
   bewerteBestand,
   ibanMaskiert,
@@ -346,4 +351,128 @@ test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .e
   const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(env, /^DATA_CHECK_ENABLED=\r?$/m);
   assert.match(env, /^DATA_CHECK_START=\r?$/m);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Fixrunde (Reviews A1–A4, B1–B3)
+// ---------------------------------------------------------------------------------------------------
+
+test("A1/B1: Layout-Modus – Mängel → nur Fenster, gültig → Fenster über der Seite, nicht fällig → Seite", () => {
+  assert.equal(layoutModus(null), "seite");
+  assert.equal(layoutModus({ gueltig: true }), "fenster-ueber-seite");
+  assert.equal(layoutModus({ gueltig: false }), "nur-fenster");
+  const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
+  // Seiteninhalt (children) steckt nur in `seite`; im Modus „nur-fenster“ bekommt das Fenster einen leeren Grund.
+  assert.equal(layout.match(/\{children\}/g).length, 1);
+  assert.match(layout, /modus === "fenster-ueber-seite" \? seite : <div className="min-h-screen bg-background" \/>/);
+  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
+  // Ohne Portal (steht im Server-HTML), Seite darunter inert, noscript mit Abmelden.
+  assert.doesNotMatch(fenster, /DialogPrimitive.Portal|<DialogPortal|<DialogContent/);
+  assert.match(fenster, /inert=\{offen\}/);
+  assert.match(fenster, /<noscript>[\s\S]*Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\.[\s\S]*action=\{logoutAction\}/);
+});
+
+function fakeAdmin({ rpc, version = 0, rpcFehler = null } = {}) {
+  const calls = { rpc: [], updates: [] };
+  return {
+    calls,
+    rpc: async (name, args) => {
+      calls.rpc.push({ name, args });
+      if (rpcFehler) return { data: null, error: rpcFehler };
+      return { data: rpc, error: null };
+    },
+    from: (tabelle) => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: version === null ? null : { version }, error: null }) }) }),
+      update: (werte) => ({
+        eq: async (spalte, wert) => {
+          calls.updates.push({ tabelle, werte, spalte, wert });
+          return { error: null };
+        },
+      }),
+    }),
+  };
+}
+
+test("A2: Bestätigung nur für den geprüften Stand (confirm_member_data mit erwarteter Version)", async () => {
+  const ok = fakeAdmin({ rpc: true });
+  assert.equal(await bestaetigeStand(ok, "p1", 4), "ok");
+  assert.deepEqual(ok.calls.rpc, [{ name: "confirm_member_data", args: { p_profile_id: "p1", p_expected_version: 4 } }]);
+  assert.equal(ok.calls.updates.length, 0);
+  assert.equal(await bestaetigeStand(fakeAdmin({ rpc: false }), "p1", 4), "konflikt");
+  const kaputt = fakeAdmin({ rpcFehler: { code: "XX000", message: "boom" } });
+  assert.equal(await bestaetigeStand(kaputt, "p1", 4), "fehler");
+  assert.equal(kaputt.calls.updates.length, 0);
+});
+
+test("A2: Übergang ohne Funktion – Version vergleichen, nur bei gleichem Stand setzen", async () => {
+  const fehlt = { code: "PGRST202", message: "Could not find the function public.confirm_member_data" };
+  const gleich = fakeAdmin({ rpcFehler: fehlt, version: 4 });
+  assert.equal(await bestaetigeStand(gleich, "p1", 4), "ok");
+  assert.equal(gleich.calls.updates.length, 1);
+  assert.equal(gleich.calls.updates[0].werte.daten_erinnern_ab, null);
+  const anders = fakeAdmin({ rpcFehler: fehlt, version: 5 });
+  assert.equal(await bestaetigeStand(anders, "p1", 4), "konflikt");
+  assert.equal(anders.calls.updates.length, 0);
+  const ohneZeile = fakeAdmin({ rpcFehler: fehlt, version: null });
+  assert.equal(await bestaetigeStand(ohneZeile, "p1", 0), "ok");
+});
+
+test("A2: Migration confirm_member_data – Versionsvergleich unter Sperre, nur service_role", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/20261118150000_member_data_confirm.sql", import.meta.url), "utf8");
+  const code = sql.replace(/--.*$/gm, "");
+  assert.match(code, /for share;/);
+  assert.match(code, /coalesce\(v_version, 0\) <> p_expected_version/);
+  assert.match(code, /security definer/);
+  assert.match(code, /set search_path = ''/);
+  assert.match(code, /from public, anon, authenticated;/);
+  assert.match(code, /to service_role;/);
+  assert.doesNotMatch(code, /\b(truncate|delete from|drop table|drop column)\b/i);
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  assert.match(actions, /bestaetigeStand\(admin, g\.id, erwartet\)/);
+  assert.doesNotMatch(actions, /daten_bestaetigt_am: new Date/);
+});
+
+test("A3: landUnbekannt kommt nur vom Server, nie aus dem Formular", () => {
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(actions, /formData\.get\("landUnbekannt"\)/);
+  assert.match(actions, /const landUnbekannt = !g\.landBekannt;/);
+  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(fenster, /name="landUnbekannt"/);
+});
+
+test("A4: Schalter an ohne gültiges Start-Datum → einmal Warnung ohne Wert", () => {
+  const original = console.warn;
+  const warnungen = [];
+  console.warn = (...args) => warnungen.push(args.join(" "));
+  try {
+    _resetStartWarnung();
+    datenCheckEinstellungen({ DATA_CHECK_ENABLED: "true", DATA_CHECK_START: "2026-02-30" });
+    datenCheckEinstellungen({ DATA_CHECK_ENABLED: "true" });
+    assert.equal(warnungen.length, 1);
+    assert.doesNotMatch(warnungen[0], /2026-02-30/);
+    _resetStartWarnung();
+    datenCheckEinstellungen({ DATA_CHECK_ENABLED: "true", DATA_CHECK_START: "2026-12-01" });
+    datenCheckEinstellungen({ DATA_CHECK_ENABLED: "false" });
+    assert.equal(warnungen.length, 1);
+  } finally {
+    console.warn = original;
+  }
+});
+
+test("B2: „Ändern“ fokussiert bei Mängeln das erste markierte Feld", () => {
+  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
+  assert.match(fenster, /fokussiere\(nach === "aendern" && Object\.values\(fehler\)\.some\(Boolean\) \? "fehler" : "schritt"\)/);
+});
+
+test("B3: Anschrift ganz leer → „Fehlt“ und eine Zeile für die Anschrift, Feldmarkierungen bleiben", () => {
+  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null }));
+  const zeile = a.zeilen.find((zl) => zl.key === "anschrift");
+  assert.deepEqual(zeile.wert, []);
+  assert.equal(zeile.fehler, ANSCHRIFT_FEHLT);
+  assert.equal(ANSCHRIFT_FEHLT, "Bitte trag deine Anschrift ein.");
+  for (const feld of ["strasse", "plz", "ort"]) assert.ok(a.formularFehler[feld], feld);
+  // Nur teilweise leer: die Feldmeldung wie bisher.
+  const teil = ansicht(gut({ plz: null })).zeilen.find((zl) => zl.key === "anschrift");
+  assert.notEqual(teil.fehler, ANSCHRIFT_FEHLT);
+  assert.ok(teil.wert.length > 0);
 });

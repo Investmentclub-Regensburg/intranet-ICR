@@ -10,7 +10,8 @@
  */
 import { useEffect, useId, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog as DialogPrimitive } from "radix-ui";
+import { DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,7 +34,13 @@ import { logoutAction } from "@/app/login/actions";
 type Schritt = "uebersicht" | "aendern" | "fertig";
 type Fehler = Partial<Record<string, string>>;
 
-export function DatenCheckFenster({ ansicht }: { ansicht: DatenCheckAnsicht }) {
+/**
+ * `children` = die Seite darunter (nur bei gültigen Daten; bei Mängeln rendert das Layout keine Seite). Solange das
+ * Fenster offen ist, ist sie `inert` + `aria-hidden` – schon im Server-HTML, also auch vor der Hydration. Das Fenster
+ * wird ohne Portal gerendert und steht damit ebenfalls im Server-HTML: kein Aufblitzen der Seite, und ohne
+ * JavaScript sieht man das Fenster mit dem Hinweis und „Abmelden“ statt einer bedienbaren Seite (Review A1/B1).
+ */
+export function DatenCheckFenster({ ansicht, children }: { ansicht: DatenCheckAnsicht; children?: ReactNode }) {
   const router = useRouter();
   const id = useId();
   const [offen, setOffen] = useState(true);
@@ -73,7 +80,8 @@ export function DatenCheckFenster({ ansicht }: { ansicht: DatenCheckAnsicht }) {
     setMeldung("");
     setRichtung(dir);
     setSchritt(nach);
-    fokussiere("schritt");
+    // „Ändern“ bei Mängeln: Fokus aufs erste markierte Feld (Review B2).
+    fokussiere(nach === "aendern" && Object.values(fehler).some(Boolean) ? "fehler" : "schritt");
   }
 
   function fertig() {
@@ -161,15 +169,33 @@ export function DatenCheckFenster({ ansicht }: { ansicht: DatenCheckAnsicht }) {
   const bicHinweis = bicLandHinweis(iban, bic);
 
   return (
-    <Dialog open={offen}>
-      <DialogContent
+    <>
+      {children !== undefined && (
+        <div inert={offen} aria-hidden={offen || undefined}>
+          {children}
+        </div>
+      )}
+    <DialogPrimitive.Root open={offen}>
+      {offen && (
+        <DialogPrimitive.Overlay className="data-[state=open]:animate-in data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-ink/20 backdrop-blur-sm dark:bg-black/50" />
+      )}
+      <DialogPrimitive.Content
         aria-describedby={undefined}
         // Nicht wegklickbar: Escape und Klick daneben schließen nie (Schließen nur über „Später“ bzw. nach dem Haken).
         onEscapeKeyDown={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-        className="max-h-[92dvh] gap-0 overflow-x-hidden overflow-y-auto p-5 sm:max-w-md sm:p-6"
+        className="bg-card text-card-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid max-h-[92dvh] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-0 overflow-x-hidden overflow-y-auto rounded-2xl border p-5 shadow-card duration-200 sm:max-w-md sm:p-6"
       >
         <DialogTitle className="text-xl">Stimmen deine Daten noch?</DialogTitle>
+        {/* Ohne JavaScript funktionieren die Knöpfe nicht: Hinweis und Abmelden (Server-Action als Formular). */}
+        <noscript>
+          <p className="mt-3 text-sm">Bitte aktiviere JavaScript, um deine Daten zu aktualisieren.</p>
+          <form action={logoutAction} className="mt-2">
+            <button type="submit" className="text-sm font-medium text-primary underline underline-offset-4">
+              Abmelden
+            </button>
+          </form>
+        </noscript>
         <div ref={inhalt} className="mt-4 min-w-0">
           <WizardStep stepKey="uebersicht" active={schritt === "uebersicht"} direction={richtung} className="space-y-4">
             <dl className="divide-y divide-border rounded-xl border border-border">
@@ -211,7 +237,6 @@ export function DatenCheckFenster({ ansicht }: { ansicht: DatenCheckAnsicht }) {
               <input type="hidden" name="version" value={f.version} />
               <input type="hidden" name="vornameVorher" value={f.vorname} />
               <input type="hidden" name="nachnameVorher" value={f.nachname} />
-              {f.landUnbekannt && <input type="hidden" name="landUnbekannt" value="1" />}
               <div className="grid gap-3 sm:grid-cols-2">
                 <Feld id={`${id}-vorname`} label="Vorname" fehler={fehler.vorname}>
                   <Input id={`${id}-vorname`} name="vorname" defaultValue={f.vorname} autoComplete="given-name" {...ungueltig(`${id}-vorname`, fehler.vorname)} onInput={() => clear("vorname")} />
@@ -322,8 +347,9 @@ export function DatenCheckFenster({ ansicht }: { ansicht: DatenCheckAnsicht }) {
             {schritt === "fertig" && <GespeichertHaken text="Danke, deine Daten sind bestätigt" onFertig={fertig} />}
           </WizardStep>
         </div>
-      </DialogContent>
-    </Dialog>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Root>
+    </>
   );
 }
 

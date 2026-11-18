@@ -224,3 +224,12 @@ export type DatenCheckAnsicht = {
   /** Mängel je Formularfeld (beim Wechsel zu „Ändern“ gleich am Feld). */
   formularFehler: Partial<Record<string, string>>;
 };
+
+/**
+ * Was das Intranet-Layout rendert (Review A1/B1): nicht fällig → nur die Seite; fällig und gültig → Seite unter dem
+ * Fenster (inert); fällig mit Mängeln → nur das Fenster, kein Seiteninhalt.
+ */
+export function layoutModus(datenCheck: Pick<DatenCheckAnsicht, "gueltig"> | null): "seite" | "fenster-ueber-seite" | "nur-fenster" {
+  if (!datenCheck) return "seite";
+  return datenCheck.gueltig ? "fenster-ueber-seite" : "nur-fenster";
+}

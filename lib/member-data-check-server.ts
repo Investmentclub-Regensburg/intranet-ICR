@@ -35,15 +35,84 @@ import {
   type DatenCheckZeilenSchluessel,
 } from "./member-data-check";
 
-/** Schalter DATA_CHECK_ENABLED / DATA_CHECK_START aus der Umgebung. */
-export function datenCheckEinstellungen(): DatenCheckEinstellungen {
-  return leseDatenCheckEinstellungen(process.env);
+let startWarnungGezeigt = false;
+
+/**
+ * Schalter DATA_CHECK_ENABLED / DATA_CHECK_START aus der Umgebung. Eingeschaltet ohne gültiges Start-Datum: einmal
+ * warnen (ohne Wert); dann zählt nur der Stichtag, „Später“ kann sofort ausgeschlossen sein (Review A4).
+ */
+export function datenCheckEinstellungen(env: Record<string, string | undefined> = process.env): DatenCheckEinstellungen {
+  const e = leseDatenCheckEinstellungen(env);
+  if (e.eingeschaltet && !e.start && !startWarnungGezeigt) {
+    startWarnungGezeigt = true;
+    console.warn("Datenabfrage: DATA_CHECK_ENABLED ist an, DATA_CHECK_START fehlt oder ist kein Datum (YYYY-MM-DD); „Später“ richtet sich nur nach dem Stichtag");
+  }
+  return e;
+}
+
+/** Nur Tests: Warnung erneut erlauben. */
+export function _resetStartWarnung(): void {
+  startWarnungGezeigt = false;
+}
+
+let rpcFehltGewarnt = false;
+
+/**
+ * Bestätigung setzen, aber nur für den geprüften Stand: `confirm_member_data` (Migration 20261118150000) prüft
+ * member_secrets.version = `erwarteteVersion` (keine Zeile = 0) unter Sperre und setzt dann daten_bestaetigt_am,
+ * leert daten_erinnern_ab. Fehlt die Funktion (Übergang vor der Migration): einmal warnen, Version lesen,
+ * vergleichen, setzen (ohne Sperre).
+ */
+export async function bestaetigeStand(
+  admin: SupabaseClient,
+  profileId: string,
+  erwarteteVersion: number,
+): Promise<"ok" | "konflikt" | "fehler"> {
+  const { data, error } = await admin.rpc("confirm_member_data", {
+    p_profile_id: profileId,
+    p_expected_version: erwarteteVersion,
+  });
+  if (!error) return data === true ? "ok" : "konflikt";
+  const meldung = String(error.message ?? "");
+  const fehlt =
+    error.code === "PGRST202" ||
+    error.code === "42883" ||
+    (/confirm_member_data/.test(meldung) && /not find|does not exist/i.test(meldung));
+  if (!fehlt) {
+    console.error("Datenabfrage: bestätigen", error.code);
+    return "fehler";
+  }
+  if (!rpcFehltGewarnt) {
+    rpcFehltGewarnt = true;
+    console.warn("Datenabfrage: confirm_member_data fehlt (Migration 20261118150000 noch nicht eingespielt), Bestätigung ohne Sperre");
+  }
+  const { data: row, error: leseFehler } = await admin
+    .from("member_secrets")
+    .select("version")
+    .eq("profile_id", profileId)
+    .maybeSingle();
+  if (leseFehler) {
+    console.error("Datenabfrage: Version", leseFehler.code);
+    return "fehler";
+  }
+  const version = typeof (row as { version?: unknown } | null)?.version === "number" ? (row as { version: number }).version : 0;
+  if (version !== erwarteteVersion) return "konflikt";
+  const { error: updateFehler } = await admin
+    .from("profiles")
+    .update({ daten_bestaetigt_am: new Date().toISOString(), daten_erinnern_ab: null })
+    .eq("id", profileId);
+  if (updateFehler) {
+    console.error("Datenabfrage: bestätigen", updateFehler.code);
+    return "fehler";
+  }
+  return "ok";
 }
 
 /** Eigener Bestand: verschlüsselte Felder + Name im Klartext. */
 export type DatenBestand = MemberSecretValues & Namen;
 
 export const HINWEIS_VORWAHL = "Vorwahl +49 ergänzt. Stimmt die Nummer?";
+export const ANSCHRIFT_FEHLT = "Bitte trag deine Anschrift ein.";
 export const HINWEIS_BIC_LAND = "Die BIC gehört zu einem anderen Land als die IBAN.";
 
 export type BestandsBewertung = {
@@ -215,10 +284,18 @@ export function bauDatenCheckAnsicht({
     geburtsdatum: [datumDeutsch(wert("geburtsdatum"))],
   };
 
+  // Anschrift ganz leer: „Fehlt“ und eine Zeile für die ganze Anschrift statt nur der Straßen-Meldung; das
+  // vorbelegte Land allein ist kein Wert (Review B3). Die Feldmarkierungen im Formular bleiben.
+  const anschriftLeer = (["strasse", "hausnummer", "plz", "ort"] as const).every((f) => !text(bestand[f]).trim());
+  if (anschriftLeer) anzeige.anschrift = [];
+
   const zeilen: DatenCheckZeile[] = [];
   for (const z of ZEILEN) {
     const werte = anzeige[z.key].filter((w) => w !== "");
-    const fehler = z.felder.map((f) => b.fehler[f]).find((f) => f !== undefined);
+    const fehler =
+      z.key === "anschrift" && anschriftLeer
+        ? ANSCHRIFT_FEHLT
+        : z.felder.map((f) => b.fehler[f]).find((f) => f !== undefined);
     const hinweis = z.felder.map((f) => b.hinweise[f]).find((h) => h !== undefined);
     // Alumni ohne Bankdaten: Zeile weglassen (nicht nötig, kein Mangel).
     if (alumni && (z.key === "iban" || z.key === "bic") && werte.length === 0) continue;
