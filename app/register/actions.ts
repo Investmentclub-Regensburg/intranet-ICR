@@ -227,6 +227,7 @@ export async function registerAction(
     plz: plz!,
     ort: ort!,
     handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
+    land: DEFAULT_COUNTRY,
   };
 
   // Am Konto (und damit im Session-Cookie) stehen nur die Namen. Alles andere geht unten in

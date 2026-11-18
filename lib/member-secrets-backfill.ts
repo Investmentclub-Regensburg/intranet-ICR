@@ -1,7 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  SECRET_FIELDS,
   ibanChanged,
   normalizeIban,
   wrappedKeyId,
@@ -10,12 +9,15 @@ import {
 import { getKeyring } from "@/lib/member-crypto-server";
 import {
   PLAIN_COLUMNS,
+  PLAIN_SECRET_FIELDS,
   plainToSecretValues,
   readMemberSecrets,
   readMemberSecretsMany,
   readMemberSecretsWithMeta,
   saveMemberSecrets,
   type MemberSecretValues,
+  type PlainSecretField,
+  type PlainSecretValues,
 } from "@/lib/member-secrets-server";
 
 /**
@@ -43,9 +45,12 @@ function comparable(field: SecretField, value: string | null | undefined): strin
   return field === "iban" ? normalizeIban(text) : text;
 }
 
-/** Felder, in denen verschlüsselte Fassung und Klartext abweichen. */
-export function differingFields(secret: MemberSecretValues, plain: MemberSecretValues): SecretField[] {
-  return SECRET_FIELDS.filter((f) => comparable(f, secret[f]) !== comparable(f, plain[f]));
+/**
+ * Felder, in denen verschlüsselte Fassung und Klartext abweichen. Nur Felder mit Klartextspalte: `land` hat
+ * keine und wird nicht verglichen (Zeilen mit und ohne Land sind gleich gültig).
+ */
+export function differingFields(secret: MemberSecretValues, plain: PlainSecretValues): PlainSecretField[] {
+  return PLAIN_SECRET_FIELDS.filter((f) => comparable(f, secret[f]) !== comparable(f, plain[f]));
 }
 
 const IBAN_SHAPE = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
@@ -268,7 +273,7 @@ export type BackfillReport = {
   /** Offene Registrierung: übersprungen, später erneut. */
   pending: string[];
   /** Nach dem Anlegen nicht identisch → Zeile wieder entfernt, Klartext unverändert. */
-  rolledBack: { id: string; fields: SecretField[] }[];
+  rolledBack: { id: string; fields: PlainSecretField[] }[];
   /** Fehler, ohne dass eine Zeile entstanden ist. */
   failed: string[];
   /** Zeile entstanden, Prüfung oder Rücknahme aber fehlgeschlagen – der Prüflauf muss sie bewerten. */
@@ -353,9 +358,9 @@ export type ClearReport = {
 };
 
 /** Klartextwerte genau so, wie die Datenbank sie liefert (für den Abgleich in clear_member_plaintext). */
-function rawPlain(profile: Record<string, unknown>): Record<SecretField, string | null> {
-  const out = {} as Record<SecretField, string | null>;
-  for (const field of SECRET_FIELDS) {
+function rawPlain(profile: Record<string, unknown>): PlainSecretValues {
+  const out = {} as PlainSecretValues;
+  for (const field of PLAIN_SECRET_FIELDS) {
     const raw = profile[PLAIN_COLUMNS[field]];
     out[field] = raw === null || raw === undefined ? null : String(raw);
   }

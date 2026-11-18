@@ -33,11 +33,15 @@ type SecretsRow = {
 
 const ROW_COLUMNS = `profile_id, wrapped_dek, version, iban_hash, iban_last4, ${SECRET_FIELDS.join(", ")}`;
 
+/** Felder mit (leerer, gesperrter) Klartextspalte in profiles. `land` kam nach dem Abschluss und hat keine. */
+export type PlainSecretField = Exclude<SecretField, "land">;
+export type PlainSecretValues = Record<PlainSecretField, string | null>;
+
 /**
- * Klartextspalten in profiles je verschlüsseltem Feld. Seit dem Abschluss (21.10.2026) leer und gesperrt;
- * nur noch das Skript scripts/verschluesselung.mjs (Prüflauf, Notfall-Weg) liest sie.
+ * Klartextspalten in profiles je verschlüsseltem Feld (ohne `land`). Seit dem Abschluss (21.10.2026) leer und
+ * gesperrt; nur noch das Skript scripts/verschluesselung.mjs (Prüflauf, Notfall-Weg) liest sie.
  */
-export const PLAIN_COLUMNS: Record<SecretField, string> = {
+export const PLAIN_COLUMNS: Record<PlainSecretField, string> = {
   iban: "IBAN",
   bic: "BIC",
   geburtsdatum: "Geburtsdatum",
@@ -47,6 +51,11 @@ export const PLAIN_COLUMNS: Record<SecretField, string> = {
   ort: "Ort",
   handynummer: "Handynummer",
 };
+
+/** Die Felder aus PLAIN_COLUMNS in fester Reihenfolge. */
+export const PLAIN_SECRET_FIELDS: readonly PlainSecretField[] = SECRET_FIELDS.filter(
+  (f): f is PlainSecretField => f !== "land",
+);
 
 let verifiedKey: { marker: string; until: number } | null = null;
 const KEY_CHECK_TTL_MS = 5 * 60 * 1000;
@@ -183,10 +192,13 @@ export function emptySecretValues(): MemberSecretValues {
   return values;
 }
 
-/** Klartextspalten aus profiles in das Format der verschlüsselten Felder bringen (nur Skript, PLAIN_COLUMNS). */
-export function plainToSecretValues(profile: Record<string, unknown> | null | undefined): MemberSecretValues {
-  const values = {} as MemberSecretValues;
-  for (const field of SECRET_FIELDS) {
+/**
+ * Klartextspalten aus profiles in das Format der verschlüsselten Felder bringen (nur Skript, PLAIN_COLUMNS).
+ * Ohne `land` (keine Klartextspalte): an saveMemberSecrets übergeben bleibt ein gespeichertes Land stehen.
+ */
+export function plainToSecretValues(profile: Record<string, unknown> | null | undefined): PlainSecretValues {
+  const values = {} as PlainSecretValues;
+  for (const field of PLAIN_SECRET_FIELDS) {
     const raw = profile?.[PLAIN_COLUMNS[field]];
     const text = raw === null || raw === undefined ? "" : String(raw).trim();
     values[field] = text === "" ? null : text;
