@@ -7,6 +7,7 @@ import {
   EVENT_IMAGE_TYPES,
   detectEventImageType,
 } from "@/lib/events";
+import { reencodeEventImage } from "@/lib/event-image-reencode";
 
 /**
  * Upload eines Event-Bilds (Anlegen/Bearbeiten im Event-Formular). Ersetzt den früheren Upload direkt aus dem
@@ -67,11 +68,17 @@ export async function POST(request: NextRequest) {
   const detected = detectEventImageType(bytes);
   if (!detected || !EVENT_IMAGE_TYPES[detected]) return fail("Nur Bilder (JPG, PNG, GIF, WebP) erlaubt.", 415);
 
+  // Bild neu schreiben: Gespeichert wird nur das Bild selbst, ohne Metadaten (Aufnahmeort, Gerät) und ohne
+  // angehängte Fremddaten. Beschädigte oder präparierte Dateien scheitern hier (lib/event-image-reencode.ts).
+  const clean = await reencodeEventImage(bytes, detected);
+  if (!clean.ok) return fail("Das Bild konnte nicht gelesen werden. Bitte ein anderes Bild wählen.", 415);
+  if (clean.bytes.byteLength > EVENT_IMAGE_MAX_BYTES) return fail("Bild darf maximal 5 MB groß sein.", 413);
+
   const path = `${auth.user.id}/${crypto.randomUUID()}.${EVENT_IMAGE_TYPES[detected]}`;
   const supabase = await getCachedSupabase();
   const { error } = await supabase.storage
     .from(EVENT_IMAGE_BUCKET)
-    .upload(path, bytes, { contentType: detected, cacheControl: "31536000", upsert: false });
+    .upload(path, clean.bytes, { contentType: detected, cacheControl: "31536000", upsert: false });
   if (error) {
     console.error("event-image upload:", error.message);
     return fail("Bild konnte nicht hochgeladen werden.", 500);
