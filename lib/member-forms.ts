@@ -82,11 +82,16 @@ export function handyBereinigt(gespeichert: string | null | undefined): string |
   return r.status === "sicher" ? r.wert : null;
 }
 
-/** Anzeige einer gespeicherten Handynummer (international formatiert; Altwerte roh). */
+/**
+ * Anzeige einer gespeicherten Handynummer: international formatiert; eine Altnummer, die `repariereHandy` sicher
+ * bereinigt, genauso bereinigt wie im Formular; sonst roh.
+ */
 export function handyAnzeige(gespeichert: string | null | undefined): string {
   const roh = text(gespeichert).trim();
   if (!roh) return "";
-  return /^\+\d+$/.test(roh) ? formatiereHandyAnzeige(roh) : roh;
+  if (/^\+\d+$/.test(roh)) return formatiereHandyAnzeige(roh);
+  const bereinigt = handyBereinigt(roh);
+  return bereinigt ? formatiereHandyAnzeige(bereinigt) : roh;
 }
 
 /** Nicht blockierender Hinweis zur BIC (Land weicht vom Land der IBAN ab), sonst null. Nur Anzeige. */

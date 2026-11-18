@@ -5,9 +5,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * Name eines Mitglieds ändern (Klartext in profiles."Vorname"/"Nachname", Entscheidung Hannes 11). Nur mit
  * Service Role und nach geprüfter Eingabe (lib/member-rules.ts über lib/member-forms.ts).
  *
- * Sperre: profiles hat keine Version/updated_at. Geschrieben wird deshalb nur, wenn Vor- und Nachname in der
- * Datenbank noch genau dem Stand entsprechen, den der Aufrufer gelesen hat (Compare-and-set in derselben
- * update-Anweisung); sonst „konflikt“, nichts geändert.
+ * Datenbankfunktion save_member_name (Migration 20261118130000): Compare-and-set gegen den gelesenen Namen
+ * (profiles hat keine Version) und – bei einer Korrektur durch den Vorstand – der Protokolleintrag in
+ * member_data_corrections (nur Feldnamen) in EINER Transaktion. false = inzwischen geändert, nichts geschrieben.
  *
  * Gespiegelt: Die Namen stehen seit der Registrierung auch in den Konto-Metadaten (auth user_metadata). Das
  * Intranet liest sie dort nicht, sie werden aber mitgezogen, damit keine zwei Namen im Umlauf sind (Fehler
@@ -24,31 +24,21 @@ export async function speichereNamen(
   neu: { vorname?: string; nachname?: string },
   options: { correctedBy?: string } = {},
 ): Promise<"ok" | "konflikt" | "fehler"> {
-  const patch: Record<string, string> = {};
-  if (neu.vorname !== undefined) patch.Vorname = neu.vorname;
-  if (neu.nachname !== undefined) patch.Nachname = neu.nachname;
-  if (Object.keys(patch).length === 0) return "ok";
+  if (neu.vorname === undefined && neu.nachname === undefined) return "ok";
 
-  let query = admin.from("profiles").update(patch).eq("id", profileId);
-  query = vorher.vorname === null ? query.is("Vorname", null) : query.eq("Vorname", vorher.vorname);
-  query = vorher.nachname === null ? query.is("Nachname", null) : query.eq("Nachname", vorher.nachname);
-  const { data, error } = await query.select("id");
+  const { data, error } = await admin.rpc("save_member_name", {
+    p_profile_id: profileId,
+    p_expected_vorname: vorher.vorname,
+    p_expected_nachname: vorher.nachname,
+    p_vorname: neu.vorname ?? vorher.vorname,
+    p_nachname: neu.nachname ?? vorher.nachname,
+    p_corrected_by: options.correctedBy ?? null,
+  });
   if (error) {
     console.error("speichereNamen:", error.code);
     return "fehler";
   }
-  if (!data || data.length === 0) return "konflikt";
-
-  // Protokoll der Korrektur durch den Vorstand: nur Feldnamen.
-  if (options.correctedBy) {
-    const fields = [neu.nachname !== undefined ? "nachname" : null, neu.vorname !== undefined ? "vorname" : null].filter(
-      (f): f is string => f !== null,
-    );
-    const { error: logError } = await admin
-      .from("member_data_corrections")
-      .insert({ profile_id: profileId, corrected_by: options.correctedBy, fields });
-    if (logError) console.error("speichereNamen: Protokoll", logError.code);
-  }
+  if (data !== true) return "konflikt";
 
   if (userId) {
     const { data: konto, error: kontoError } = await admin.auth.admin.getUserById(userId);

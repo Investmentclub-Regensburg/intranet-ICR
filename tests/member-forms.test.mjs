@@ -85,7 +85,11 @@ test("Handy aus dem Bestand für die Eingabe aufteilen", () => {
 
 test("Handy-Anzeige: E.164 international, Altwerte roh", () => {
   assert.equal(handyAnzeige("+491761234567"), "+49 176 1234567");
-  assert.equal(handyAnzeige("+49 0176 1234567"), "+49 0176 1234567");
+  // Sicher bereinigbar: wie im Formular (Nachtrag Gegenprüfung N1); sonst roh.
+  assert.equal(handyAnzeige("+49 0176 1234567"), "+49 176 1234567");
+  assert.equal(handyAnzeige("0176 1234567"), "+49 176 1234567");
+  assert.equal(handyAnzeige("1761234567"), "1761234567");
+  assert.equal(handyAnzeige("0176 12"), "0176 12");
   assert.equal(handyAnzeige(null), "");
 });
 

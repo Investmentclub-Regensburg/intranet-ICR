@@ -110,6 +110,23 @@ const FIELD_STEP: Record<string, StepKey> = {
   bic: "bank",
 };
 
+/** Reihenfolge der Felder (erster Fehler bekommt den Fokus) und abweichende Element-IDs. */
+const FELD_REIHENFOLGE = [
+  "vorname",
+  "nachname",
+  "geburtsdatum",
+  "strasse",
+  "hausnummer",
+  "land",
+  "plz",
+  "ort",
+  "email",
+  "handynummer",
+  "iban",
+  "bic",
+] as const;
+const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag" };
+
 const HOCHSCHULEN = [
   { value: "Universität Regensburg", label: "Universität Regensburg" },
   { value: "Ostbayerische Technische Hochschule", label: "Ostbayerische Technische Hochschule" },
@@ -285,11 +302,9 @@ export function RegisterForm() {
         setStepError("");
         if (Object.keys(antwort.fehler).length > 0) {
           setFieldErrors((alt) => ({ ...alt, ...antwort.fehler }));
-          window.requestAnimationFrame(() =>
-            formRef.current
-              ?.querySelector<HTMLElement>(`[data-wizard-step="${step}"] [aria-invalid="true"]`)
-              ?.focus()
-          );
+          // Fokus aufs erste fehlerhafte Feld erst nach dem Rendern der Fehler (Firefox, Gegenprüfung N2).
+          const erstes = FELD_REIHENFOLGE.find((k) => antwort.fehler[k as keyof typeof antwort.fehler]);
+          if (erstes) setFokusZiel({ id: FELD_ID[erstes] ?? erstes });
           return;
         }
       } catch {
@@ -318,6 +333,13 @@ export function RegisterForm() {
     }
   };
   const [stepError, setStepError] = useState("");
+  /** Feld, das nach einem Prüffehler den Fokus bekommt (neues Objekt je Fehler, damit der Effekt erneut läuft). */
+  const [fokusZiel, setFokusZiel] = useState<{ id: string } | null>(null);
+  useEffect(() => {
+    if (!fokusZiel) return;
+    const id = window.setTimeout(() => document.getElementById(fokusZiel.id)?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [fokusZiel]);
 
   /** Absenden: Ist irgendwo noch etwas ungültig, dorthin springen statt zu senden. */
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
