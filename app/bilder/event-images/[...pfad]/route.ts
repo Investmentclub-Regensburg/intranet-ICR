@@ -51,9 +51,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ pfad
   const headers = new Headers({
     // Typ aus der geprüften Endung, nicht aus der Antwort des Speichers.
     "Content-Type": contentType,
-    "Cache-Control": "public, max-age=31536000, immutable",
+    // s-maxage: Auch ein vorgeschaltetes CDN (Vercel) darf das Bild halten, sonst trifft jeder Abruf die App.
+    "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
     "Content-Disposition": "inline",
+    // Zweite Sicherung: Selbst wenn hier einmal etwas anderes als ein Bild ausgeliefert würde, darf der
+    // Browser darin nichts ausführen und nichts nachladen.
+    "Content-Security-Policy": "default-src 'none'; sandbox",
   });
   const etag = upstream.headers.get("etag");
   if (etag) headers.set("ETag", etag);

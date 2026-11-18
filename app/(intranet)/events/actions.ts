@@ -182,7 +182,7 @@ const fetchEvents = unstable_cache(
       };
     });
   },
-  ["events-list-v5"],
+  ["events-list-v6"],
   { revalidate: 60, tags: [EVENTS_TAG] }
 );
 

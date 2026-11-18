@@ -106,9 +106,10 @@ async function secretFromEnvOrPrompt(name, label) {
   process.env[name] = value;
 }
 
-async function confirm(word, ref) {
-  const answer = await ask(`Zum Bestätigen „${word} ${ref}“ eingeben: `);
-  if (answer !== `${word} ${ref}`) fail("Nicht bestätigt – nichts geändert.");
+/** target = Projekt-Ref (Cloud) bzw. die Adresse des eigenen Servers: bestätigt wird immer das echte Ziel. */
+async function confirm(word, target) {
+  const answer = await ask(`Zum Bestätigen „${word} ${target}“ eingeben: `);
+  if (answer !== `${word} ${target}`) fail("Nicht bestätigt – nichts geändert.");
 }
 
 function list(label, items) {
@@ -153,8 +154,13 @@ function canFinish(r) {
 
 const { command, project, customUrl } = parseArgs(process.argv.slice(2));
 const ref = PROJECTS[project];
+// Der eigene Server ist die Produktion. Ein dauerhaft gesetztes ICR_SUPABASE_URL darf --projekt test nicht
+// still dorthin umlenken.
+if (customUrl && project !== "prod") fail("--url bzw. ICR_SUPABASE_URL gibt es nur zusammen mit --projekt prod.");
 // Ohne --url/ICR_SUPABASE_URL wie bisher Supabase Cloud.
 const url = customUrl ? normalizeUrl(customUrl) : `https://${ref}.supabase.co`;
+/** Was bei „leeren“/„abschliessen“ einzutippen ist: das tatsächliche Ziel. */
+const confirmTarget = customUrl ? url : ref;
 const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 if (envUrl && envUrl.replace(/\/+$/, "") !== url) {
   fail(`NEXT_PUBLIC_SUPABASE_URL in der Umgebung zeigt auf ein anderes Projekt als --projekt ${project}${customUrl ? " bzw. --url" : ""}.`);
@@ -229,7 +235,7 @@ try {
     if (before.withSensitivePlain === 0) fail("Kein Klartext mehr vorhanden – weiter mit „abschliessen“.");
     if (!canClear(before)) fail("Der Prüflauf meldet Befunde – erst beheben.");
     console.log(`\nLeert den Klartext von bis zu ${before.withSensitivePlain} Profilen. Ohne Backup nicht umkehrbar.`);
-    await confirm("LEEREN", ref);
+    await confirm("LEEREN", confirmTarget);
     let cleared = 0;
     const skipped = [];
     let cursor = null;
@@ -251,7 +257,7 @@ try {
     if (before.finishedAt) fail("Bereits abgeschlossen.");
     if (!canFinish(before)) fail("Noch nicht bereit: Klartext übrig oder Befunde offen.");
     console.log("\nAb dann speichert die Datenbank keinen Klartext mehr.");
-    await confirm("ABSCHLIESSEN", ref);
+    await confirm("ABSCHLIESSEN", confirmTarget);
     const { error } = await finishPlainClearing(admin);
     if (error) fail(error);
     console.log("Abgeschlossen.");

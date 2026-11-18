@@ -60,10 +60,12 @@ export async function POST(request: NextRequest) {
   if (!EVENT_IMAGE_TYPES[file.type]) return fail("Nur Bilder (JPG, PNG, GIF, WebP) erlaubt.", 415);
   if (file.size > EVENT_IMAGE_MAX_BYTES) return fail("Bild darf maximal 5 MB groß sein.", 413);
 
-  // Inhalt prüfen: Die Angabe des Browsers (file.type) muss zum tatsächlichen Dateiinhalt passen.
+  // Inhalt prüfen: Maßgeblich ist der tatsächliche Dateiinhalt, nicht die Angabe des Browsers. Endung und
+  // Content-Type entstehen nur aus dem erkannten Typ. Ein PNG mit Endung .jpg (häufig bei Downloads) bleibt
+  // damit erlaubt und wird als PNG gespeichert; alles, was kein Bild der vier Typen ist, fällt durch.
   const bytes = new Uint8Array(await file.arrayBuffer());
   const detected = detectEventImageType(bytes);
-  if (!detected || detected !== file.type) return fail("Nur Bilder (JPG, PNG, GIF, WebP) erlaubt.", 415);
+  if (!detected || !EVENT_IMAGE_TYPES[detected]) return fail("Nur Bilder (JPG, PNG, GIF, WebP) erlaubt.", 415);
 
   const path = `${auth.user.id}/${crypto.randomUUID()}.${EVENT_IMAGE_TYPES[detected]}`;
   const supabase = await getCachedSupabase();

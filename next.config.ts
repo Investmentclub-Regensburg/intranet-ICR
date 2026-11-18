@@ -25,9 +25,20 @@ function jwtRef(token: string | undefined): string {
     return "";
   }
 }
+// Eigener Server: Die Produktion hängt am privaten Gateway auf Port 8100 (direkt oder über einen SSH-Tunnel,
+// README.md). Die Keys dort tragen keine Projekt-Ref, deshalb wird die Adresse geprüft. Lokales Supabase
+// (supabase start) nutzt 54321 und ist nicht betroffen.
+const PROD_SELF_HOSTED_PORT = "8100";
+let supabasePort = "";
+try {
+  supabasePort = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").port;
+} catch {
+  supabasePort = "";
+}
 if (
   !isProductionHost &&
   (supabaseOrigin.includes(PROD_SUPABASE_REF) ||
+    supabasePort === PROD_SELF_HOSTED_PORT ||
     jwtRef(process.env.SUPABASE_SERVICE_ROLE_KEY) === PROD_SUPABASE_REF)
 ) {
   throw new Error(
