@@ -2,7 +2,7 @@
 // „Verwaltung → Verschlüsselung“. Gleiche Logik (lib/member-secrets-backfill.ts), nur ohne Oberfläche, damit
 // niemand im Intranet Klartext leeren kann.
 //
-//   npm run verschluesselung -- <befehl> --projekt <prod|test>
+//   npm run verschluesselung -- <befehl> --projekt <prod|test> [--url <supabase-url>]
 //
 // Befehle:
 //   pruefen        Prüflauf, ändert nichts.
@@ -11,7 +11,9 @@
 //   abschliessen   Endzustand setzen: ab dann kein Klartext mehr (mit Bestätigung).
 //
 // Geheimnisse: SUPABASE_SERVICE_ROLE_KEY, MEMBER_DATA_MASTER_KEY und MEMBER_DATA_MASTER_KEY_ID werden aus der
-// Umgebung gelesen oder verdeckt abgefragt (nie ausgegeben). Die Supabase-URL ergibt sich aus --projekt.
+// Umgebung gelesen oder verdeckt abgefragt (nie ausgegeben). Die Supabase-URL ergibt sich aus --projekt
+// (Supabase Cloud). Für den eigenen Server (Umzug November 2026) die URL ausdrücklich angeben: --url oder
+// ICR_SUPABASE_URL, z. B. über einen SSH-Tunnel http://localhost:8100 (README.md, „Betrieb auf eigenem Server“).
 import readline from "node:readline";
 
 const PROJECTS = {
@@ -28,12 +30,29 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const command = argv.find((a) => !a.startsWith("--"));
-  const i = argv.indexOf("--projekt");
-  const project = i >= 0 ? argv[i + 1] : undefined;
+  const value = (flag) => {
+    const i = argv.indexOf(flag);
+    return i >= 0 ? argv[i + 1] : undefined;
+  };
+  const command = argv.find((a, i) => !a.startsWith("--") && !["--projekt", "--url"].includes(argv[i - 1]));
+  const project = value("--projekt");
   if (!COMMANDS.includes(command ?? "")) fail(`Befehl fehlt oder unbekannt. Erlaubt: ${COMMANDS.join(", ")}`);
   if (!Object.hasOwn(PROJECTS, project ?? "")) fail("--projekt prod oder --projekt test angeben.");
-  return { command, project };
+  if (argv.includes("--url") && !value("--url")) fail("--url braucht eine Adresse, z. B. --url http://localhost:8100");
+  return { command, project, customUrl: value("--url") ?? process.env.ICR_SUPABASE_URL };
+}
+
+/** Eigene Supabase-URL (eigener Server) prüfen: nur http(s), ohne Pfad. */
+function normalizeUrl(raw) {
+  let parsed;
+  try {
+    parsed = new URL(raw.trim());
+  } catch {
+    fail("--url bzw. ICR_SUPABASE_URL ist keine gültige Adresse.");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") fail("--url bzw. ICR_SUPABASE_URL muss mit http:// oder https:// beginnen.");
+  if (parsed.pathname.replace(/\/+$/, "") || parsed.search || parsed.hash) fail("--url bzw. ICR_SUPABASE_URL ohne Pfad angeben, z. B. http://localhost:8100");
+  return parsed.origin;
 }
 
 // Eine gemeinsame Eingabe für alle Fragen; Zeilen werden gepuffert, damit auch weitergeleitete Eingaben
@@ -132,16 +151,21 @@ function canFinish(r) {
   );
 }
 
-const { command, project } = parseArgs(process.argv.slice(2));
+const { command, project, customUrl } = parseArgs(process.argv.slice(2));
 const ref = PROJECTS[project];
-const url = `https://${ref}.supabase.co`;
+// Ohne --url/ICR_SUPABASE_URL wie bisher Supabase Cloud.
+const url = customUrl ? normalizeUrl(customUrl) : `https://${ref}.supabase.co`;
 const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 if (envUrl && envUrl.replace(/\/+$/, "") !== url) {
-  fail(`NEXT_PUBLIC_SUPABASE_URL in der Umgebung zeigt auf ein anderes Projekt als --projekt ${project}.`);
+  fail(`NEXT_PUBLIC_SUPABASE_URL in der Umgebung zeigt auf ein anderes Projekt als --projekt ${project}${customUrl ? " bzw. --url" : ""}.`);
 }
 process.env.NEXT_PUBLIC_SUPABASE_URL = url;
 
-console.log(`Projekt: ${project} (${ref})  Befehl: ${command}`);
+console.log(
+  customUrl
+    ? `Projekt: ${project} (eigener Server: ${url})  Befehl: ${command}`
+    : `Projekt: ${project} (${ref})  Befehl: ${command}`
+);
 await secretFromEnvOrPrompt("SUPABASE_SERVICE_ROLE_KEY", "Supabase Service-Role-Key");
 await secretFromEnvOrPrompt("MEMBER_DATA_MASTER_KEY", "Master Key (Base64)");
 if (!process.env.MEMBER_DATA_MASTER_KEY_ID) {
