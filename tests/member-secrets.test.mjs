@@ -166,24 +166,6 @@ test("Registrierung: land landet verschlüsselt in den Chiffraten", async () => 
   assert.equal(plain.iban, "DE89370400440532013000");
 });
 
-test("S2: nurWennLeer – leeres Geburtsdatum wird gesetzt", async () => {
-  const admin = fakeAdmin(row({ ort: "Regensburg" }));
-  await saveMemberSecrets(admin, ALICE, { geburtsdatum: "2001-02-03", ort: "Regensburg" }, { nurWennLeer: ["geburtsdatum"] });
-  const { args } = admin.calls[0];
-  assert.equal(decryptSecrets(args.p_wrapped_dek, args.p_secrets).geburtsdatum, "2001-02-03");
-  assert.ok("geburtsdatum" in args.p_plain);
-});
-
-test("S2: nurWennLeer – gesetztes Geburtsdatum bleibt, Eingabe wird ignoriert", async () => {
-  const admin = fakeAdmin(row({ geburtsdatum: "1999-09-09", ort: "Regensburg" }));
-  await saveMemberSecrets(admin, ALICE, { geburtsdatum: "2001-02-03", ort: "Wien" }, { nurWennLeer: ["geburtsdatum"] });
-  const { args } = admin.calls[0];
-  const plain = decryptSecrets(args.p_wrapped_dek, args.p_secrets);
-  assert.equal(plain.geburtsdatum, "1999-09-09");
-  assert.equal(plain.ort, "Wien");
-  assert.ok(!("geburtsdatum" in args.p_plain), "ignoriertes Feld nicht im Protokoll");
-});
-
 test("S3: erwartete Version passt → speichert mit genau dieser Version", async () => {
   const admin = fakeAdmin(row({ ort: "Regensburg" }, 7));
   await saveMemberSecrets(admin, ALICE, { ort: "Wien" }, { erwarteteVersion: 7 });

@@ -49,8 +49,8 @@ export type ProfileContactData = {
   handyNummer: string;
   /** Handy für die Anzeige (international formatiert, Altwerte roh). */
   handyAnzeige: string;
-  /** Kein Geburtsdatum gespeichert: das Mitglied darf es einmal selbst nachtragen. */
-  geburtsdatumFehlt: boolean;
+  /** Geburtsdatum YYYY-MM-DD oder leer (das Mitglied ändert es selbst, Entscheidung 11). */
+  geburtsdatum: string;
   /** Alumni zahlen keinen Beitrag: IBAN nicht Pflicht. */
   alumni: boolean;
   iban: string;
@@ -105,10 +105,20 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
             <EditForm editor={editor}>
               <input type="hidden" name="section" value="personal" />
               <input type="hidden" name="version" value={profile.version} />
+              <input type="hidden" name="vornameVorher" value={profile.vorname} />
+              <input type="hidden" name="nachnameVorher" value={profile.nachname} />
+              <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+                <Field id={`${id}-vorname`} label="Vorname" fehler={f.vorname}>
+                  <Input id={`${id}-vorname`} name="vorname" defaultValue={profile.vorname} autoComplete="given-name" autoFocus {...invalid(`${id}-vorname`, f.vorname)} onInput={() => editor.clear("vorname")} />
+                </Field>
+                <Field id={`${id}-nachname`} label="Nachname" fehler={f.nachname}>
+                  <Input id={`${id}-nachname`} name="nachname" defaultValue={profile.nachname} autoComplete="family-name" {...invalid(`${id}-nachname`, f.nachname)} onInput={() => editor.clear("nachname")} />
+                </Field>
+              </div>
               {profile.landUnbekannt && <input type="hidden" name="landUnbekannt" value="1" />}
               <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:gap-4">
                 <Field id={`${id}-strasse`} label="Straße" fehler={f.strasse}>
-                  <Input id={`${id}-strasse`} name="strasse" defaultValue={profile.strasse} autoComplete="address-line1" autoFocus {...invalid(`${id}-strasse`, f.strasse)} onInput={() => editor.clear("strasse")} />
+                  <Input id={`${id}-strasse`} name="strasse" defaultValue={profile.strasse} autoComplete="address-line1" {...invalid(`${id}-strasse`, f.strasse)} onInput={() => editor.clear("strasse")} />
                 </Field>
                 <Field id={`${id}-hausnummer`} label="Hausnr." fehler={f.hausnummer}>
                   <Input id={`${id}-hausnummer`} name="hausnummer" defaultValue={profile.hausnummer} {...invalid(`${id}-hausnummer`, f.hausnummer)} onInput={() => editor.clear("hausnummer")} />
@@ -151,24 +161,18 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
                   fehler={f.handynummer}
                 />
               </div>
-              {profile.geburtsdatumFehlt && (
-                <Field id={`${id}-geburtsdatum`} label="Geburtsdatum" fehler={f.geburtsdatum}>
-                  <Input
-                    id={`${id}-geburtsdatum`}
-                    name="geburtsdatum"
-                    type="date"
-                    max={new Date().toISOString().slice(0, 10)}
-                    autoComplete="bday"
-                    {...invalid(`${id}-geburtsdatum`, f.geburtsdatum)}
-                    onInput={() => editor.clear("geburtsdatum")}
-                  />
-                </Field>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {profile.geburtsdatumFehlt
-                  ? "Das Geburtsdatum kannst du einmal eintragen, danach ändert es der Vorstand. Den Namen ändert der Vorstand."
-                  : "Den Namen und das Geburtsdatum ändert der Vorstand."}
-              </p>
+              <Field id={`${id}-geburtsdatum`} label="Geburtsdatum" fehler={f.geburtsdatum}>
+                <Input
+                  id={`${id}-geburtsdatum`}
+                  name="geburtsdatum"
+                  type="date"
+                  defaultValue={profile.geburtsdatum}
+                  max={new Date().toISOString().slice(0, 10)}
+                  autoComplete="bday"
+                  {...invalid(`${id}-geburtsdatum`, f.geburtsdatum)}
+                  onInput={() => editor.clear("geburtsdatum")}
+                />
+              </Field>
             </EditForm>
           )}
         </EditCard>
@@ -189,11 +193,17 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
             }
           />
           <ReadField label="Handynummer" value={profile.handyAnzeige} />
-          {profile.geburtsdatumFehlt && <ReadField label="Geburtsdatum" value={null} empty="Noch nicht eingetragen" />}
+          <ReadField label="Geburtsdatum" value={datumDeutsch(profile.geburtsdatum)} empty="Noch nicht eingetragen" />
         </ReadSection>
       )}
     </div>
   );
+}
+
+/** YYYY-MM-DD → TT.MM.JJJJ (leer bleibt leer). */
+function datumDeutsch(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso;
 }
 
 /** aria-Attribute eines Felds mit Fehler. */

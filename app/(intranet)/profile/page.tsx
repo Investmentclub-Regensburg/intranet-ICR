@@ -153,7 +153,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 handyLand: handy.land,
                 handyNummer: handy.nummer,
                 handyAnzeige: handyAnzeige(p.mobil),
-                geburtsdatumFehlt: !(sensitive.geburtsdatum ?? "").trim(),
+                geburtsdatum: (sensitive.geburtsdatum ?? "").trim(),
                 alumni: isAlumniProfile(profile as Record<string, unknown> | null),
                 iban: p.iban,
                 bic: p.bic,

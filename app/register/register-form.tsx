@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import {
+  pruefeRegistrierungsSchritt,
   registerAction,
   type RegisterActionState,
   type RegisterSavedState,
@@ -265,12 +266,58 @@ export function RegisterForm() {
   }, [state.fieldErrors]);
 
   /** Weiter: erst die Felder des Schritts prüfen (gleiche Regeln wie bisher beim Absenden). */
-  const handleNext = () => {
+  const [checking, setChecking] = useState(false);
+  const handleNext = async () => {
     // Fokus lösen, damit Prüfungen beim Verlassen eines Felds (IBAN/BIC) laufen.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     if (!reportStepValidity(formRef.current, step)) return;
+    // Felder des Schritts mit denselben Regeln wie beim Absenden prüfen (Server-Action, speichert nichts).
+    const felder = schrittFelder(step);
+    if (felder) {
+      if (checking) return;
+      setChecking(true);
+      try {
+        const antwort = await pruefeRegistrierungsSchritt(step, felder);
+        if (antwort.error) {
+          setStepError(antwort.error);
+          return;
+        }
+        setStepError("");
+        if (Object.keys(antwort.fehler).length > 0) {
+          setFieldErrors((alt) => ({ ...alt, ...antwort.fehler }));
+          window.requestAnimationFrame(() =>
+            formRef.current
+              ?.querySelector<HTMLElement>(`[data-wizard-step="${step}"] [aria-invalid="true"]`)
+              ?.focus()
+          );
+          return;
+        }
+      } catch {
+        // Prüfung nicht erreichbar: weiter, beim Absenden prüft der Server ohnehin.
+      } finally {
+        setChecking(false);
+      }
+    }
     wizard.complete();
   };
+
+  /** Werte eines Schritts für die Prüfung (null = Schritt ohne Mitgliederdaten). */
+  const schrittFelder = (key: StepKey): Record<string, string> | null => {
+    const w = formValues;
+    switch (key) {
+      case "person":
+        return { vorname: w.vorname, nachname: w.nachname, geburtsdatum: w.geburtstag };
+      case "address":
+        return { strasse: w.strasse, hausnummer: w.hausnummer, plz: w.plz, ort: w.ort, land: w.land };
+      case "contact":
+        return { email: w.email, handyLand: w.landesvorwahl, handynummer: w.handynummer };
+      case "bank":
+        return { iban: bankPreview.iban, bic: bankPreview.bic };
+      default:
+        return null;
+    }
+  };
+  const [stepError, setStepError] = useState("");
 
   /** Absenden: Ist irgendwo noch etwas ungültig, dorthin springen statt zu senden. */
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -400,7 +447,7 @@ export function RegisterForm() {
           if (e.key !== "Enter" || step === "check") return;
           if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) {
             e.preventDefault();
-            handleNext();
+            void handleNext();
           }
         }}
         onChange={(e) => {
@@ -411,6 +458,11 @@ export function RegisterForm() {
         }}
         className="space-y-8"
       >
+        {stepError && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
+            {stepError}
+          </p>
+        )}
         {/* 1 Name */}
         <WizardStep {...stepProps("person")} title="Wie heißt du?">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -467,8 +519,8 @@ export function RegisterForm() {
             />
           </Field>
           <WizardNav>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -562,8 +614,8 @@ export function RegisterForm() {
             </Field>
           </div>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -605,8 +657,8 @@ export function RegisterForm() {
             />
           </div>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -656,8 +708,8 @@ export function RegisterForm() {
             )}
           </Field>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -757,8 +809,8 @@ export function RegisterForm() {
             </div>
           )}
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -789,8 +841,8 @@ export function RegisterForm() {
             onChange={(e) => setField("sepa", e.target.checked)}
           />
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>

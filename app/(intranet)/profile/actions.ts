@@ -14,6 +14,7 @@ import {
   saveMemberSecrets,
 } from "@/lib/member-secrets-server";
 import { pruefeProfil, type FeldFehler, type ProfilAbschnitt } from "@/lib/member-forms";
+import { speichereNamen } from "@/lib/member-names-server";
 import { CANCELLATION_TEXT_MAX, isCancellationReason } from "@/lib/cancellation-reasons";
 import { authErrorMessage } from "@/lib/auth-messages";
 import { RATE_LIMITED_MESSAGE, withinRateLimits } from "@/lib/bot-protection";
@@ -33,15 +34,16 @@ const GEAENDERT_MELDUNG = "Deine Daten wurden inzwischen geändert. Bitte lade d
 
 /** Felder je Abschnitt, wie sie das Formular sendet. */
 const FORM_FIELDS: Record<ProfilAbschnitt, readonly string[]> = {
-  personal: ["strasse", "hausnummer", "plz", "ort", "land", "handyLand", "handynummer", "geburtsdatum"],
+  personal: ["vorname", "nachname", "strasse", "hausnummer", "plz", "ort", "land", "handyLand", "handynummer", "geburtsdatum"],
   bank: ["iban", "bic"],
 };
 
 /**
  * Profil speichern (eigene Daten). Geprüft wird nur über lib/member-rules.ts (lib/member-forms.ts,
  * Kontext `mitglied`), gespeichert werden die normalisierten Werte des bearbeiteten Abschnitts
- * (`section` = personal | bank). Pflichtfelder lassen sich nicht leeren; das Geburtsdatum kann ein Mitglied
- * nur nachtragen, solange keins gespeichert ist.
+ * (`section` = personal | bank). Pflichtfelder lassen sich nicht leeren. Name und Geburtsdatum ändert das
+ * Mitglied selbst (Entscheidung Hannes 11). Sperren: Version der verschlüsselten Zeile und der Name beim Laden
+ * des Formulars (`vornameVorher`/`nachnameVorher`).
  */
 export async function updateProfile(
   _prev: ProfileDataState,
@@ -62,14 +64,14 @@ export async function updateProfile(
   // Zuerst den passenden Profil-Datensatz auflösen (analog zur Kündigungs-Logik)
   let { data: profileRow, error: profileLookupError } = await admin
     .from("profiles")
-    .select("id, Rolle, Status")
+    .select("id, Rolle, Status, Vorname, Nachname")
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (!profileRow && !profileLookupError) {
     const fallback = await admin
       .from("profiles")
-      .select("id, Rolle, Status")
+      .select("id, Rolle, Status, Vorname, Nachname")
       .eq("id", user.id)
       .maybeSingle();
     profileRow = fallback.data;
@@ -112,28 +114,55 @@ export async function updateProfile(
   }
 
   if (version !== erwarteteVersion) return { success: false, error: GEAENDERT_MELDUNG };
+  // Name im Klartext: Stand beim Laden des Formulars muss noch gelten.
+  const namenVorher = {
+    vorname: typeof profile?.Vorname === "string" ? profile.Vorname : null,
+    nachname: typeof profile?.Nachname === "string" ? profile.Nachname : null,
+  };
+  if (
+    section === "personal" &&
+    (String(formData.get("vornameVorher") ?? "") !== (namenVorher.vorname ?? "").trim() ||
+      String(formData.get("nachnameVorher") ?? "") !== (namenVorher.nachname ?? "").trim())
+  ) {
+    return { success: false, error: GEAENDERT_MELDUNG };
+  }
 
   const eingabe: Record<string, unknown> = {};
   for (const key of FORM_FIELDS[section]) eingabe[key] = formData.get(key);
-  const pruefung = pruefeProfil(section, eingabe, bestand, isAlumniProfile(profile), undefined, landUnbekannt);
+  const pruefung = pruefeProfil(
+    section,
+    { ...eingabe },
+    { ...bestand, vorname: namenVorher.vorname, nachname: namenVorher.nachname },
+    isAlumniProfile(profile),
+    undefined,
+    landUnbekannt
+  );
   if (!pruefung.gueltig) {
     return { success: false, error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fehler: pruefung.fehler };
   }
   // Ohne Änderung wird nichts geschrieben (keine neue Version, kein Protokoll).
-  if (Object.keys(pruefung.aenderungen).length === 0) return { success: true, error: "" };
+  const namenGeaendert = Object.keys(pruefung.namen).length > 0;
+  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert) return { success: true, error: "" };
 
   // Verschlüsselt speichern (member_secrets). IBAN-Änderungen erkennt saveMemberSecrets selbst und meldet sie
   // dem Vorstand. Nur die Felder des Abschnitts: eine zwischenzeitliche Korrektur des Vorstands im anderen
   // Abschnitt bleibt erhalten.
-  try {
-    await saveMemberSecrets(admin, profileId, pruefung.aenderungen, {
-      nurWennLeer: ["geburtsdatum"],
-      erwarteteVersion,
-    });
-  } catch (err) {
-    if (err instanceof MemberSecretsConflictError) return { success: false, error: GEAENDERT_MELDUNG };
-    console.error("updateProfile:", err instanceof Error ? err.message : "unbekannt");
-    return { success: false, error: "Änderungen konnten nicht gespeichert werden." };
+  if (Object.keys(pruefung.aenderungen).length > 0) {
+    try {
+      await saveMemberSecrets(admin, profileId, pruefung.aenderungen, { erwarteteVersion });
+    } catch (err) {
+      if (err instanceof MemberSecretsConflictError) return { success: false, error: GEAENDERT_MELDUNG };
+      console.error("updateProfile:", err instanceof Error ? err.message : "unbekannt");
+      return { success: false, error: "Änderungen konnten nicht gespeichert werden." };
+    }
+  }
+
+  if (namenGeaendert) {
+    const ergebnis = await speichereNamen(admin, profileId, user.id, namenVorher, pruefung.namen);
+    if (ergebnis === "konflikt") return { success: false, error: GEAENDERT_MELDUNG };
+    if (ergebnis === "fehler") return { success: false, error: "Dein Name konnte nicht gespeichert werden." };
+    // Name steht auch in Kopfzeile und Seitenleiste.
+    revalidatePath("/", "layout");
   }
 
   revalidatePath("/profile");

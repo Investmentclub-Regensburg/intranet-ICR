@@ -98,6 +98,8 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
       const result = await correctMemberData(
         profileId,
         {
+          vorname: value("vorname"),
+          nachname: value("nachname"),
           strasse: value("strasse"),
           hausnummer: value("hausnummer"),
           plz: value("plz"),
@@ -170,6 +172,14 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
             />
           ) : (
             <form onSubmit={handleSubmit} noValidate className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field id="mc-vorname" label="Vorname" fehler={fehler.vorname}>
+                  <Input id="mc-vorname" name="vorname" defaultValue={data.vorname} autoComplete="off" {...invalid("mc-vorname", fehler.vorname)} onInput={() => clear("vorname")} />
+                </Field>
+                <Field id="mc-nachname" label="Nachname" fehler={fehler.nachname}>
+                  <Input id="mc-nachname" name="nachname" defaultValue={data.nachname} autoComplete="off" {...invalid("mc-nachname", fehler.nachname)} onInput={() => clear("nachname")} />
+                </Field>
+              </div>
               <div className="grid grid-cols-[1fr_6.5rem] gap-3">
                 <Field id="mc-strasse" label="Straße" fehler={fehler.strasse}>
                   <Input id="mc-strasse" name="strasse" defaultValue={data.strasse} autoComplete="off" {...invalid("mc-strasse", fehler.strasse)} onInput={() => clear("strasse")} />

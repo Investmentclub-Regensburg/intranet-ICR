@@ -23,6 +23,7 @@ import {
   type KorrekturWerte,
 } from "@/lib/member-forms";
 import { maskIban } from "@/components/profile/profile-format";
+import { speichereNamen, type NamenStand } from "@/lib/member-names-server";
 
 export type AdminMemberRow = {
   id: string;
@@ -151,10 +152,13 @@ export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
 async function loadCorrectionValues(
   admin: ReturnType<typeof createServiceClient>,
   profileId: string
-): Promise<{ name: string; values: MemberSecretValues; version: number; landBekannt: boolean } | { error: string }> {
+): Promise<
+  | { name: string; namen: NamenStand; userId: string | null; values: MemberSecretValues; version: number; landBekannt: boolean }
+  | { error: string }
+> {
   const { data: profile, error } = await admin
     .from("profiles")
-    .select('"Vorname", "Nachname"')
+    .select('"Vorname", "Nachname", user_id')
     .eq("id", profileId)
     .maybeSingle();
   if (error) {
@@ -164,10 +168,17 @@ async function loadCorrectionValues(
   if (!profile) return { error: "Mitglied nicht gefunden." };
   const p = profile as unknown as Record<string, unknown>;
   const name = [p.Vorname, p.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
+  const namen: NamenStand = {
+    vorname: typeof p.Vorname === "string" ? p.Vorname : null,
+    nachname: typeof p.Nachname === "string" ? p.Nachname : null,
+  };
+  const userId = typeof p.user_id === "string" ? p.user_id : null;
   try {
     const gelesen = await readMemberSecretsWithMeta(admin, profileId);
     return {
       name,
+      namen,
+      userId,
       values: gelesen?.values ?? emptySecretValues(),
       version: gelesen?.version ?? 0,
       landBekannt: gelesen?.landBekannt ?? true,
@@ -191,7 +202,7 @@ export async function getMemberCorrectionData(
   return {
     data: {
       name: loaded.name,
-      ...korrekturWerte(v),
+      ...korrekturWerte({ ...v, ...loaded.namen }),
       ibanMasked: v.iban ? maskIban(v.iban) : "",
       bicHinweis: bicHinweis(v.bic, v.iban),
       version: loaded.version,
@@ -248,25 +259,44 @@ export async function correctMemberData(
   if ("error" in loaded) return loaded;
   const current = loaded.values;
 
-  // Optimistische Sperre: Seit dem Öffnen darf sich nichts geändert haben (z. B. durch das Mitglied).
+  // Optimistische Sperre: Seit dem Öffnen darf sich nichts geändert haben (z. B. durch das Mitglied). Für die
+  // verschlüsselten Felder über die Version, für den Namen (Klartext ohne Version) über den Namen selbst.
   if (loaded.version !== baseVersion) return { error: GEAENDERT_MELDUNG };
+  if (
+    basis.vorname !== (loaded.namen.vorname ?? "").trim() ||
+    basis.nachname !== (loaded.namen.nachname ?? "").trim()
+  ) {
+    return { error: GEAENDERT_MELDUNG };
+  }
 
   const landUnbekannt = (base as { landUnbekannt?: unknown }).landUnbekannt === true || !loaded.landBekannt;
-  const pruefung = pruefeKorrektur(eingabe, basis, current, undefined, landUnbekannt);
+  const pruefung = pruefeKorrektur(eingabe, basis, { ...current, ...loaded.namen }, undefined, landUnbekannt);
   if (!pruefung.gueltig) {
     return { error: pruefung.ersterFehler ?? "Bitte prüf die Angaben.", fehler: pruefung.fehler };
   }
-  if (Object.keys(pruefung.aenderungen).length === 0) return { error: "", unchanged: true };
+  const namenGeaendert = Object.keys(pruefung.namen).length > 0;
+  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert) return { error: "", unchanged: true };
 
-  try {
-    await saveMemberSecrets(admin, profileId, pruefung.aenderungen, {
+  if (Object.keys(pruefung.aenderungen).length > 0) {
+    try {
+      await saveMemberSecrets(admin, profileId, pruefung.aenderungen, {
+        correctedBy: actorId,
+        erwarteteVersion: baseVersion,
+      });
+    } catch (err) {
+      if (err instanceof MemberSecretsConflictError) return { error: GEAENDERT_MELDUNG };
+      console.error("correctMemberData:", err instanceof Error ? err.message : "unbekannt");
+      return { error: "Korrektur konnte nicht gespeichert werden." };
+    }
+  }
+
+  if (namenGeaendert) {
+    // Protokoll (nur Feldnamen vorname/nachname) schreibt speichereNamen.
+    const ergebnis = await speichereNamen(admin, profileId, loaded.userId, loaded.namen, pruefung.namen, {
       correctedBy: actorId,
-      erwarteteVersion: baseVersion,
     });
-  } catch (err) {
-    if (err instanceof MemberSecretsConflictError) return { error: GEAENDERT_MELDUNG };
-    console.error("correctMemberData:", err instanceof Error ? err.message : "unbekannt");
-    return { error: "Korrektur konnte nicht gespeichert werden." };
+    if (ergebnis === "konflikt") return { error: GEAENDERT_MELDUNG };
+    if (ergebnis === "fehler") return { error: "Der Name konnte nicht gespeichert werden." };
   }
 
   revalidatePath("/admin/members");

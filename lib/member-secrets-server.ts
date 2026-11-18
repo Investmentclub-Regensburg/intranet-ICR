@@ -282,9 +282,6 @@ export class MemberSecretsConflictError extends Error {
  * bleiben erhalten. Legt die Zeile bei Bedarf an (dann sind die übrigen Felder leer).
  * Erkennt IBAN-Änderungen (ibanChanged) und meldet sie über die Datenbank; die erste Hinterlegung zählt nicht.
  * `correctedBy`: Profil-ID des Vorstandsmitglieds bei einer Korrektur im Admin-Bereich (wird protokolliert).
- * `nurWennLeer`: Felder, die nur geschrieben werden, solange sie im frisch gelesenen Stand leer sind (Mitglied
- * trägt das Geburtsdatum einmal selbst nach); ist das Feld schon gesetzt, wird die Eingabe ignoriert und der
- * gespeicherte Wert bleibt.
  * `erwarteteVersion`: Version beim Laden des Formulars (0 = noch keine Zeile). Weicht die aktuelle ab, wird
  * nichts gespeichert (MemberSecretsConflictError) – optimistische Sperre aus Sicht des Formulars.
  */
@@ -292,7 +289,7 @@ export async function saveMemberSecrets(
   admin: SupabaseClient,
   profileId: string,
   changes: Partial<MemberSecretValues>,
-  options: { correctedBy?: string; nurWennLeer?: readonly SecretField[]; erwarteteVersion?: number } = {},
+  options: { correctedBy?: string; erwarteteVersion?: number } = {},
 ): Promise<void> {
   await assertKeyRegistered(admin);
   const keyring = getKeyring();
@@ -306,12 +303,9 @@ export async function saveMemberSecrets(
     // Aus der gelesenen Zeile, nicht aus der Uhr (Gegenprüfung G1): ohne land gelesen → ohne land speichern.
     const ohneLand = !mitLand;
     const current = row ? decryptRow(row) : emptySecretValues();
-    const gesperrt = new Set<SecretField>(
-      (options.nurWennLeer ?? []).filter((field) => (current[field] ?? "").trim() !== ""),
-    );
     const next: MemberSecretValues = { ...current };
     for (const field of SECRET_FIELDS) {
-      if (field in changes && !gesperrt.has(field)) {
+      if (field in changes) {
         const value = changes[field];
         next[field] = value === undefined || value === null || value.trim() === "" ? null : value.trim();
       }
@@ -345,7 +339,7 @@ export async function saveMemberSecrets(
     // Nur die Namen der geänderten Felder (für das Korrekturprotokoll), keine Werte.
     const changedFields: Record<string, null> = {};
     for (const field of SECRET_FIELDS) {
-      if (field in changes && !gesperrt.has(field) && !(ohneLand && field === "land")) changedFields[field] = null;
+      if (field in changes && !(ohneLand && field === "land")) changedFields[field] = null;
     }
 
     const { error } = await admin.rpc("save_member_secrets", {
