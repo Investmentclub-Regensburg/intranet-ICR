@@ -59,6 +59,8 @@ export type ProfileContactData = {
   bicHinweis: string | null;
   /** Version der verschlüsselten Zeile beim Laden (0 = keine): optimistische Sperre beim Speichern. */
   version: number;
+  /** Ohne Spalte land geladen (Übergang): der Server speichert das Land dann nicht. */
+  landUnbekannt: boolean;
 };
 
 type Fehler = Partial<Record<string, string>>;
@@ -103,6 +105,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
             <EditForm editor={editor}>
               <input type="hidden" name="section" value="personal" />
               <input type="hidden" name="version" value={profile.version} />
+              {profile.landUnbekannt && <input type="hidden" name="landUnbekannt" value="1" />}
               <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:gap-4">
                 <Field id={`${id}-strasse`} label="Straße" fehler={f.strasse}>
                   <Input id={`${id}-strasse`} name="strasse" defaultValue={profile.strasse} autoComplete="address-line1" autoFocus {...invalid(`${id}-strasse`, f.strasse)} onInput={() => editor.clear("strasse")} />

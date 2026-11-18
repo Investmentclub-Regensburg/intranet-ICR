@@ -56,12 +56,14 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   let secrets: MemberSecretValues | null = null;
   // Version der Zeile (0 = keine Zeile): das Formular schickt sie mit (optimistische Sperre).
   let secretsVersion = 0;
+  let landUnbekannt = false;
   let secretsUnavailable = false;
   if (profileId) {
     try {
       const gelesen = await readMemberSecretsWithMeta(createServiceClient(), profileId);
       secrets = gelesen?.values ?? null;
       secretsVersion = gelesen?.version ?? 0;
+      landUnbekannt = gelesen ? !gelesen.landBekannt : false;
     } catch (err) {
       console.error("ProfilePage: member_secrets", err instanceof Error ? err.message : "unbekannt");
       secretsUnavailable = true;
@@ -157,6 +159,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 bic: p.bic,
                 bicHinweis: bicHinweis(p.bic, p.iban),
                 version: secretsVersion,
+                landUnbekannt,
               }}
             />
           ),

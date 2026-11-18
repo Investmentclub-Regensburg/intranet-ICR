@@ -225,3 +225,18 @@ test("S1: ohne Spalte land lesen und speichern (Übergang vor der Migration)", a
   assert.ok(!("land" in args.p_plain));
   assert.deepEqual(Object.keys(args.p_secrets).sort(), [...PLAIN_SECRET_FIELDS].sort());
 });
+
+test("G1: ohne land gelesene Zeile → ohne land speichern, auch wenn der Rückfall-Merker schon abgelaufen ist", async () => {
+  _resetLandSpalte();
+  // Zeile kommt ohne Schlüssel land zurück (z. B. veralteter Schema-Cache), der Merker ist nicht gesetzt.
+  const stored = row({ ort: "Wien", land: "AT" });
+  delete stored.land;
+  const admin = fakeAdmin(stored);
+  await saveMemberSecrets(admin, ALICE, { ort: "Graz", land: "DE" });
+  const { args } = admin.calls[0];
+  assert.ok(!("land" in args.p_secrets), "kein land an eine Zeile, deren Land nicht gelesen wurde");
+  assert.ok(!("land" in args.p_plain));
+  const { readMemberSecretsWithMeta } = await import("../lib/member-secrets-server.ts");
+  assert.equal((await readMemberSecretsWithMeta(fakeAdmin(stored), ALICE)).landBekannt, false);
+  assert.equal((await readMemberSecretsWithMeta(fakeAdmin(row({ land: "AT" })), ALICE)).landBekannt, true);
+});

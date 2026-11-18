@@ -139,6 +139,8 @@ export type MemberCorrectionData = KorrekturWerte & {
   bicHinweis: string | null;
   /** Version der verschlüsselten Zeile beim Öffnen (0 = keine): optimistische Sperre. */
   version: number;
+  /** Ohne Spalte land geladen (Übergang): ein übermitteltes Land wird ignoriert. */
+  landUnbekannt: boolean;
 };
 
 export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
@@ -149,7 +151,7 @@ export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
 async function loadCorrectionValues(
   admin: ReturnType<typeof createServiceClient>,
   profileId: string
-): Promise<{ name: string; values: MemberSecretValues; version: number } | { error: string }> {
+): Promise<{ name: string; values: MemberSecretValues; version: number; landBekannt: boolean } | { error: string }> {
   const { data: profile, error } = await admin
     .from("profiles")
     .select('"Vorname", "Nachname"')
@@ -164,7 +166,12 @@ async function loadCorrectionValues(
   const name = [p.Vorname, p.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
   try {
     const gelesen = await readMemberSecretsWithMeta(admin, profileId);
-    return { name, values: gelesen?.values ?? emptySecretValues(), version: gelesen?.version ?? 0 };
+    return {
+      name,
+      values: gelesen?.values ?? emptySecretValues(),
+      version: gelesen?.version ?? 0,
+      landBekannt: gelesen?.landBekannt ?? true,
+    };
   } catch (err) {
     console.error("loadCorrectionValues:", err instanceof Error ? err.message : "unbekannt");
     return { error: "Die verschlüsselten Daten dieses Mitglieds sind nicht lesbar. Bitte IT-Vorstand informieren." };
@@ -188,6 +195,7 @@ export async function getMemberCorrectionData(
       ibanMasked: v.iban ? maskIban(v.iban) : "",
       bicHinweis: bicHinweis(v.bic, v.iban),
       version: loaded.version,
+      landUnbekannt: !loaded.landBekannt,
     },
   };
 }
@@ -243,7 +251,8 @@ export async function correctMemberData(
   // Optimistische Sperre: Seit dem Öffnen darf sich nichts geändert haben (z. B. durch das Mitglied).
   if (loaded.version !== baseVersion) return { error: GEAENDERT_MELDUNG };
 
-  const pruefung = pruefeKorrektur(eingabe, basis, current);
+  const landUnbekannt = (base as { landUnbekannt?: unknown }).landUnbekannt === true || !loaded.landBekannt;
+  const pruefung = pruefeKorrektur(eingabe, basis, current, undefined, landUnbekannt);
   if (!pruefung.gueltig) {
     return { error: pruefung.ersterFehler ?? "Bitte prüf die Angaben.", fehler: pruefung.fehler };
   }

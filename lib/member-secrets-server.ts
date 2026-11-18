@@ -69,8 +69,8 @@ function ohneLandSpalte(): boolean {
   return landSpalteFehltBis > Date.now();
 }
 
-function rowColumns(): string {
-  return `${META_COLUMNS}, ${(ohneLandSpalte() ? PLAIN_SECRET_FIELDS : SECRET_FIELDS).join(", ")}`;
+function rowColumns(mitLand: boolean = !ohneLandSpalte()): string {
+  return `${META_COLUMNS}, ${(mitLand ? SECRET_FIELDS : PLAIN_SECRET_FIELDS).join(", ")}`;
 }
 
 /** PostgREST-/Postgres-Fehler „Spalte land fehlt“ (42703 undefined_column). */
@@ -122,21 +122,32 @@ export async function assertKeyRegistered(admin: SupabaseClient): Promise<void> 
   verifiedKey = { marker, until: Date.now() + KEY_CHECK_TTL_MS };
 }
 
-async function loadRow(admin: SupabaseClient, profileId: string): Promise<SecretsRow | null> {
+/**
+ * Zeile lesen. `mitLand` sagt, ob die Abfrage die Spalte `land` enthielt (aus der Abfrage selbst, nicht aus
+ * der Uhr): nur dann darf beim Speichern `land` mitgeschickt werden (sonst würde ein gespeichertes Land
+ * geleert). Gilt auch ohne Zeile (Neuanlage).
+ */
+async function loadRowInfo(admin: SupabaseClient, profileId: string): Promise<{ row: SecretsRow | null; mitLand: boolean }> {
   for (let attempt = 0; attempt < 2; attempt++) {
+    const mitLand = !ohneLandSpalte();
     const { data, error } = await admin
       .from("member_secrets")
-      .select(rowColumns())
+      .select(rowColumns(mitLand))
       .eq("profile_id", profileId)
       .maybeSingle();
-    if (error && attempt === 0 && !ohneLandSpalte() && istFehlendeLandSpalte(error)) {
+    if (error && attempt === 0 && mitLand && istFehlendeLandSpalte(error)) {
       merkeFehlendeLandSpalte();
       continue;
     }
     if (error) throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
-    return (data as unknown as SecretsRow | null) ?? null;
+    const row = (data as unknown as SecretsRow | null) ?? null;
+    return { row, mitLand: row ? "land" in row : mitLand };
   }
   throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
+}
+
+async function loadRow(admin: SupabaseClient, profileId: string): Promise<SecretsRow | null> {
+  return (await loadRowInfo(admin, profileId)).row;
 }
 
 function decryptRow(row: SecretsRow): MemberSecretValues {
@@ -173,8 +184,10 @@ export async function readMemberSecretsWithMeta(
   wrapped_dek: string;
   iban_hash: string | null;
   iban_last4: string | null;
+  /** false: ohne Spalte `land` gelesen (Übergang vor der Migration) – das Land ist unbekannt, nicht DE. */
+  landBekannt: boolean;
 } | null> {
-  const row = await loadRow(admin, profileId);
+  const { row, mitLand } = await loadRowInfo(admin, profileId);
   if (!row) return null;
   return {
     values: decryptRow(row),
@@ -182,6 +195,7 @@ export async function readMemberSecretsWithMeta(
     wrapped_dek: row.wrapped_dek,
     iban_hash: row.iban_hash,
     iban_last4: row.iban_last4,
+    landBekannt: mitLand,
   };
 }
 
@@ -284,12 +298,13 @@ export async function saveMemberSecrets(
   const keyring = getKeyring();
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const row = await loadRow(admin, profileId);
+    const { row, mitLand } = await loadRowInfo(admin, profileId);
 
     if (options.erwarteteVersion !== undefined && (row ? row.version : 0) !== options.erwarteteVersion) {
       throw new MemberSecretsConflictError();
     }
-    const ohneLand = ohneLandSpalte();
+    // Aus der gelesenen Zeile, nicht aus der Uhr (Gegenprüfung G1): ohne land gelesen → ohne land speichern.
+    const ohneLand = !mitLand;
     const current = row ? decryptRow(row) : emptySecretValues();
     const gesperrt = new Set<SecretField>(
       (options.nurWennLeer ?? []).filter((field) => (current[field] ?? "").trim() !== ""),

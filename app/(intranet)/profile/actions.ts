@@ -98,10 +98,14 @@ export async function updateProfile(
 
   let bestand;
   let version = 0;
+  // Seite oder jetziges Lesen ohne Spalte land (Übergang): übermitteltes Land nicht speichern (sonst würde die
+  // Vorgabe DE ein gespeichertes Land überschreiben).
+  let landUnbekannt = formData.get("landUnbekannt") === "1";
   try {
     const gelesen = await readMemberSecretsWithMeta(admin, profileId);
     bestand = gelesen?.values ?? emptySecretValues();
     version = gelesen?.version ?? 0;
+    if (gelesen && !gelesen.landBekannt) landUnbekannt = true;
   } catch (err) {
     console.error("updateProfile: lesen", err instanceof Error ? err.message : "unbekannt");
     return { success: false, error: "Deine Daten können gerade nicht gelesen werden. Bitte wende dich an den Vorstand." };
@@ -111,7 +115,7 @@ export async function updateProfile(
 
   const eingabe: Record<string, unknown> = {};
   for (const key of FORM_FIELDS[section]) eingabe[key] = formData.get(key);
-  const pruefung = pruefeProfil(section, eingabe, bestand, isAlumniProfile(profile));
+  const pruefung = pruefeProfil(section, eingabe, bestand, isAlumniProfile(profile), undefined, landUnbekannt);
   if (!pruefung.gueltig) {
     return { success: false, error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fehler: pruefung.fehler };
   }

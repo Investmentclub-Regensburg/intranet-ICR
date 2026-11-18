@@ -208,7 +208,9 @@ export function pruefeProfil(
   eingabe: Record<string, unknown>,
   bestand: MemberSecretValues,
   alumni: boolean,
-  heute?: string
+  heute?: string,
+  /** Formular wurde ohne bekanntes Land geladen (Übergang vor der Migration): Land nicht speichern. */
+  landUnbekannt = false
 ): FormularErgebnis {
   const istAlumni = alumni === true;
   const felder = ABSCHNITT_FELDER[abschnitt].filter((feld) => {
@@ -244,7 +246,7 @@ export function pruefeProfil(
         aenderungen[feld as keyof MemberSecretValues] = neu;
       }
     }
-    if (felder.includes("land")) {
+    if (felder.includes("land") && !landUnbekannt) {
       const land = leerZuNull(r.werte.land);
       if (land !== (bestand.land ?? null) && (Object.keys(aenderungen).length > 0 || land !== landAusBestand(bestand.land))) {
         aenderungen.land = land;
@@ -331,9 +333,12 @@ export function pruefeKorrektur(
   eingabe: Partial<Record<keyof KorrekturWerte | "iban", unknown>>,
   basis: KorrekturWerte,
   bestand: MemberSecretValues,
-  heute?: string
+  heute?: string,
+  /** Dialog wurde ohne bekanntes Land geladen (Übergang vor der Migration): übermitteltes Land ignorieren. */
+  landUnbekannt = false
 ): FormularErgebnis & { felder: (keyof MemberSecretValues)[] } {
   const geaendert = geaenderteKorrekturFelder(eingabe, basis);
+  if (landUnbekannt) geaendert.delete("land");
   const aenderungen: Mitgliederdaten = {};
   for (const feld of geaendert) if (feld !== "handyLand") aenderungen[feld as Feld] = text(eingabe[feld]);
   if (geaendert.has("handynummer")) aenderungen.handyLand = text(eingabe.handyLand) || DEFAULT_COUNTRY;

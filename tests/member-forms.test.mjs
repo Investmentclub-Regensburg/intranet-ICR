@@ -351,3 +351,14 @@ test("U2: PLZ-Fehler in Deutschland nennt das Land", () => {
   // Andere Länder: Meldung der Regeln.
   assert.notEqual(pruefeProfil("personal", persoenlich({ land: "AT", plz: "93047", ort: "Wien" }), bestand(), false, HEUTE).fehler.plz, PLZ_DE_MELDUNG);
 });
+
+test("G1: im Rückfall geladenes Formular überschreibt kein Land", () => {
+  // Bestand ohne bekanntes Land (Wert null), Formular zeigt die Vorgabe DE.
+  const p = pruefeProfil("personal", persoenlich({ ort: "Neutraubling" }), bestand({ land: null }), false, HEUTE, true);
+  assert.equal(p.gueltig, true, p.ersterFehler ?? "");
+  assert.deepEqual(p.aenderungen, { ort: "Neutraubling" });
+  const basis = korrekturWerte(bestand({ land: null }));
+  const k = pruefeKorrektur({ ...basis, land: "AT", ort: "Wien" }, basis, bestand({ land: null }), HEUTE, true);
+  assert.equal(k.gueltig, true, k.ersterFehler ?? "");
+  assert.deepEqual(k.aenderungen, { ort: "Wien" });
+});
