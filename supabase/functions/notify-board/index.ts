@@ -27,7 +27,8 @@
 //   NOTIFY_CANCELLATION_EMAIL – Empfänger der Kündigungsmails und Antwortadresse der Kündigungsbestätigung,
 //                          kommasepariert (Default: kuendigung@investmentclubregensburg.com)
 //   NOTIFY_FROM_EMAIL    – Absender, Domain muss in Resend verifiziert sein
-//   INTRANET_URL         – optional, Basis-URL für Links in die Admin-Seiten (Default: https://myicr.investmentclubregensburg.com)
+//   INTRANET_URL         – optional, Basis-URL für Links in die Admin-Seiten und für Event-Bilder in Mails
+//                          (Default: https://myicr.investmentclubregensburg.com)
 //
 // Deploy: verify_jwt = false (Auth läuft über den Shared-Secret-Header x-notify-secret).
 
@@ -236,6 +237,29 @@ function formatTimeRange(start: unknown, end: unknown, multiDay = false): string
   return `${s} – ${e} Uhr${e <= s ? " (Folgetag)" : ""}`;
 }
 
+// Event-Bilder liefert die App aus (`/bilder/event-images/<pfad>`, Route im App-Repo), nicht Supabase: Auf dem
+// eigenen Server ist Supabase von außen nicht erreichbar. Ältere Payloads enthalten noch die absolute
+// Storage-URL `…/storage/v1/object/public/event-images/<pfad>`. Gleiche Regeln wie eventImageStoragePath()
+// in lib/events.ts (dort nicht importierbar).
+const EVENT_IMAGE_ROUTE = "/bilder/event-images/";
+const LEGACY_EVENT_IMAGE_MARKER = "/storage/v1/object/public/event-images/";
+const EVENT_IMAGE_PATH_RE = /^[0-9a-f-]{36}(?:\/[0-9a-f-]{36}|-\d{10,16})\.(jpg|jpeg|png|gif|webp)$/;
+
+/** Absolute Bildadresse für die Mail (über INTRANET_URL) oder "" bei unbekanntem Format. */
+function eventImageMailUrl(imageUrl: string): string {
+  let raw = "";
+  if (imageUrl.startsWith(EVENT_IMAGE_ROUTE)) raw = imageUrl.slice(EVENT_IMAGE_ROUTE.length);
+  else if (/^https?:\/\//i.test(imageUrl) && imageUrl.includes(LEGACY_EVENT_IMAGE_MARKER))
+    raw = imageUrl.slice(imageUrl.indexOf(LEGACY_EVENT_IMAGE_MARKER) + LEGACY_EVENT_IMAGE_MARKER.length);
+  let path = "";
+  try {
+    path = decodeURIComponent(raw.split(/[?#]/)[0] ?? "");
+  } catch {
+    return "";
+  }
+  return INTRANET_URL && EVENT_IMAGE_PATH_RE.test(path) ? `${INTRANET_URL}${EVENT_IMAGE_ROUTE}${path}` : "";
+}
+
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max).trimEnd()} …` : text;
 }
@@ -248,7 +272,7 @@ function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
   const dates = multiDay ? `${formatEventDate(e.event_date)} bis ${formatEventDate(e.end_date)}` : formatEventDate(e.event_date);
   const when = [dates, formatTimeRange(e.event_time, e.end_time, multiDay)].filter(Boolean).join(", ");
   const description = truncate(str(e.description), 600);
-  const imageUrl = str(e.image_url);
+  const imageUrl = eventImageMailUrl(str(e.image_url));
   const needsRegistration = Boolean(e.requires_registration);
 
   const rows: Array<[string, string]> = [["Wann", when]];
@@ -258,9 +282,9 @@ function buildEventAnnouncement(ev: NotificationEvent): Omit<Mail, "to"> {
   const r = renderRows(rows);
 
   const intro = "Im ICR Intranet gibt es ein neues Event:";
-  // Nur Bilder aus dem eigenen Supabase-Storage einbetten.
+  // Nur Event-Bilder aus dem eigenen Bucket einbetten (über die App ausgeliefert).
   const headerHtml =
-    imageUrl && SUPABASE_URL && imageUrl.startsWith(`${SUPABASE_URL}/storage/v1/object/public/`)
+    imageUrl
       ? `<img src="${escapeHtml(imageUrl)}" alt="" style="display:block;width:100%;max-height:280px;object-fit:cover;border-radius:8px;margin:0 0 16px" />`
       : "";
   const afterRowsHtml = description
