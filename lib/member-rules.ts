@@ -52,7 +52,7 @@ export type Feld =
  *   format                 Wert passt nicht zum Muster (Datum, PLZ, Hausnummer, BIC, Name, E-Mail, Handy,
  *                          IBAN-Aufbau) oder ist keine Zeichenkette
  *   zu_lang                länger als FIELD_LIMITS
- *   zeichen                Steuerzeichen, Formelanfang (= + - @) oder unsichtbare Zeichen (Zero-Width, Bidi)
+ *   zeichen                Steuerzeichen, Formelanfang (= + - @) oder Format-Zeichen (Cf: Zero-Width, Bidi …)
  *   keine_buchstaben       Straße/Ort ohne Buchstaben
  *   hausnummer_in_strasse  Straße endet auf eine Hausnummer, Hausnummer leer
  *   ziffern                Ziffern im Ort (Deutschland)
@@ -100,7 +100,8 @@ export const MANGEL_CODES: readonly MangelCode[] = [
 /**
  * Stabile Hinweis-Codes (blockieren nie; Skript zählt sie, das Abfrage-Fenster zeigt sie am Feld).
  *   vorwahl_ergaenzt  Handy wurde nur per Annahme „deutsche Nummer“ zu E.164 (ohne Vorwahl und ohne 0, oder
- *                     „+49“ direkt vor 15x/16x/17x aus der alten Vorauswahl). „Stimmt alles“ bestätigt ihn.
+ *                     „+49“ direkt vor 15x/16x/17x aus der alten Vorauswahl). Nur `pruefeBestand` ohne
+ *                     gewähltes Handy-Land, nie im Formular. „Stimmt alles“ bestätigt ihn.
  *   bic_land          BIC-Land (Stellen 5–6) weicht vom Land der IBAN ab (z. B. Neobanken). Kein Fehler.
  */
 export type HinweisCode = "vorwahl_ergaenzt" | "bic_land";
@@ -179,7 +180,7 @@ function textOderLeer(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-/** Zero-Width (U+200B–U+200D, U+2060, U+FEFF) und Bidi-Steuerzeichen (U+202A–U+202E, U+2066–U+2069). */
+/** Alle Format-Zeichen (Unicode-Kategorie Cf): Zero-Width, Bidi, weiches Trennzeichen, BOM, Tags … */
 const UNSICHTBAR = /\p{Cf}/u;
 /** Leerraum außer U+FEFF (der zählt als unsichtbares Zeichen und wird gemeldet, nicht geschluckt). */
 const LEERRAUM = /[^\S\p{Cf}]+/gu;
@@ -277,7 +278,7 @@ function vorwahlNurAngenommen(roh: string, e164: string): boolean {
 /**
  * Handynummer: Land (ISO, Standard DE) + Nummer → E.164 (`+491761234567`).
  * DE: nur Mobilnummern. Andere Länder: gültig nach Metadaten, Typ Mobil, Mobil-oder-Festnetz oder unbekannt.
- * Pflicht außer für den Vorstand. Hinweis `vorwahl_ergaenzt`, wenn die deutsche Vorwahl nur angenommen ist.
+ * Pflicht außer für den Vorstand. Liefert keinen Hinweis (`vorwahl_ergaenzt` setzt nur `pruefeBestand`).
  */
 export function pruefeHandy(eingabe: unknown, land: unknown, kontext: Kontext): HandyErgebnis {
   const text = alsText(eingabe);
