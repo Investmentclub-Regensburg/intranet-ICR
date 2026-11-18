@@ -127,6 +127,8 @@ function abstand(a: string, b: string): number {
  * Erlaubt 1 Abweichung, bei langen Domains (ab 15 Zeichen, Hochschulen) 2.
  */
 export function emailTippfehler(email: string): string | null {
+  // Abstandsberechnung ist O(n·m) und läuft bei jedem Tastendruck: überlange Eingaben nicht auswerten.
+  if (typeof email !== "string" || email.length > 254) return null;
   const at = email.trim().lastIndexOf("@");
   if (at < 1) return null;
   const domain = email.trim().slice(at + 1).toLowerCase();

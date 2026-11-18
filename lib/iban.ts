@@ -55,6 +55,16 @@ export const SEPA_IBAN_LENGTHS: Readonly<Record<string, number>> = {
   VA: 22, // Vatikanstadt
 };
 
+/**
+ * Aufbau der BBAN (IBAN ohne Land und Prüfziffer) für die häufigsten Länder laut IBAN Registry:
+ * DE 8 Ziffern Bankleitzahl + 10 Ziffern Konto, AT 5 Ziffern Bankleitzahl + 11 Ziffern Konto.
+ * Andere Länder: nur Länge + Prüfziffer.
+ */
+const BBAN_MUSTER: Readonly<Record<string, RegExp>> = {
+  DE: /^\d{18}$/,
+  AT: /^\d{16}$/,
+};
+
 /** Ergebnis der ausführlichen IBAN-Prüfung (Codes stabil, siehe lib/member-rules.ts). */
 export type IbanCheck = "ok" | "format" | "nicht_sepa" | "laenge" | "pruefziffer";
 
@@ -91,6 +101,8 @@ export function checkSepaIban(cleaned: string): IbanCheck {
   const country = cleaned.slice(0, 2);
   if (!isSepaIbanCountry(country)) return "nicht_sepa";
   if (cleaned.length !== SEPA_IBAN_LENGTHS[country]) return "laenge";
+  const bban = BBAN_MUSTER[country];
+  if (bban && !bban.test(cleaned.slice(4))) return "format";
   return ibanChecksumValid(cleaned) ? "ok" : "pruefziffer";
 }
 
