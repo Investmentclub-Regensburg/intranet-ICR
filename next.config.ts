@@ -2,18 +2,20 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV !== "production";
 
-// Supabase-Origin (REST, Auth, Storage-Bilder, Realtime) für die CSP.
+// Supabase-Origin für die Produktionssperre unten. Nicht mehr in der CSP: Der Browser spricht nie direkt
+// mit Supabase (Abmelden, Bild-Upload und Event-Bilder laufen über die App).
 let supabaseOrigin = "";
 try {
   supabaseOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").origin;
 } catch {
   supabaseOrigin = "";
 }
-const supabaseRealtime = supabaseOrigin.replace(/^https:/, "wss:");
 
 // Lokal (next dev, lokaler Build) nie gegen die Produktions-Datenbank: .env.local zeigt auf das
-// Test-Projekt Intranet-Test. Nur Vercel (Produktion, Branch prod) nutzt die Produktion.
-// Schutz vor Versehen, keine Sicherheitsgrenze (VERCEL=1 umgeht ihn).
+// Test-Projekt Intranet-Test. Nur der Produktions-Build nutzt die Produktion: auf Vercel (Branch prod,
+// erkennbar an VERCEL) oder auf dem eigenen Server (Dockerfile setzt ICR_HOSTING=self beim Build, README.md).
+// Schutz vor Versehen, keine Sicherheitsgrenze (VERCEL=1 oder ICR_HOSTING=self umgehen ihn).
+const isProductionHost = Boolean(process.env.VERCEL) || process.env.ICR_HOSTING === "self";
 const PROD_SUPABASE_REF = "vxcwtfktnefreboejgpw";
 function jwtRef(token: string | undefined): string {
   try {
@@ -24,7 +26,7 @@ function jwtRef(token: string | undefined): string {
   }
 }
 if (
-  !process.env.VERCEL &&
+  !isProductionHost &&
   (supabaseOrigin.includes(PROD_SUPABASE_REF) ||
     jwtRef(process.env.SUPABASE_SERVICE_ROLE_KEY) === PROD_SUPABASE_REF)
 ) {
@@ -48,9 +50,9 @@ const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline' ${TURNSTILE} ${VERCEL_LIVE}${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${supabaseOrigin} ${VERCEL_LIVE}`,
+  `img-src 'self' data: blob: ${VERCEL_LIVE}`,
   "font-src 'self' data:",
-  `connect-src 'self' ${supabaseOrigin} ${supabaseRealtime} ${TURNSTILE} ${VERCEL_LIVE}`,
+  `connect-src 'self' ${TURNSTILE} ${VERCEL_LIVE}`,
   `frame-src ${TURNSTILE} ${VERCEL_LIVE}`,
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
@@ -89,6 +91,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Eigenständiger Server (.next/standalone) für das Docker-Image auf dem eigenen Server (Dockerfile).
+  // Auf Vercel bewusst nicht gesetzt: Dort bleibt der Build bis zum Umzug genau wie bisher.
+  output: process.env.VERCEL ? undefined : "standalone",
   // Nur Vorschau (feat/vorschau): Dev-Server auch über das Tailnet nutzbar (Handy/zweiter PC),
   // sonst lädt Next.js im Dev-Modus das JavaScript für fremde Hosts nicht und Knöpfe reagieren nicht.
   allowedDevOrigins: ["100.78.25.9", "*.tail74a8aa.ts.net"],
