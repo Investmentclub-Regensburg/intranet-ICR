@@ -32,3 +32,16 @@ export function isActiveMemberProfile(
 ): boolean {
   return Boolean(profile) && !isCancelledProfile(profile) && !isPendingProfile(profile);
 }
+
+/**
+ * Alumni: Rolle „alumni“. Die Freigabe eines Alumni-Antrags setzt `Rolle = alumni` und lässt `Status = active`
+ * (app/(intranet)/admin/alumni-requests/actions.ts); ältere Datensätze können stattdessen `Status = alumni`
+ * tragen – Finanzexport und Dashboard werten deshalb beides (admin/actions/finance.ts, dashboard/data.ts).
+ */
+export function isAlumniProfile(
+  profile: Record<string, unknown> | null | undefined
+): boolean {
+  if (!profile) return false;
+  const role = [profile.rolle, profile.Rolle].map((v) => String(v ?? "").trim().toLowerCase());
+  return role.includes("alumni") || getProfileStatus(profile) === "alumni";
+}

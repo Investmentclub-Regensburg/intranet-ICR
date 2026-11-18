@@ -3,10 +3,10 @@ import { createClient } from "@/utils/supabase/server";
 import { createServiceClient } from "@/utils/supabase/service";
 import { assertKeyRegistered, buildRegistrationSecrets, type MemberSecretValues } from "@/lib/member-secrets-server";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
+import { DEFAULT_COUNTRY, countryFromSelectValue, dialCodeFor } from "@/lib/country-codes";
 import {
   FIELD_LIMITS,
   checkBirthDate,
-  checkDialCode,
   checkPhone,
   checkPlz,
   checkText,
@@ -59,7 +59,10 @@ export async function registerAction(
   const hausnummer = (formData.get("hausnummer") as string)?.trim();
   const ort = (formData.get("ort") as string)?.trim();
   const plz = (formData.get("plz") as string)?.trim();
-  const landesvorwahl = (formData.get("landesvorwahl") as string)?.trim() || "+49";
+  // Die Auswahl liefert den ISO-Code (z. B. "DE", eindeutig auch für +1); gespeichert wird bis zur
+  // Umstellung auf E.164 (Paket Mitgliederdaten, PR 2) weiter „Vorwahl Eingabe“.
+  const land = countryFromSelectValue((formData.get("landesvorwahl") as string) || DEFAULT_COUNTRY);
+  const landesvorwahl = dialCodeFor(land) ?? "";
   const handynummerRaw = (formData.get("handynummer") as string)?.trim();
   const handynummer = handynummerRaw
     ? `${landesvorwahl} ${handynummerRaw}`.trim()
@@ -83,7 +86,7 @@ export async function registerAction(
     hausnummer: hausnummer ?? "",
     ort: ort ?? "",
     plz: plz ?? "",
-    landesvorwahl: landesvorwahl ?? "+49",
+    landesvorwahl: land ?? DEFAULT_COUNTRY,
     handynummer: handynummerRaw ?? "",
     student: student ?? "",
     studiengang: studiengang ?? "",
@@ -140,7 +143,7 @@ export async function registerAction(
     checkText(hausnummer!, "Hausnummer", FIELD_LIMITS.hausnummer),
     checkText(ort!, "Ort", FIELD_LIMITS.ort),
     checkPlz(plz!),
-    checkDialCode(landesvorwahl),
+    land ? null : "Bitte eine gültige Ländervorwahl wählen.",
     checkPhone(handynummerRaw!),
     checkText(studiengang ?? "", "Studiengang", FIELD_LIMITS.studium),
     checkText(abschluss ?? "", "Abschluss", FIELD_LIMITS.studium),

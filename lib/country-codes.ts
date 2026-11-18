@@ -1,6 +1,8 @@
 /**
- * Ländervorwahlen für Telefonnummern (ITU E.164).
+ * Länderliste nach ISO-3166-Code (eindeutiger Wert, z. B. für Kanada und USA, die beide „+1“ haben).
+ * Dient der Ländervorwahl beim Handy und dem Land-Feld der Anschrift.
  * Deutschland als erstes für Default-Auswahl.
+ * `dialCode` ist die Vorwahl zur Anzeige (ITU E.164); maßgeblich für die Prüfung ist der ISO-Code.
  */
 export const countryCodes = [
   { code: "DE", dialCode: "+49", name: "Deutschland" },
@@ -64,14 +66,17 @@ export const countryCodes = [
   { code: "ET", dialCode: "+251", name: "Äthiopien" },
   { code: "FJ", dialCode: "+679", name: "Fidschi" },
   { code: "FI", dialCode: "+358", name: "Finnland" },
+  { code: "AX", dialCode: "+358", name: "Åland" },
   { code: "FR", dialCode: "+33", name: "Frankreich" },
   { code: "GA", dialCode: "+241", name: "Gabun" },
   { code: "GM", dialCode: "+220", name: "Gambia" },
   { code: "GE", dialCode: "+995", name: "Georgien" },
   { code: "GH", dialCode: "+233", name: "Ghana" },
+  { code: "GI", dialCode: "+350", name: "Gibraltar" },
   { code: "GR", dialCode: "+30", name: "Griechenland" },
   { code: "GD", dialCode: "+1473", name: "Grenada" },
   { code: "GT", dialCode: "+502", name: "Guatemala" },
+  { code: "GG", dialCode: "+44", name: "Guernsey" },
   { code: "GN", dialCode: "+224", name: "Guinea" },
   { code: "GW", dialCode: "+245", name: "Guinea-Bissau" },
   { code: "GY", dialCode: "+592", name: "Guyana" },
@@ -80,6 +85,7 @@ export const countryCodes = [
   { code: "HK", dialCode: "+852", name: "Hongkong" },
   { code: "HU", dialCode: "+36", name: "Ungarn" },
   { code: "IS", dialCode: "+354", name: "Island" },
+  { code: "IM", dialCode: "+44", name: "Isle of Man" },
   { code: "IN", dialCode: "+91", name: "Indien" },
   { code: "ID", dialCode: "+62", name: "Indonesien" },
   { code: "IR", dialCode: "+98", name: "Iran" },
@@ -90,6 +96,7 @@ export const countryCodes = [
   { code: "CI", dialCode: "+225", name: "Elfenbeinküste" },
   { code: "JM", dialCode: "+1876", name: "Jamaika" },
   { code: "JP", dialCode: "+81", name: "Japan" },
+  { code: "JE", dialCode: "+44", name: "Jersey" },
   { code: "JO", dialCode: "+962", name: "Jordanien" },
   { code: "KZ", dialCode: "+7", name: "Kasachstan" },
   { code: "KE", dialCode: "+254", name: "Kenia" },
@@ -195,10 +202,59 @@ export const countryCodes = [
   { code: "UY", dialCode: "+598", name: "Uruguay" },
   { code: "UZ", dialCode: "+998", name: "Usbekistan" },
   { code: "VU", dialCode: "+678", name: "Vanuatu" },
-  { code: "VA", dialCode: "+379", name: "Vatikanstadt" },
+  { code: "VA", dialCode: "+39", name: "Vatikanstadt" }, // +379 ist reserviert, aber nicht in Gebrauch
   { code: "VE", dialCode: "+58", name: "Venezuela" },
   { code: "VN", dialCode: "+84", name: "Vietnam" },
   { code: "YE", dialCode: "+967", name: "Jemen" },
   { code: "ZM", dialCode: "+260", name: "Sambia" },
   { code: "ZW", dialCode: "+263", name: "Simbabwe" },
 ] as const;
+
+export type Country = (typeof countryCodes)[number];
+export type CountryCode = Country["code"];
+
+/** Standardland für Handy und Anschrift. */
+export const DEFAULT_COUNTRY: CountryCode = "DE";
+
+const BY_CODE: ReadonlyMap<string, Country> = new Map(countryCodes.map((c) => [c.code, c]));
+
+export function isCountryCode(value: unknown): value is CountryCode {
+  return typeof value === "string" && BY_CODE.has(value);
+}
+
+/** Land zum ISO-Code (Groß-/Kleinschreibung egal), sonst null. */
+export function findCountry(code: string | null | undefined): Country | null {
+  return BY_CODE.get(String(code ?? "").trim().toUpperCase()) ?? null;
+}
+
+/** Vorwahl zum ISO-Code, z. B. "DE" → "+49"; null bei unbekanntem Code. */
+export function dialCodeFor(code: string | null | undefined): string | null {
+  return findCountry(code)?.dialCode ?? null;
+}
+
+/**
+ * Wert einer Länderauswahl → ISO-Code. Nimmt auch den alten Wert (Vorwahl wie "+49") an, damit ein
+ * noch offenes altes Formular weiter funktioniert; bei "+1" o. ä. gewinnt der erste Eintrag der Liste.
+ */
+export function countryFromSelectValue(value: string | null | undefined): CountryCode | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("+")) {
+    if (Object.prototype.hasOwnProperty.call(HAUPTLAND_JE_VORWAHL, raw)) return HAUPTLAND_JE_VORWAHL[raw];
+    return countryCodes.find((c) => c.dialCode === raw)?.code ?? null;
+  }
+  return findCountry(raw)?.code ?? null;
+}
+
+/**
+ * Hauptland bei Vorwahlen, die sich mehrere Einträge teilen (wie libphonenumber: erstes Land der Vorwahl in
+ * den Metadaten). Ein Test gleicht das mit `libphonenumber-js` ab. Bewusst ohne Import der Bibliothek, weil
+ * diese Datei auch im Browser (Registrierung) geladen wird.
+ */
+const HAUPTLAND_JE_VORWAHL: Readonly<Record<string, CountryCode>> = {
+  "+1": "US",
+  "+7": "RU",
+  "+39": "IT",
+  "+44": "GB",
+  "+358": "FI",
+};
