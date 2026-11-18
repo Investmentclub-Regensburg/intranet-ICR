@@ -187,7 +187,29 @@ const LEERRAUM = /[^\S\p{Cf}]+/gu;
 
 /** NFC, außen trimmen, Leerraum (auch Tab/Zeilenumbruch) zu einem Leerzeichen zusammenfassen. */
 export function normalisiereText(eingabe: unknown): string {
-  return textOderLeer(eingabe).normalize("NFC").trim().replace(LEERRAUM, " ");
+  return ohneHarmloseZeichen(textOderLeer(eingabe))
+    .replace(BINDESTRICHE, "-")
+    .normalize("NFC")
+    .trim()
+    .replace(LEERRAUM, " ");
+}
+
+/** Zeichenklasse aus Codepunkten bauen (so stehen keine unsichtbaren Zeichen im Quelltext). */
+function zeichenklasse(codepunkte: readonly number[]): RegExp {
+  return new RegExp(`[${codepunkte.map((c) => String.fromCodePoint(c)).join("")}]`, "gu");
+}
+
+/**
+ * Harmlose Format-Zeichen aus Copy-and-paste, die still entfernt werden (Abschlussrunde H1): weiches
+ * Trennzeichen U+00AD, Zero-Width Space U+200B, LRM/RLM U+200E/U+200F, Word Joiner U+2060, BOM U+FEFF.
+ * Alle übrigen Format-Zeichen (Bidi-Embedding/Override/Isolates usw.) meldet `textMangel` als `zeichen`.
+ */
+const HARMLOSE_ZEICHEN = zeichenklasse([0x00ad, 0x200b, 0x200e, 0x200f, 0x2060, 0xfeff]);
+/** Bindestrich U+2010 und geschützter Bindestrich U+2011 → „-“ (Abschlussrunde M4). */
+const BINDESTRICHE = zeichenklasse([0x2010, 0x2011]);
+
+function ohneHarmloseZeichen(text: string): string {
+  return text.replace(HARMLOSE_ZEICHEN, "");
 }
 
 /** Land der Anschrift: leer → DE (Altdaten haben kein Land). */
@@ -520,11 +542,12 @@ export function pruefeHausnummer(eingabeHausnummer: unknown, land: unknown, kont
 export function pruefePlz(eingabePlz: unknown, land: unknown, kontext: Kontext): RegelErgebnis {
   if (alsText(eingabePlz) === null) return KEIN_TEXT();
   const roh = normalisiereText(eingabePlz).toUpperCase();
-  // Länge und Zeichen zuerst, dann das Land: unbekanntes Land → keine weitere PLZ-Logik.
+  // Unbekanntes Land: PLZ wird gar nicht bewertet; den Mangel `land_unbekannt` trägt nur das Feld `land`
+  // (Abschlussrunde H2/M2). Speichern blockiert dann ohnehin das Land.
+  const l = landOderStandard(land);
+  if (!findCountry(l)) return OK(roh);
   const textRoh = roh ? textMangel(roh, "PLZ", FIELD_LIMITS.plz) : null;
   if (textRoh) return textRoh;
-  const l = landOderStandard(land);
-  if (!findCountry(l)) return MANGEL(roh, "land_unbekannt", "Bitte wähl ein Land aus der Liste.");
   const wert = ohneLaenderpraefix(roh, l);
   if (!wert) return leer("plz", kontext, l);
   const text = textMangel(wert, "PLZ", FIELD_LIMITS.plz);
@@ -601,7 +624,7 @@ export function pruefeName(eingabeName: unknown, feld: "vorname" | "nachname"): 
 export function pruefeEmail(eingabeEmail: unknown, kontext: Kontext): RegelErgebnis {
   const text = alsText(eingabeEmail);
   if (text === null) return KEIN_TEXT();
-  const wert = text.normalize("NFC").trim();
+  const wert = ohneHarmloseZeichen(text).normalize("NFC").trim();
   if (!wert) return leer("email", kontext);
   if (UNSICHTBAR.test(wert)) return MANGEL(wert, "zeichen", "Die E-Mail-Adresse enthält unsichtbare Zeichen.");
   return isValidEmail(wert) ? OK(wert) : MANGEL(wert, "format", "Bitte trag eine gültige E-Mail-Adresse ein.");
