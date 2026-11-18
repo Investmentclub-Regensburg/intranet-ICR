@@ -31,7 +31,7 @@ type SecretsRow = {
   iban_last4: string | null;
 } & Record<SecretField, string | null>;
 
-const ROW_COLUMNS = `profile_id, wrapped_dek, version, iban_hash, iban_last4, ${SECRET_FIELDS.join(", ")}`;
+const META_COLUMNS = "profile_id, wrapped_dek, version, iban_hash, iban_last4";
 
 /** Felder mit (leerer, gesperrter) Klartextspalte in profiles. `land` kam nach dem Abschluss und hat keine. */
 export type PlainSecretField = Exclude<SecretField, "land">;
@@ -56,6 +56,42 @@ export const PLAIN_COLUMNS: Record<PlainSecretField, string> = {
 export const PLAIN_SECRET_FIELDS: readonly PlainSecretField[] = SECRET_FIELDS.filter(
   (f): f is PlainSecretField => f !== "land",
 );
+
+/**
+ * Übergang Release (Migration 20261118120000): Fehlt die Spalte `land` noch, liest und speichert die App ohne
+ * Land (Land = DE; die alte save_member_secrets nimmt 8 Felder an). Nach LAND_RECHECK_MS wird erneut mit `land`
+ * versucht, damit die App nach dem Einspielen der Migration ohne Neustart wieder das Land speichert.
+ */
+let landSpalteFehltBis = 0;
+const LAND_RECHECK_MS = 5 * 60 * 1000;
+
+function ohneLandSpalte(): boolean {
+  return landSpalteFehltBis > Date.now();
+}
+
+function rowColumns(): string {
+  return `${META_COLUMNS}, ${(ohneLandSpalte() ? PLAIN_SECRET_FIELDS : SECRET_FIELDS).join(", ")}`;
+}
+
+/** PostgREST-/Postgres-Fehler „Spalte land fehlt“ (42703 undefined_column). */
+function istFehlendeLandSpalte(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = String(error.message ?? "");
+  return /\bland\b/.test(message) && (error.code === "42703" || /does not exist/i.test(message));
+}
+
+function merkeFehlendeLandSpalte(): void {
+  if (!ohneLandSpalte()) {
+    // Nur Hinweis, keine Werte.
+    console.warn("member_secrets: Spalte land fehlt (Migration 20261118120000 noch nicht eingespielt), ohne Land weiter");
+  }
+  landSpalteFehltBis = Date.now() + LAND_RECHECK_MS;
+}
+
+/** Nur Tests: Zustand „Spalte fehlt“ zurücksetzen. */
+export function _resetLandSpalte(): void {
+  landSpalteFehltBis = 0;
+}
 
 let verifiedKey: { marker: string; until: number } | null = null;
 const KEY_CHECK_TTL_MS = 5 * 60 * 1000;
@@ -87,13 +123,20 @@ export async function assertKeyRegistered(admin: SupabaseClient): Promise<void> 
 }
 
 async function loadRow(admin: SupabaseClient, profileId: string): Promise<SecretsRow | null> {
-  const { data, error } = await admin
-    .from("member_secrets")
-    .select(ROW_COLUMNS)
-    .eq("profile_id", profileId)
-    .maybeSingle();
-  if (error) throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
-  return (data as SecretsRow | null) ?? null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await admin
+      .from("member_secrets")
+      .select(rowColumns())
+      .eq("profile_id", profileId)
+      .maybeSingle();
+    if (error && attempt === 0 && !ohneLandSpalte() && istFehlendeLandSpalte(error)) {
+      merkeFehlendeLandSpalte();
+      continue;
+    }
+    if (error) throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
+    return (data as unknown as SecretsRow | null) ?? null;
+  }
+  throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
 }
 
 function decryptRow(row: SecretsRow): MemberSecretValues {
@@ -159,10 +202,17 @@ export async function readMemberSecretsMany(
   const ids = [...new Set(profiles.map((p) => p.id).filter(Boolean))];
   const rows = new Map<string, SecretsRow>();
   for (let i = 0; i < ids.length; i += BULK_CHUNK) {
-    const { data, error } = await admin
+    let { data, error } = await admin
       .from("member_secrets")
-      .select(ROW_COLUMNS)
+      .select(rowColumns())
       .in("profile_id", ids.slice(i, i + BULK_CHUNK));
+    if (error && !ohneLandSpalte() && istFehlendeLandSpalte(error)) {
+      merkeFehlendeLandSpalte();
+      ({ data, error } = await admin
+        .from("member_secrets")
+        .select(rowColumns())
+        .in("profile_id", ids.slice(i, i + BULK_CHUNK)));
+    }
     if (error) throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
     for (const row of (data ?? []) as unknown as SecretsRow[]) rows.set(row.profile_id, row);
   }
@@ -206,16 +256,6 @@ export function plainToSecretValues(profile: Record<string, unknown> | null | un
   return values;
 }
 
-/** Ein Feld aus `nurWennLeer` ist schon gesetzt (z. B. Geburtsdatum: nachtragen nur einmal). */
-export class MemberSecretFieldSetError extends Error {
-  readonly field: SecretField;
-  constructor(field: SecretField) {
-    super("Das Feld ist bereits gesetzt.");
-    this.name = "MemberSecretFieldSetError";
-    this.field = field;
-  }
-}
-
 export class MemberSecretsConflictError extends Error {
   constructor() {
     super("Die Daten wurden gleichzeitig an anderer Stelle geändert.");
@@ -229,13 +269,16 @@ export class MemberSecretsConflictError extends Error {
  * Erkennt IBAN-Änderungen (ibanChanged) und meldet sie über die Datenbank; die erste Hinterlegung zählt nicht.
  * `correctedBy`: Profil-ID des Vorstandsmitglieds bei einer Korrektur im Admin-Bereich (wird protokolliert).
  * `nurWennLeer`: Felder, die nur geschrieben werden, solange sie im frisch gelesenen Stand leer sind (Mitglied
- * trägt das Geburtsdatum einmal selbst nach); sonst MemberSecretFieldSetError, nichts wird gespeichert.
+ * trägt das Geburtsdatum einmal selbst nach); ist das Feld schon gesetzt, wird die Eingabe ignoriert und der
+ * gespeicherte Wert bleibt.
+ * `erwarteteVersion`: Version beim Laden des Formulars (0 = noch keine Zeile). Weicht die aktuelle ab, wird
+ * nichts gespeichert (MemberSecretsConflictError) – optimistische Sperre aus Sicht des Formulars.
  */
 export async function saveMemberSecrets(
   admin: SupabaseClient,
   profileId: string,
   changes: Partial<MemberSecretValues>,
-  options: { correctedBy?: string; nurWennLeer?: readonly SecretField[] } = {},
+  options: { correctedBy?: string; nurWennLeer?: readonly SecretField[]; erwarteteVersion?: number } = {},
 ): Promise<void> {
   await assertKeyRegistered(admin);
   const keyring = getKeyring();
@@ -243,13 +286,17 @@ export async function saveMemberSecrets(
   for (let attempt = 0; attempt < 2; attempt++) {
     const row = await loadRow(admin, profileId);
 
-    const current = row ? decryptRow(row) : emptySecretValues();
-    for (const field of options.nurWennLeer ?? []) {
-      if (field in changes && (current[field] ?? "").trim() !== "") throw new MemberSecretFieldSetError(field);
+    if (options.erwarteteVersion !== undefined && (row ? row.version : 0) !== options.erwarteteVersion) {
+      throw new MemberSecretsConflictError();
     }
+    const ohneLand = ohneLandSpalte();
+    const current = row ? decryptRow(row) : emptySecretValues();
+    const gesperrt = new Set<SecretField>(
+      (options.nurWennLeer ?? []).filter((field) => (current[field] ?? "").trim() !== ""),
+    );
     const next: MemberSecretValues = { ...current };
     for (const field of SECRET_FIELDS) {
-      if (field in changes) {
+      if (field in changes && !gesperrt.has(field)) {
         const value = changes[field];
         next[field] = value === undefined || value === null || value.trim() === "" ? null : value.trim();
       }
@@ -266,7 +313,7 @@ export async function saveMemberSecrets(
       for (const field of SECRET_FIELDS) out[field] = encryptField(dek, profileId, field, next[field]);
       return out;
     };
-    let secrets: Record<SecretField, string | null>;
+    let secrets: Partial<Record<SecretField, string | null>>;
     if (created) {
       try {
         secrets = encrypt(created.dek);
@@ -277,10 +324,13 @@ export async function saveMemberSecrets(
       secrets = withDataKey(keyring, profileId, wrapped, encrypt);
     }
 
+    // Spalte land fehlt noch (Übergang): ohne land speichern, die alte Funktion nimmt die 8 Felder.
+    if (ohneLand) delete secrets.land;
+
     // Nur die Namen der geänderten Felder (für das Korrekturprotokoll), keine Werte.
     const changedFields: Record<string, null> = {};
     for (const field of SECRET_FIELDS) {
-      if (field in changes) changedFields[field] = null;
+      if (field in changes && !gesperrt.has(field) && !(ohneLand && field === "land")) changedFields[field] = null;
     }
 
     const { error } = await admin.rpc("save_member_secrets", {

@@ -29,6 +29,7 @@ import {
 } from "./actions";
 import { DEFAULT_COUNTRY, dialCodeFor, findCountry } from "@/lib/country-codes";
 import { emailTippfehler } from "@/lib/member-rules-client";
+import { plzInputMode } from "@/lib/member-inputs";
 import { FeldFehler, FeldHinweis, HandyEingabe, LandAuswahl } from "@/components/member/MemberInputs";
 import { IbanBicFields } from "./iban-bic-fields";
 import { AuthFrame, StageHeading, flyDelay } from "@/components/auth/AuthFrame";
@@ -510,6 +511,19 @@ export function RegisterForm() {
               />
             </Field>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="land">Land</Label>
+            <LandAuswahl
+              id="land"
+              wert={v.land}
+              onChange={(land) => {
+                setField("land", land);
+                clearError("land", "plz", "hausnummer", "ort");
+              }}
+              fehler={fe.land}
+              className={cn(FIELD_CLASS, "sm:w-1/2")}
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
             <Field id="plz" label="PLZ" fehler={fe.plz}>
               <Input
@@ -518,6 +532,7 @@ export function RegisterForm() {
                 name="plz"
                 type="text"
                 placeholder="80331"
+                inputMode={plzInputMode(v.land)}
                 required={v.land === DEFAULT_COUNTRY}
                 autoComplete="postal-code"
                 className={FIELD_CLASS}
@@ -545,19 +560,6 @@ export function RegisterForm() {
                 }}
               />
             </Field>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="land">Land</Label>
-            <LandAuswahl
-              id="land"
-              wert={v.land}
-              onChange={(land) => {
-                setField("land", land);
-                clearError("land", "plz", "hausnummer", "ort");
-              }}
-              fehler={fe.land}
-              className={cn(FIELD_CLASS, "sm:w-1/2")}
-            />
           </div>
           <WizardNav onBack={wizard.back}>
             <Button type="button" size="lg" onClick={handleNext}>

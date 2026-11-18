@@ -19,6 +19,7 @@ import {
   type Pruefergebnis,
 } from "./member-rules";
 import type { MemberSecretValues } from "./member-secrets-server";
+import { gleicheHandyEingabe } from "./member-inputs";
 
 export type FeldFehler = Partial<Record<Feld, string>>;
 
@@ -96,16 +97,22 @@ const FELD_REIHENFOLGE: readonly Feld[] = [
   "geburtsdatum",
 ];
 
+/** PLZ-Formatfehler in Deutschland: Land nennen (bei Auslandsadressen steht das Land evtl. noch auf DE). */
+export const PLZ_DE_MELDUNG = "In Deutschland hat die PLZ 5 Ziffern.";
+
 /**
  * Meldungen je Feld aus einem Prüfergebnis, optional auf `felder` beschränkt. `land_unbekannt` steht in den
- * Regeln an `land` UND `plz`; angezeigt wird es nur am Land (Regeln für Aufrufer, Punkt 4).
+ * Regeln an `land` UND `plz`; angezeigt wird es nur am Land (Regeln für Aufrufer, Punkt 4). `land` = Land der
+ * Anschrift, gegen das geprüft wurde.
  */
-function fehlerJeFeld(r: Pruefergebnis, felder?: readonly Feld[]): FeldFehler {
+function fehlerJeFeld(r: Pruefergebnis, land: unknown, felder?: readonly Feld[]): FeldFehler {
   const fehler: FeldFehler = {};
+  const l = text(land).trim().toUpperCase();
+  const de = l === "" || l === DEFAULT_COUNTRY;
   for (const m of r.maengel) {
     if (felder && !felder.includes(m.feld)) continue;
     if (m.code === "land_unbekannt" && m.feld !== "land") continue;
-    fehler[m.feld] = r.fehler[m.feld] ?? "";
+    fehler[m.feld] = m.feld === "plz" && m.code === "format" && de ? PLZ_DE_MELDUNG : (r.fehler[m.feld] ?? "");
   }
   return fehler;
 }
@@ -114,10 +121,13 @@ function ersterFehler(fehler: FeldFehler): string | null {
   return FELD_REIHENFOLGE.map((f) => fehler[f]).find((f) => f !== undefined) ?? null;
 }
 
-/** Hat jemand die Handynummer (Länderauswahl oder Nummer) gegenüber der Anzeige des Bestands geändert? */
+/**
+ * Hat jemand die Handynummer (Länderauswahl oder Nummer) gegenüber der Anzeige des Bestands geändert?
+ * Verglichen wird nach der Eingabe-Formatierung: Hat das Feld eine Altnummer nur umformatiert
+ * (`0176 12` → `176 12`), gilt sie als unverändert.
+ */
 function handyGeaendert(land: unknown, nummer: unknown, gespeichert: string | null | undefined): boolean {
-  const vorher = handyFuerEingabe(gespeichert);
-  return text(land).trim().toUpperCase() !== vorher.land || text(nummer).trim() !== vorher.nummer;
+  return !gleicheHandyEingabe({ land: text(land), nummer: text(nummer) }, handyFuerEingabe(gespeichert));
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -150,7 +160,7 @@ export function pruefeRegistrierung(
 ): FormularErgebnis & { werte: { vorname: string; nachname: string; email: string } } {
   const r = pruefeFormular({ ...eingabe }, { alumni: false, wer: "registrierung", heute });
   const w = r.werte;
-  const fehler = fehlerJeFeld(r);
+  const fehler = fehlerJeFeld(r, eingabe.land);
   return {
     gueltig: r.gueltig,
     fehler,
@@ -221,11 +231,26 @@ export function pruefeProfil(
   if (!felder.includes("iban")) daten.iban = bestand.iban ?? "";
 
   const r = pruefeFormular(daten, { alumni: istAlumni, wer: "mitglied", heute });
-  const fehler = fehlerJeFeld(r, felder);
+  const fehler = fehlerJeFeld(r, daten.land, felder);
   const gueltig = Object.keys(fehler).length === 0;
 
+  // Nur echte Änderungen speichern: ohne Änderung wird nichts geschrieben (keine neue Version, kein Protokoll).
+  // Das Land kommt mit, sobald sich irgendetwas ändert (Altdaten ohne Land bekommen so ihr Land).
   const aenderungen: Partial<MemberSecretValues> = {};
-  if (gueltig) for (const feld of felder) aenderungen[feld as keyof MemberSecretValues] = leerZuNull(r.werte[feld]);
+  if (gueltig) {
+    for (const feld of felder) {
+      const neu = leerZuNull(r.werte[feld]);
+      if (feld !== "land" && neu !== (bestand[feld as keyof MemberSecretValues] ?? null)) {
+        aenderungen[feld as keyof MemberSecretValues] = neu;
+      }
+    }
+    if (felder.includes("land")) {
+      const land = leerZuNull(r.werte.land);
+      if (land !== (bestand.land ?? null) && (Object.keys(aenderungen).length > 0 || land !== landAusBestand(bestand.land))) {
+        aenderungen.land = land;
+      }
+    }
+  }
   return { gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen };
 }
 
@@ -282,16 +307,18 @@ function vergleich(feld: keyof KorrekturWerte, wert: unknown): string {
   return t;
 }
 
-/** Felder, die der Vorstand gegenüber den Ausgangswerten geändert hat. Handy = Land oder Nummer geändert. */
+/**
+ * Felder, die der Vorstand gegenüber den Ausgangswerten geändert hat. Handy = Land oder Nummer geändert,
+ * verglichen nach der Eingabe-Formatierung (nur umformatiert = unverändert).
+ */
 export function geaenderteKorrekturFelder(eingabe: Partial<Record<keyof KorrekturWerte, unknown>>, basis: KorrekturWerte) {
   const geaendert = new Set<keyof KorrekturWerte>();
   for (const feld of KORREKTUR_FELDER) {
+    if (feld === "handyLand" || feld === "handynummer") continue;
     if (vergleich(feld, eingabe[feld]) !== vergleich(feld, basis[feld])) geaendert.add(feld);
   }
-  if (geaendert.has("handyLand")) {
-    geaendert.delete("handyLand");
-    geaendert.add("handynummer");
-  }
+  const handyNeu = { land: text(eingabe.handyLand), nummer: text(eingabe.handynummer) };
+  if (!gleicheHandyEingabe(handyNeu, { land: basis.handyLand, nummer: basis.handynummer })) geaendert.add("handynummer");
   return geaendert;
 }
 
@@ -320,7 +347,7 @@ export function pruefeKorrektur(
   };
   const r = pruefeVorstandskorrektur(aenderungen, bestehend, heute);
   const felder = Object.keys(r.werte) as (keyof MemberSecretValues)[];
-  const fehler = fehlerJeFeld(r);
+  const fehler = fehlerJeFeld(r, aenderungen.land ?? bestehend.land);
   const out: Partial<MemberSecretValues> = {};
   if (r.gueltig) for (const feld of felder) out[feld] = leerZuNull(r.werte[feld as Feld]);
   return { gueltig: r.gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen: out, felder };

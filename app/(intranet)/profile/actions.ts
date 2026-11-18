@@ -8,10 +8,9 @@ import { requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { isAlumniProfile, isCancelledProfile } from "@/lib/profile-status";
 import {
-  MemberSecretFieldSetError,
   MemberSecretsConflictError,
   emptySecretValues,
-  readMemberSecrets,
+  readMemberSecretsWithMeta,
   saveMemberSecrets,
 } from "@/lib/member-secrets-server";
 import { pruefeProfil, type FeldFehler, type ProfilAbschnitt } from "@/lib/member-forms";
@@ -29,6 +28,8 @@ export type ProfileDataState = ProfileActionState & {
   /** Meldungen je Feld (Mangel nach lib/member-rules.ts). */
   fehler?: FeldFehler;
 };
+
+const GEAENDERT_MELDUNG = "Deine Daten wurden inzwischen geändert. Bitte lade die Seite neu.";
 
 /** Felder je Abschnitt, wie sie das Formular sendet. */
 const FORM_FIELDS: Record<ProfilAbschnitt, readonly string[]> = {
@@ -90,13 +91,23 @@ export async function updateProfile(
     };
   }
 
+  // Optimistische Sperre: Version beim Laden des Formulars (0 = noch keine Zeile).
+  const versionRaw = formData.get("version");
+  const erwarteteVersion = typeof versionRaw === "string" && /^\d{1,9}$/.test(versionRaw) ? Number(versionRaw) : null;
+  if (erwarteteVersion === null) return { success: false, error: "Ungültige Anfrage." };
+
   let bestand;
+  let version = 0;
   try {
-    bestand = (await readMemberSecrets(admin, profileId)) ?? emptySecretValues();
+    const gelesen = await readMemberSecretsWithMeta(admin, profileId);
+    bestand = gelesen?.values ?? emptySecretValues();
+    version = gelesen?.version ?? 0;
   } catch (err) {
     console.error("updateProfile: lesen", err instanceof Error ? err.message : "unbekannt");
     return { success: false, error: "Deine Daten können gerade nicht gelesen werden. Bitte wende dich an den Vorstand." };
   }
+
+  if (version !== erwarteteVersion) return { success: false, error: GEAENDERT_MELDUNG };
 
   const eingabe: Record<string, unknown> = {};
   for (const key of FORM_FIELDS[section]) eingabe[key] = formData.get(key);
@@ -104,24 +115,19 @@ export async function updateProfile(
   if (!pruefung.gueltig) {
     return { success: false, error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fehler: pruefung.fehler };
   }
+  // Ohne Änderung wird nichts geschrieben (keine neue Version, kein Protokoll).
   if (Object.keys(pruefung.aenderungen).length === 0) return { success: true, error: "" };
 
   // Verschlüsselt speichern (member_secrets). IBAN-Änderungen erkennt saveMemberSecrets selbst und meldet sie
   // dem Vorstand. Nur die Felder des Abschnitts: eine zwischenzeitliche Korrektur des Vorstands im anderen
   // Abschnitt bleibt erhalten.
   try {
-    await saveMemberSecrets(admin, profileId, pruefung.aenderungen, { nurWennLeer: ["geburtsdatum"] });
+    await saveMemberSecrets(admin, profileId, pruefung.aenderungen, {
+      nurWennLeer: ["geburtsdatum"],
+      erwarteteVersion,
+    });
   } catch (err) {
-    if (err instanceof MemberSecretsConflictError) {
-      return { success: false, error: "Deine Daten wurden gerade an anderer Stelle geändert. Bitte lade die Seite neu." };
-    }
-    if (err instanceof MemberSecretFieldSetError) {
-      return {
-        success: false,
-        error: "Dein Geburtsdatum ist schon eingetragen. Ändern kann es nur der Vorstand.",
-        fehler: { geburtsdatum: "Schon eingetragen. Ändern kann es nur der Vorstand." },
-      };
-    }
+    if (err instanceof MemberSecretsConflictError) return { success: false, error: GEAENDERT_MELDUNG };
     console.error("updateProfile:", err instanceof Error ? err.message : "unbekannt");
     return { success: false, error: "Änderungen konnten nicht gespeichert werden." };
   }

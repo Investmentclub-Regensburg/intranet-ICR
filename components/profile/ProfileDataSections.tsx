@@ -28,6 +28,7 @@ import {
   type HandyWert,
 } from "@/components/member/MemberInputs";
 import { emailTippfehler, ibanInViererbloecken } from "@/lib/member-rules-client";
+import { bicLandHinweis, plzInputMode } from "@/lib/member-inputs";
 
 export type ProfileContactData = {
   vorname: string;
@@ -56,6 +57,8 @@ export type ProfileContactData = {
   bic: string;
   /** Nicht blockierender Hinweis zur BIC (Land weicht ab), sonst null. */
   bicHinweis: string | null;
+  /** Version der verschlüsselten Zeile beim Laden (0 = keine): optimistische Sperre beim Speichern. */
+  version: number;
 };
 
 type Fehler = Partial<Record<string, string>>;
@@ -99,20 +102,13 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
           ) : (
             <EditForm editor={editor}>
               <input type="hidden" name="section" value="personal" />
+              <input type="hidden" name="version" value={profile.version} />
               <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:gap-4">
                 <Field id={`${id}-strasse`} label="Straße" fehler={f.strasse}>
                   <Input id={`${id}-strasse`} name="strasse" defaultValue={profile.strasse} autoComplete="address-line1" autoFocus {...invalid(`${id}-strasse`, f.strasse)} onInput={() => editor.clear("strasse")} />
                 </Field>
                 <Field id={`${id}-hausnummer`} label="Hausnr." fehler={f.hausnummer}>
                   <Input id={`${id}-hausnummer`} name="hausnummer" defaultValue={profile.hausnummer} {...invalid(`${id}-hausnummer`, f.hausnummer)} onInput={() => editor.clear("hausnummer")} />
-                </Field>
-              </div>
-              <div className="grid grid-cols-[6.5rem_1fr] gap-3 sm:gap-4">
-                <Field id={`${id}-plz`} label="PLZ" fehler={f.plz}>
-                  <Input id={`${id}-plz`} name="plz" defaultValue={profile.plz} autoComplete="postal-code" {...invalid(`${id}-plz`, f.plz)} onInput={() => editor.clear("plz")} />
-                </Field>
-                <Field id={`${id}-ort`} label="Ort" fehler={f.ort}>
-                  <Input id={`${id}-ort`} name="ort" defaultValue={profile.ort} autoComplete="address-level2" {...invalid(`${id}-ort`, f.ort)} onInput={() => editor.clear("ort")} />
                 </Field>
               </div>
               <div className="space-y-1.5">
@@ -128,6 +124,14 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
                   }}
                   fehler={f.land}
                 />
+              </div>
+              <div className="grid grid-cols-[6.5rem_1fr] gap-3 sm:gap-4">
+                <Field id={`${id}-plz`} label="PLZ" fehler={f.plz}>
+                  <Input id={`${id}-plz`} name="plz" defaultValue={profile.plz} autoComplete="postal-code" inputMode={plzInputMode(land)} {...invalid(`${id}-plz`, f.plz)} onInput={() => editor.clear("plz")} />
+                </Field>
+                <Field id={`${id}-ort`} label="Ort" fehler={f.ort}>
+                  <Input id={`${id}-ort`} name="ort" defaultValue={profile.ort} autoComplete="address-level2" {...invalid(`${id}-ort`, f.ort)} onInput={() => editor.clear("ort")} />
+                </Field>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-handy`} className="text-xs font-medium text-muted-foreground">
@@ -301,10 +305,13 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
   const id = useId();
   const editor = useSectionEditor(id);
   const [iban, setIban] = useState(() => ibanInViererbloecken(profile.iban));
+  const [bic, setBic] = useState(profile.bic);
   const f = editor.fehler;
+  const hinweis = bicLandHinweis(iban, bic);
 
   function open() {
     setIban(ibanInViererbloecken(profile.iban));
+    setBic(profile.bic);
     editor.open();
   }
 
@@ -317,6 +324,7 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
           ) : (
             <EditForm editor={editor}>
               <input type="hidden" name="section" value="bank" />
+              <input type="hidden" name="version" value={profile.version} />
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-iban`} className="text-xs font-medium text-muted-foreground">
                   IBAN
@@ -336,14 +344,18 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
                 <Input
                   id={`${id}-bic`}
                   name="bic"
-                  defaultValue={profile.bic}
+                  value={bic}
+                  onChange={(e) => {
+                    setBic(e.target.value);
+                    editor.clear("bic");
+                  }}
                   autoComplete="off"
                   spellCheck={false}
                   autoCapitalize="characters"
                   className="font-mono tracking-wide"
                   {...invalid(`${id}-bic`, f.bic)}
-                  onInput={() => editor.clear("bic")}
                 />
+                {!f.bic && <FeldHinweis>{hinweis}</FeldHinweis>}
               </Field>
             </EditForm>
           )}

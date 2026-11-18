@@ -24,6 +24,7 @@ import {
   LandAuswahl,
   type HandyWert,
 } from "@/components/member/MemberInputs";
+import { plzInputMode } from "@/lib/member-inputs";
 import {
   correctMemberData,
   getMemberCorrectionData,
@@ -177,14 +178,6 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
                   <Input id="mc-hausnummer" name="hausnummer" defaultValue={data.hausnummer} autoComplete="off" {...invalid("mc-hausnummer", fehler.hausnummer)} onInput={() => clear("hausnummer")} />
                 </Field>
               </div>
-              <div className="grid grid-cols-[6.5rem_1fr] gap-3">
-                <Field id="mc-plz" label="PLZ" fehler={fehler.plz}>
-                  <Input id="mc-plz" name="plz" defaultValue={data.plz} autoComplete="off" {...invalid("mc-plz", fehler.plz)} onInput={() => clear("plz")} />
-                </Field>
-                <Field id="mc-ort" label="Ort" fehler={fehler.ort}>
-                  <Input id="mc-ort" name="ort" defaultValue={data.ort} autoComplete="off" {...invalid("mc-ort", fehler.ort)} onInput={() => clear("ort")} />
-                </Field>
-              </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="mc-land">Land</Label>
                 <LandAuswahl
@@ -196,6 +189,14 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
                   }}
                   fehler={fehler.land}
                 />
+              </div>
+              <div className="grid grid-cols-[6.5rem_1fr] gap-3">
+                <Field id="mc-plz" label="PLZ" fehler={fehler.plz}>
+                  <Input id="mc-plz" name="plz" defaultValue={data.plz} inputMode={plzInputMode(land)} autoComplete="off" {...invalid("mc-plz", fehler.plz)} onInput={() => clear("plz")} />
+                </Field>
+                <Field id="mc-ort" label="Ort" fehler={fehler.ort}>
+                  <Input id="mc-ort" name="ort" defaultValue={data.ort} autoComplete="off" {...invalid("mc-ort", fehler.ort)} onInput={() => clear("ort")} />
+                </Field>
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="mc-handy">Handynummer</Label>
