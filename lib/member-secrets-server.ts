@@ -33,11 +33,15 @@ type SecretsRow = {
 
 const ROW_COLUMNS = `profile_id, wrapped_dek, version, iban_hash, iban_last4, ${SECRET_FIELDS.join(", ")}`;
 
+/** Felder mit (leerer, gesperrter) Klartextspalte in profiles. `land` kam nach dem Abschluss und hat keine. */
+export type PlainSecretField = Exclude<SecretField, "land">;
+export type PlainSecretValues = Record<PlainSecretField, string | null>;
+
 /**
- * Klartextspalten in profiles je verschlüsseltem Feld. Seit dem Abschluss (21.10.2026) leer und gesperrt;
- * nur noch das Skript scripts/verschluesselung.mjs (Prüflauf, Notfall-Weg) liest sie.
+ * Klartextspalten in profiles je verschlüsseltem Feld (ohne `land`). Seit dem Abschluss (21.10.2026) leer und
+ * gesperrt; nur noch das Skript scripts/verschluesselung.mjs (Prüflauf, Notfall-Weg) liest sie.
  */
-export const PLAIN_COLUMNS: Record<SecretField, string> = {
+export const PLAIN_COLUMNS: Record<PlainSecretField, string> = {
   iban: "IBAN",
   bic: "BIC",
   geburtsdatum: "Geburtsdatum",
@@ -47,6 +51,11 @@ export const PLAIN_COLUMNS: Record<SecretField, string> = {
   ort: "Ort",
   handynummer: "Handynummer",
 };
+
+/** Die Felder aus PLAIN_COLUMNS in fester Reihenfolge. */
+export const PLAIN_SECRET_FIELDS: readonly PlainSecretField[] = SECRET_FIELDS.filter(
+  (f): f is PlainSecretField => f !== "land",
+);
 
 let verifiedKey: { marker: string; until: number } | null = null;
 const KEY_CHECK_TTL_MS = 5 * 60 * 1000;
@@ -183,15 +192,28 @@ export function emptySecretValues(): MemberSecretValues {
   return values;
 }
 
-/** Klartextspalten aus profiles in das Format der verschlüsselten Felder bringen (nur Skript, PLAIN_COLUMNS). */
-export function plainToSecretValues(profile: Record<string, unknown> | null | undefined): MemberSecretValues {
-  const values = {} as MemberSecretValues;
-  for (const field of SECRET_FIELDS) {
+/**
+ * Klartextspalten aus profiles in das Format der verschlüsselten Felder bringen (nur Skript, PLAIN_COLUMNS).
+ * Ohne `land` (keine Klartextspalte): an saveMemberSecrets übergeben bleibt ein gespeichertes Land stehen.
+ */
+export function plainToSecretValues(profile: Record<string, unknown> | null | undefined): PlainSecretValues {
+  const values = {} as PlainSecretValues;
+  for (const field of PLAIN_SECRET_FIELDS) {
     const raw = profile?.[PLAIN_COLUMNS[field]];
     const text = raw === null || raw === undefined ? "" : String(raw).trim();
     values[field] = text === "" ? null : text;
   }
   return values;
+}
+
+/** Ein Feld aus `nurWennLeer` ist schon gesetzt (z. B. Geburtsdatum: nachtragen nur einmal). */
+export class MemberSecretFieldSetError extends Error {
+  readonly field: SecretField;
+  constructor(field: SecretField) {
+    super("Das Feld ist bereits gesetzt.");
+    this.name = "MemberSecretFieldSetError";
+    this.field = field;
+  }
 }
 
 export class MemberSecretsConflictError extends Error {
@@ -206,12 +228,14 @@ export class MemberSecretsConflictError extends Error {
  * bleiben erhalten. Legt die Zeile bei Bedarf an (dann sind die übrigen Felder leer).
  * Erkennt IBAN-Änderungen (ibanChanged) und meldet sie über die Datenbank; die erste Hinterlegung zählt nicht.
  * `correctedBy`: Profil-ID des Vorstandsmitglieds bei einer Korrektur im Admin-Bereich (wird protokolliert).
+ * `nurWennLeer`: Felder, die nur geschrieben werden, solange sie im frisch gelesenen Stand leer sind (Mitglied
+ * trägt das Geburtsdatum einmal selbst nach); sonst MemberSecretFieldSetError, nichts wird gespeichert.
  */
 export async function saveMemberSecrets(
   admin: SupabaseClient,
   profileId: string,
   changes: Partial<MemberSecretValues>,
-  options: { correctedBy?: string } = {},
+  options: { correctedBy?: string; nurWennLeer?: readonly SecretField[] } = {},
 ): Promise<void> {
   await assertKeyRegistered(admin);
   const keyring = getKeyring();
@@ -220,6 +244,9 @@ export async function saveMemberSecrets(
     const row = await loadRow(admin, profileId);
 
     const current = row ? decryptRow(row) : emptySecretValues();
+    for (const field of options.nurWennLeer ?? []) {
+      if (field in changes && (current[field] ?? "").trim() !== "") throw new MemberSecretFieldSetError(field);
+    }
     const next: MemberSecretValues = { ...current };
     for (const field of SECRET_FIELDS) {
       if (field in changes) {

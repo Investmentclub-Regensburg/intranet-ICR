@@ -17,6 +17,9 @@ import {
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
 import { emptySecretValues, readMemberSecrets } from "@/lib/member-secrets-server";
+import { bicHinweis, handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-forms";
+import { findCountry } from "@/lib/country-codes";
+import { isAlumniProfile } from "@/lib/profile-status";
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
   const emailNotice = (await searchParams).email;
@@ -74,10 +77,12 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     hausnummer: sensitive.hausnummer ?? "",
     plz: sensitive.plz ?? "",
     ort: sensitive.ort ?? "",
+    land: landAusBestand(sensitive.land),
     mobil: sensitive.handynummer ?? "",
     iban: sensitive.iban ?? "",
     bic: sensitive.bic ?? "",
   };
+  const handy = handyFuerEingabe(sensitive.handynummer);
 
   const alumniStatus = String((alumniRow as { status?: unknown } | null)?.status ?? "").trim().toLowerCase();
   const alumni: AlumniInfo = {
@@ -137,9 +142,16 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 hausnummer: p.hausnummer,
                 plz: p.plz,
                 ort: p.ort,
-                mobil: p.mobil,
+                land: p.land,
+                landName: p.land === "DE" ? "" : (findCountry(p.land)?.name ?? p.land),
+                handyLand: handy.land,
+                handyNummer: handy.nummer,
+                handyAnzeige: handyAnzeige(p.mobil),
+                geburtsdatumFehlt: !(sensitive.geburtsdatum ?? "").trim(),
+                alumni: isAlumniProfile(profile as Record<string, unknown> | null),
                 iban: p.iban,
                 bic: p.bic,
+                bicHinweis: bicHinweis(p.bic, p.iban),
               }}
             />
           ),
