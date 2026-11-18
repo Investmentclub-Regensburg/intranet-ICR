@@ -1,0 +1,25 @@
+# Nur, was der Build braucht. Vor allem: keine Geheimnisse und keine lokalen Artefakte ins Image.
+.git
+.github
+.claude
+.cursor
+.cursorignore
+.vercel
+.next
+node_modules
+coverage
+*.tsbuildinfo
+next-env.d.ts
+
+# Geheimnisse (lokale .env-Dateien); NEXT_PUBLIC_* kommen als Build-Argumente (Dockerfile)
+.env*
+
+# Für die App nicht nötig
+docs
+supabase
+supabase-bvh-login.sql
+tests
+scripts
+Dockerfile
+.dockerignore
+*.md

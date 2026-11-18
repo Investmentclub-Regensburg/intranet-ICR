@@ -125,8 +125,9 @@ export async function middleware(request: NextRequest) {
 }
 
 // 6. Optimiere den Matcher, damit die Middleware nicht bei jedem Bild oder CSS-File feuert
+// (api/health: Container-Healthcheck, ohne Supabase-Aufruf).
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/health$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
