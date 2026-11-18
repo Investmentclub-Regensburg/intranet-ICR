@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import {
   MANGEL_CODES,
   STAMMFELDER,
@@ -731,7 +732,7 @@ test("F1/R1: Straßen-Reparatur trennt Wohnungs-/Zimmernummern, Postfach und Zus
   }
   // „12 1/2“ ist eine Hausnummer (F2) und wird als Ganzes abgetrennt.
   assert.deepEqual(repariereStrasse("Hauptstraße 12 1/2", ""), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12 1/2" });
-  assert.deepEqual(repariereStrasse("Dr.-Johann-Maier-Str. 12–14", ""), {
+  assert.deepEqual(repariereStrasse("Dr.-Johann-Maier-Str. 12\u201314", ""), {
     status: "sicher",
     strasse: "Dr.-Johann-Maier-Str.",
     hausnummer: "12-14",
@@ -744,9 +745,9 @@ test("F2: weitere echte Hausnummern gültig, Halbgeviertstrich normalisiert", ()
   for (const nr of ["12 1/2", "4 1/2", "12½", "12a-c", "12a/b", "12-14", "12a-12c"]) {
     assert.ok(ok(pruefeHausnummer(nr, "DE", MITGLIED)), nr);
   }
-  assert.equal(pruefeHausnummer("12–14", "DE", MITGLIED).wert, "12-14");
-  assert.ok(ok(pruefeHausnummer("12–14", "DE", MITGLIED)));
-  assert.equal(pruefeHausnummer("12—14", "DE", MITGLIED).wert, "12-14");
+  assert.equal(pruefeHausnummer("12\u201314", "DE", MITGLIED).wert, "12-14");
+  assert.ok(ok(pruefeHausnummer("12\u201314", "DE", MITGLIED)));
+  assert.equal(pruefeHausnummer("12\u201414", "DE", MITGLIED).wert, "12-14");
   for (const nr of ["a", "Hinterhaus", "½", "12 Hinterhaus"]) assert.equal(pruefeHausnummer(nr, "DE", MITGLIED).code, "format", nr);
   // Straße mit Bruch-Hausnummer am Ende wird erkannt.
   assert.equal(pruefeStrasse("Hauptstraße 12½", "", MITGLIED).code, "hausnummer_in_strasse");
@@ -780,24 +781,23 @@ test("F3/R2: Handy-Reparatur „sicher“ nur mit deutschem Beleg", () => {
   }
 });
 
-test("F4: Hinweis vorwahl_ergaenzt für nur angenommene deutsche Vorwahl (nicht blockierend)", () => {
+test("F4: Hinweis vorwahl_ergaenzt im Bestand für nur angenommene deutsche Vorwahl (nicht blockierend)", () => {
   assert.deepEqual(HINWEIS_CODES, ["vorwahl_ergaenzt", "bic_land"]);
   for (const handy of ["17612345678", "176 12345678", "+49 15112345678"]) {
-    const r = pruefeFormular({ ...GUT, handynummer: handy }, MITGLIED);
+    const r = pruefeBestand({ ...GUT, handynummer: handy }, MITGLIED);
     assert.equal(r.gueltig, true, handy);
     assert.deepEqual(r.hinweise, [{ feld: "handynummer", code: "vorwahl_ergaenzt" }], handy);
     assert.match(r.werte.handynummer, /^\+49/, handy);
-    assert.equal(pruefeHandy(handy, "DE", MITGLIED).hinweis, "vorwahl_ergaenzt", handy);
   }
   for (const handy of ["+4917612345678", "0176 12345678", "+49 0176 12345678", "0049 176 12345678", "+43 664 1234567"]) {
-    assert.deepEqual(pruefeFormular({ ...GUT, handynummer: handy }, MITGLIED).hinweise, [], handy);
+    assert.deepEqual(pruefeBestand({ ...GUT, handynummer: handy }, MITGLIED).hinweise, [], handy);
   }
   // Bestätigt (gespeichert als E.164) → kein Hinweis mehr.
-  const bestaetigt = pruefeFormular({ ...GUT, handynummer: "17612345678" }, MITGLIED).werte.handynummer;
+  const bestaetigt = pruefeBestand({ ...GUT, handynummer: "17612345678" }, MITGLIED).werte.handynummer;
   assert.deepEqual(pruefeBestand({ ...GUT, handynummer: bestaetigt }, MITGLIED).hinweise, []);
   // Hinweis ⇔ Reparatur-Vorschlag (deutsche Nummern).
   for (const handy of ["17612345678", "+49 15112345678", "0176 12345678", "+4917612345678"]) {
-    const hinweis = pruefeHandy(handy, "DE", MITGLIED).hinweis === "vorwahl_ergaenzt";
+    const hinweis = pruefeBestand({ ...GUT, handynummer: handy }, MITGLIED).hinweise.length > 0;
     assert.equal(hinweis, repariereHandy(handy).status === "vorschlag", handy);
   }
 });
@@ -945,7 +945,7 @@ test("R4: Nicht-Strings sind immer `format`, nie „leer“", () => {
 });
 
 test("R5: unsichtbare Zeichen → `zeichen`; NFC, außen getrimmt", () => {
-  const unsichtbar = ["​", "‌", "‍", "⁠", "﻿", "‪", "‮", "⁦", "⁩"];
+  const unsichtbar = ["\u200B", "\u200C", "\u200D", "\u2060", "\uFEFF", "\u202A", "\u202E", "\u2066", "\u2069"];
   for (const z of unsichtbar) {
     const name = z.codePointAt(0).toString(16);
     assert.equal(pruefeStrasse(`Haupt${z}straße`, "1", MITGLIED).code, "zeichen", name);
@@ -955,13 +955,13 @@ test("R5: unsichtbare Zeichen → `zeichen`; NFC, außen getrimmt", () => {
     assert.equal(pruefeEmail(`max${z}@gmail.com`, MITGLIED).code, "zeichen", name);
     assert.equal(pruefePlz(`930${z}47`, "US", MITGLIED).code, "zeichen", name);
   }
-  assert.equal(pruefeStrasse("‮eßartstpuaH", "1", MITGLIED).code, "zeichen");
-  assert.equal(pruefeHausnummer("​", "AT", MITGLIED).code, "zeichen");
-  assert.equal(pruefeStrasse("Hauptstraße 12​", "", MITGLIED).code, "zeichen");
+  assert.equal(pruefeStrasse("\u202EeßartstpuaH", "1", MITGLIED).code, "zeichen");
+  assert.equal(pruefeHausnummer("\u200B", "AT", MITGLIED).code, "zeichen");
+  assert.equal(pruefeStrasse("Hauptstraße 12\u200B", "", MITGLIED).code, "zeichen");
   // NFC: „u + Trema“ wird zu „ü“.
-  assert.equal(pruefeOrt("München", "DE", MITGLIED).wert, "München");
+  assert.equal(pruefeOrt("Mu\u0308nchen", "DE", MITGLIED).wert, "München");
   // Außen: Leerraum (inkl. NBSP, BOM) weg.
-  assert.equal(pruefeOrt("﻿ Regensburg \n", "DE", MITGLIED).wert, "Regensburg");
+  assert.equal(pruefeOrt("\uFEFF\u00A0Regensburg \n", "DE", MITGLIED).wert, "Regensburg");
   assert.equal(pruefeEmail(" max@gmail.com ", MITGLIED).wert, "max@gmail.com");
 });
 
@@ -1004,4 +1004,126 @@ test("R8: Tippfehler-Hinweis wertet überlange Eingaben nicht aus", () => {
 test("Altlast: Vatikanstadt hat die Vorwahl +39", () => {
   assert.equal(dialCodeFor("VA"), "+39");
   assert.equal(findCountry("VA").name, "Vatikanstadt");
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Fixrunde 2: Gegenprüfung 37f2a44 (N1–N4, G1–G4)
+// ---------------------------------------------------------------------------------------------------
+
+test("G1/N1: Land mit Regex-Zeichen wirft nicht, ist land_unbekannt, kein ReDoS, kein Platzhalter", () => {
+  for (const land of ["(", "[", ".*", ".", "(A+)+B", "\\", "D|A", "__proto__", "constructor"]) {
+    const plz = pruefePlz("12345", land, MITGLIED);
+    assert.equal(plz.code, "land_unbekannt", land);
+    assert.equal(plz.wert, "12345", land);
+    assert.equal(pruefePlz("XYZ-93047", land, MITGLIED).wert, "XYZ-93047", land);
+    assert.equal(pruefePlz("", land, MITGLIED).code, "land_unbekannt", land);
+    assert.doesNotThrow(() => pruefeFormular({ ...GUT, land, plz: "1" }, MITGLIED), land);
+    assert.doesNotThrow(() => pruefeVorstandskorrektur({ plz: "1234" }, { land }, HEUTE), land);
+    assert.doesNotThrow(() => pruefeHandy("0176 12345678", land, MITGLIED), land);
+  }
+  const r = pruefeFormular({ ...GUT, land: "(", plz: "1" }, MITGLIED);
+  assert.deepEqual(r.maengel, [
+    { feld: "plz", code: "land_unbekannt" },
+    { feld: "land", code: "land_unbekannt" },
+  ]);
+  // ReDoS-Muster: schnell, Länge greift vor allem anderen.
+  const start = Date.now();
+  for (let n = 20; n <= 28; n++) pruefePlz("A".repeat(n), "(A+)+B", MITGLIED);
+  pruefePlz("A".repeat(24), "(A+)+B", VORSTAND);
+  assert.ok(Date.now() - start < 50, `${Date.now() - start} ms`);
+  assert.equal(pruefePlz("A".repeat(24), "(A+)+B", MITGLIED).code, "zu_lang");
+  // Bekannte Länder: Präfix weiter entfernt, nur das eigene.
+  assert.equal(pruefePlz("D-93047", "DE", MITGLIED).wert, "93047");
+  assert.equal(pruefePlz("CH-8001", "CH", MITGLIED).wert, "8001");
+  assert.equal(pruefePlz("CH-8001", "DE", MITGLIED).code, "format");
+  // Handy: unbekanntes Land → DE als Standard.
+  assert.equal(pruefeHandy("0176 12345678", "(", MITGLIED).wert, "+4917612345678");
+});
+
+test("G2/N2: vorwahl_ergaenzt nie im Formular (Land gewählt), nur im Bestand", () => {
+  for (const kontext of [MITGLIED, REGISTRIERUNG, VORSTAND]) {
+    for (const handy of ["176 12345678", "+49 176 12345678", "+49 15112345678", "17612345678"]) {
+      assert.equal(pruefeHandy(handy, "DE", kontext).hinweis, undefined, handy);
+      const r = pruefeFormular({ ...GUT, handynummer: handy, handyLand: "DE" }, kontext);
+      assert.deepEqual(r.hinweise, [], handy);
+      assert.deepEqual(pruefeFormular({ ...GUT, handynummer: handy }, kontext).hinweise, [], handy);
+    }
+    assert.deepEqual(pruefeVorstandskorrektur({ handynummer: "176 12345678", handyLand: "DE" }, GUT, HEUTE).hinweise, []);
+  }
+  // Ausgabe der Client-Hilfe → Formular → keine Hinweise.
+  const client = formatiereHandyEingabe("0176 12345678", "DE");
+  assert.deepEqual(pruefeFormular({ ...GUT, handynummer: client.nummer, handyLand: client.land }, MITGLIED).hinweise, []);
+  // Bestand mit ausdrücklich gewähltem Land: auch kein Hinweis.
+  assert.deepEqual(pruefeBestand({ ...GUT, handynummer: "176 12345678", handyLand: "DE" }, MITGLIED).hinweise, []);
+  assert.deepEqual(pruefeBestand({ ...GUT, handynummer: "176 12345678" }, MITGLIED).hinweise, [
+    { feld: "handynummer", code: "vorwahl_ergaenzt" },
+  ]);
+});
+
+test("G3: alle Format-Zeichen (Cf) werden abgelehnt; Quelltext ohne unsichtbare Zeichen", () => {
+  const cf = [0x00ad, 0x061c, 0x180e, 0x200b, 0x200d, 0x200e, 0x200f, 0x2061, 0x2064, 0x206a, 0x206f, 0xfeff, 0xe0001];
+  for (const cp of cf) {
+    const z = String.fromCodePoint(cp);
+    const name = cp.toString(16);
+    assert.equal(pruefeStrasse(`Haupt${z}straße`, "1", MITGLIED).code, "zeichen", name);
+    assert.equal(pruefeOrt(`Regens${z}burg`, "DE", MITGLIED).code, "zeichen", name);
+    assert.equal(pruefeName(`Ma${z}x`, "vorname").code, "zeichen", name);
+    assert.equal(pruefeEmail(`max${z}@gmail.com`, MITGLIED).code, "zeichen", name);
+    assert.equal(pruefeHausnummer(`1${z}2`, "AT", MITGLIED).code, "zeichen", name);
+  }
+  // Umlaute, Akzente und Zeilentrenner bleiben normal.
+  assert.ok(ok(pruefeName("Zoë", "vorname")));
+  assert.equal(pruefeOrt(`Regens${String.fromCodePoint(0x2028)}burg`, "DE", MITGLIED).wert, "Regens burg");
+  for (const datei of ["../lib/member-rules.ts", "../lib/member-rules-client.ts", "./member-rules.test.mjs"]) {
+    const quelle = readFileSync(new URL(datei, import.meta.url), "utf8");
+    assert.doesNotMatch(quelle, /[\p{Cf}\p{Zl}\p{Zp}]/u, datei);
+  }
+});
+
+test("G4: nur alumni === true macht zum Alumnus", () => {
+  const ohneBank = { ...GUT, iban: "", bic: "" };
+  for (const alumni of ["false", "true", 1, {}, null, undefined]) {
+    const kontext = { alumni, wer: "mitglied", heute: HEUTE };
+    assert.deepEqual(pruefeMitgliederdaten(ohneBank, kontext), [{ feld: "iban", code: "fehlt" }], String(alumni));
+    assert.equal(istPflicht("iban", kontext), true, String(alumni));
+  }
+  assert.deepEqual(pruefeMitgliederdaten(ohneBank, ALUMNI), []);
+  const alt = { ...GUT, iban: "DE89370400440532013001" };
+  assert.deepEqual(pruefeMitgliederdaten(alt, { alumni: "true", wer: "mitglied", heute: HEUTE }), [
+    { feld: "iban", code: "pruefziffer" },
+  ]);
+  assert.equal(repariereMitgliederdaten(alt, { alumni: "true", wer: "mitglied" }).status.iban, "offen");
+});
+
+test("N3: mehrdeutige Vorwahl → Hauptland wie libphonenumber", () => {
+  const tabelle = [
+    ["+44", "GB"],
+    ["+1", "US"],
+    ["+7", "RU"],
+    ["+39", "IT"],
+    ["+358", "FI"],
+    ["+49", "DE"],
+    ["+43", "AT"],
+  ];
+  for (const [vorwahl, land] of tabelle) assert.equal(countryFromSelectValue(vorwahl), land, vorwahl);
+  const metadaten = createRequire(import.meta.url)("libphonenumber-js/metadata.min.json");
+  const jeVorwahl = new Map();
+  for (const { code, dialCode } of countryCodes) jeVorwahl.set(dialCode, [...(jeVorwahl.get(dialCode) ?? []), code]);
+  let mehrdeutig = 0;
+  for (const [dialCode, laender] of jeVorwahl) {
+    if (laender.length < 2) continue;
+    mehrdeutig++;
+    const haupt = metadaten.country_calling_codes[dialCode.slice(1)][0];
+    assert.equal(countryFromSelectValue(dialCode), haupt, dialCode);
+  }
+  assert.equal(mehrdeutig, 5);
+});
+
+test("N4: Haus, Gebäude, Block, Aufgang, Hinterhaus vor der Nummer → offen", () => {
+  for (const s of ["Haus B 5", "Gebäude C 2", "Block 4", "Aufgang A 3", "Hinterhaus 2", "Hauptstraße Haus 5"]) {
+    assert.equal(repariereStrasse(s, "").status, "offen", s);
+  }
+  // Wörter, die nur so anfangen, sind kein Zusatz.
+  assert.deepEqual(repariereStrasse("Am Hausberg 5", ""), { status: "sicher", strasse: "Am Hausberg", hausnummer: "5" });
+  assert.deepEqual(repariereStrasse("Blockstraße 7", ""), { status: "sicher", strasse: "Blockstraße", hausnummer: "7" });
 });

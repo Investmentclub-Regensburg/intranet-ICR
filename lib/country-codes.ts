@@ -239,6 +239,22 @@ export function dialCodeFor(code: string | null | undefined): string | null {
 export function countryFromSelectValue(value: string | null | undefined): CountryCode | null {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
-  if (raw.startsWith("+")) return countryCodes.find((c) => c.dialCode === raw)?.code ?? null;
+  if (raw.startsWith("+")) {
+    if (Object.prototype.hasOwnProperty.call(HAUPTLAND_JE_VORWAHL, raw)) return HAUPTLAND_JE_VORWAHL[raw];
+    return countryCodes.find((c) => c.dialCode === raw)?.code ?? null;
+  }
   return findCountry(raw)?.code ?? null;
 }
+
+/**
+ * Hauptland bei Vorwahlen, die sich mehrere Einträge teilen (wie libphonenumber: erstes Land der Vorwahl in
+ * den Metadaten). Ein Test gleicht das mit `libphonenumber-js` ab. Bewusst ohne Import der Bibliothek, weil
+ * diese Datei auch im Browser (Registrierung) geladen wird.
+ */
+const HAUPTLAND_JE_VORWAHL: Readonly<Record<string, CountryCode>> = {
+  "+1": "US",
+  "+7": "RU",
+  "+39": "IT",
+  "+44": "GB",
+  "+358": "FI",
+};
