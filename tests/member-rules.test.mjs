@@ -1170,3 +1170,75 @@ test("N4: Haus, Gebäude, Block, Aufgang, Hinterhaus vor der Nummer → offen", 
   assert.deepEqual(repariereStrasse("Am Hausberg 5", ""), { status: "sicher", strasse: "Am Hausberg", hausnummer: "5" });
   assert.deepEqual(repariereStrasse("Blockstraße 7", ""), { status: "sicher", strasse: "Blockstraße", hausnummer: "7" });
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Kurzprüfung d35347b (K1–K3)
+// ---------------------------------------------------------------------------------------------------
+
+test("K1: PLZ-Länge, Steuerzeichen und Formelanfang auch bei unbekanntem Land", () => {
+  for (const land of ["ZZ", "(", ""]) {
+    for (const kontext of [MITGLIED, VORSTAND]) {
+      assert.equal(pruefePlz("=1+1", land, kontext).code, "zeichen", land);
+      assert.equal(pruefePlz("=HYPERLINK(1)", land, kontext).code, "zu_lang", land);
+      assert.equal(pruefePlz("@1", land, kontext).code, "zeichen", land);
+      assert.equal(pruefePlz("A".repeat(500), land, kontext).code, "zu_lang", land);
+      assert.equal(pruefePlz(`1${String.fromCodePoint(0x202e)}2`, land, kontext).code, "zeichen", land);
+    }
+  }
+  // Vorstand ändert nur die PLZ, gespeichertes Land ungültig: Formel wird nicht gespeichert.
+  const r = pruefeVorstandskorrektur({ plz: "=1+1" }, { ...GUT, land: "ZZ" }, HEUTE);
+  assert.equal(r.gueltig, false);
+  assert.deepEqual(r.maengel, [{ feld: "plz", code: "zeichen" }]);
+  // Harmlose PLZ bei unbekanntem Land bleibt unbewertet (H2).
+  assert.deepEqual(pruefePlz("ABC 123", "ZZ", MITGLIED), { wert: "ABC 123", fehler: null, code: null });
+});
+
+test("K2: Reparatur meldet „sicher“ mit bereinigtem Wert, wenn sich der Rohwert ändert", () => {
+  const weich = String.fromCodePoint(0x00ad);
+  const zwsp = String.fromCodePoint(0x200b);
+  assert.deepEqual(repariereStrasse(`Haupt${weich}straße`, "12"), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12" });
+  assert.deepEqual(repariereStrasse(`Mu${String.fromCodePoint(0x308)}hlweg`, "3"), { status: "sicher", strasse: "Mühlweg", hausnummer: "3" });
+  assert.deepEqual(repariereStrasse(" Hauptstraße  ", " 12 "), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12" });
+  assert.deepEqual(repariereStrasse("Hauptstraße", `1${zwsp}2`), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12" });
+  assert.deepEqual(repariereStrasse("Hauptstraße", "12–14"), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12-14" });
+  // Schon bereinigt → gueltig; zweite Anwendung ist idempotent.
+  assert.deepEqual(repariereStrasse("Hauptstraße", "12"), { status: "gueltig", strasse: "Hauptstraße", hausnummer: "12" });
+  const einmal = repariereStrasse(`Haupt${weich}straße`, "12");
+  assert.equal(repariereStrasse(einmal.strasse, einmal.hausnummer).status, "gueltig");
+  // Datensatz: bereinigte Straße landet in `sicher`.
+  assert.deepEqual(repariereMitgliederdaten({ ...GUT, strasse: `Haupt${weich}straße` }).sicher, {
+    strasse: "Hauptstraße",
+    hausnummer: GUT.hausnummer,
+  });
+  // Übrige Helfer vergleichen mit dem Rohwert.
+  assert.equal(repariereIban(` ${IBAN_DE}`).status, "sicher");
+  assert.equal(repariereBic("COBADEFF ", IBAN_DE).status, "sicher");
+  assert.equal(repariereHandy(`+4917612345678${zwsp}`).status, "sicher");
+});
+
+test("K3: harmlose Format-Zeichen auch bei BIC, Handy und Geburtsdatum still entfernt", () => {
+  for (const cp of [0x00ad, 0x200b, 0x200e, 0x200f, 0x2060, 0xfeff]) {
+    const z = String.fromCodePoint(cp);
+    const name = cp.toString(16);
+    const bic = pruefeBic(`COBADEFF${z}XXX`, IBAN_DE, MITGLIED);
+    assert.ok(ok(bic), name);
+    assert.equal(bic.wert, "COBADEFFXXX", name);
+    assert.deepEqual(repariereBic(`COBADEFF${z}XXX`, IBAN_DE), { status: "sicher", wert: "COBADEFFXXX", code: null }, name);
+    const handy = pruefeHandy(`0176${z} 12345678`, "DE", MITGLIED);
+    assert.ok(ok(handy), name);
+    assert.equal(handy.wert, "+4917612345678", name);
+    assert.equal(repariereHandy(`0176${z} 12345678`).status, "sicher", name);
+    const geb = pruefeGeburtsdatum(`2001-05${z}-17`, MITGLIED);
+    assert.ok(ok(geb), name);
+    assert.equal(geb.wert, "2001-05-17", name);
+    // Nur harmlose Zeichen = leer.
+    assert.equal(pruefeHandy(z, "DE", MITGLIED).code, "fehlt", name);
+    assert.equal(pruefeGeburtsdatum(z, MITGLIED).code, "fehlt", name);
+    assert.ok(ok(pruefeBic(z, IBAN_DE, MITGLIED)), name);
+  }
+  // Bidi bleibt ein Fehler (BIC/Handy/Datum: Format).
+  const rlo = String.fromCodePoint(0x202e);
+  assert.equal(pruefeBic(`COBADEFF${rlo}XXX`, IBAN_DE, MITGLIED).code, "format");
+  assert.equal(pruefeHandy(`0176${rlo}12345678`, "DE", MITGLIED).code, "format");
+  assert.equal(pruefeGeburtsdatum(`2001-05-17${rlo}`, MITGLIED).code, "format");
+});

@@ -305,7 +305,7 @@ function vorwahlNurAngenommen(roh: string, e164: string): boolean {
 export function pruefeHandy(eingabe: unknown, land: unknown, kontext: Kontext): HandyErgebnis {
   const text = alsText(eingabe);
   if (text === null) return { ...KEIN_TEXT(), land: null };
-  const roh = text.trim();
+  const roh = ohneHarmloseZeichen(text).trim(); // Kurzprüfung K3
   if (!roh) return { ...leer("handynummer", kontext), land: null };
   const fehlerFormat = (): HandyErgebnis => ({
     ...MANGEL(roh, "format", "Die Nummer stimmt so nicht. Vertippt?"),
@@ -386,7 +386,7 @@ const BIC_LAENDER_ZU_IBAN: Readonly<Record<string, readonly string[]>> = {
 
 /** BIC normalisieren: Großbuchstaben, ohne Leerzeichen. */
 export function normalisiereBic(eingabeBic: unknown): string {
-  return textOderLeer(eingabeBic).replace(/\s/g, "").toUpperCase();
+  return ohneHarmloseZeichen(textOderLeer(eingabeBic)).replace(/\s/g, "").toUpperCase();
 }
 
 /**
@@ -542,12 +542,13 @@ export function pruefeHausnummer(eingabeHausnummer: unknown, land: unknown, kont
 export function pruefePlz(eingabePlz: unknown, land: unknown, kontext: Kontext): RegelErgebnis {
   if (alsText(eingabePlz) === null) return KEIN_TEXT();
   const roh = normalisiereText(eingabePlz).toUpperCase();
-  // Unbekanntes Land: PLZ wird gar nicht bewertet; den Mangel `land_unbekannt` trägt nur das Feld `land`
+  // Länge, Steuer-/Format-Zeichen und Formelanfang immer zuerst (Kurzprüfung K1) – auch bei unbekanntem Land.
+  const textRoh = roh ? textMangel(roh, "PLZ", FIELD_LIMITS.plz) : null;
+  if (textRoh) return textRoh;
+  // Unbekanntes Land: Muster und Pflicht entfallen; den Mangel `land_unbekannt` trägt nur das Feld `land`
   // (Abschlussrunde H2/M2). Speichern blockiert dann ohnehin das Land.
   const l = landOderStandard(land);
   if (!findCountry(l)) return OK(roh);
-  const textRoh = roh ? textMangel(roh, "PLZ", FIELD_LIMITS.plz) : null;
-  if (textRoh) return textRoh;
   const wert = ohneLaenderpraefix(roh, l);
   if (!wert) return leer("plz", kontext, l);
   const text = textMangel(wert, "PLZ", FIELD_LIMITS.plz);
@@ -589,7 +590,7 @@ export const HOECHSTALTER = 120;
 export function pruefeGeburtsdatum(eingabeDatum: unknown, kontext: Kontext): RegelErgebnis {
   const text = alsText(eingabeDatum);
   if (text === null) return KEIN_TEXT();
-  const wert = text.trim();
+  const wert = ohneHarmloseZeichen(text).trim(); // Kurzprüfung K3
   if (!wert) return leer("geburtsdatum", kontext);
   const formatFehler = MANGEL(wert, "format", "Bitte wähl ein gültiges Datum.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(wert)) return formatFehler;
@@ -827,7 +828,7 @@ export function repariereHandy(
   const text = alsText(eingabeHandy);
   if (text === null) return { status: "offen", wert: "", code: "format" };
   const roh = text;
-  const t = roh.trim();
+  const t = ohneHarmloseZeichen(roh).trim();
   if (!t) {
     const r = pruefeHandy("", land, kontext);
     return r.code ? { status: "offen", wert: roh, code: r.code } : { status: "gueltig", wert: "", code: null };
@@ -850,7 +851,7 @@ export function repariereHandy(
   const r = pruefeHandy(t, land, kontext);
   if (r.code) return { status: "offen", wert: roh, code: r.code };
   if (r.wert === roh) return { status: "gueltig", wert: roh, code: null };
-  if (r.wert === t) return { status: "sicher", wert: r.wert, code: null }; // nur Leerraum außen
+  if (r.wert === t) return { status: "sicher", wert: r.wert, code: null }; // nur Leerraum/harmlose Zeichen
   const deBeleg = /^0[1-9]/.test(kompakt) || /^0049/.test(kompakt) || /^\+490/.test(kompakt);
   if (deBeleg && r.land === "DE" && standardLand === "DE") return { status: "sicher", wert: r.wert, code: null };
   return { status: "vorschlag", wert: r.wert, code: null };
@@ -920,9 +921,18 @@ export function repariereStrasse(eingabeStrasse: unknown, eingabeHausnummer: unk
     return { status: "offen", strasse, hausnummer };
   }
   const s = normalisiereText(strasse).replace(STRICHE, "-");
-  if (normalisiereText(hausnummer) || !s) return { status: "gueltig", strasse, hausnummer };
+  // Nichts abzutrennen: „gueltig“ nur, wenn die Werte schon bereinigt sind; sonst „sicher“ mit den Werten,
+  // die auch `pruefeStrasse`/`pruefeHausnummer` liefern (Kurzprüfung K2: weiches Trennzeichen, NFD …).
+  const unveraendert = (): StrassenReparatur => {
+    const sauberStrasse = normalisiereText(strasse);
+    const sauberNummer = normalisiereText(hausnummer).replace(STRICHE, "-");
+    return sauberStrasse === strasse && sauberNummer === hausnummer
+      ? { status: "gueltig", strasse, hausnummer }
+      : { status: "sicher", strasse: sauberStrasse, hausnummer: sauberNummer };
+  };
+  if (normalisiereText(hausnummer) || !s) return unveraendert();
   if (s.length > FIELD_LIMITS.strasse + FIELD_LIMITS.hausnummer) return { status: "offen", strasse, hausnummer };
-  if (!HAUSNUMMER_AM_ENDE.test(s)) return { status: "gueltig", strasse, hausnummer };
+  if (!HAUSNUMMER_AM_ENDE.test(s)) return unveraendert();
 
   const offen: StrassenReparatur = { status: "offen", strasse, hausnummer };
   const ersteZiffer = s.search(/\d/);
