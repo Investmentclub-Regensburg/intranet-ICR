@@ -70,9 +70,12 @@ export async function POST(request: NextRequest) {
 
   // Bild neu schreiben: Gespeichert wird nur das Bild selbst, ohne Metadaten (Aufnahmeort, Gerät) und ohne
   // angehängte Fremddaten. Beschädigte oder präparierte Dateien scheitern hier (lib/event-image-reencode.ts).
-  const clean = await reencodeEventImage(bytes, detected);
-  if (!clean.ok) return fail("Das Bild konnte nicht gelesen werden. Bitte ein anderes Bild wählen.", 415);
-  if (clean.bytes.byteLength > EVENT_IMAGE_MAX_BYTES) return fail("Bild darf maximal 5 MB groß sein.", 413);
+  const clean = await reencodeEventImage(bytes, detected, EVENT_IMAGE_MAX_BYTES);
+  if (!clean.ok) {
+    return clean.reason === "too_large"
+      ? fail("Das Bild ist zu groß. Bitte ein kleineres Bild wählen.", 413)
+      : fail("Das Bild konnte nicht gelesen werden. Bitte ein anderes Bild wählen.", 415);
+  }
 
   const path = `${auth.user.id}/${crypto.randomUUID()}.${EVENT_IMAGE_TYPES[detected]}`;
   const supabase = await getCachedSupabase();

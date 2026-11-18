@@ -16,6 +16,14 @@ try {
 // erkennbar an VERCEL) oder auf dem eigenen Server (Dockerfile setzt ICR_HOSTING=self beim Build, README.md).
 // Schutz vor Versehen, keine Sicherheitsgrenze (VERCEL=1 oder ICR_HOSTING=self umgehen ihn).
 const isProductionHost = Boolean(process.env.VERCEL) || process.env.ICR_HOSTING === "self";
+
+// Eigener Server: Weiterleitungen nach Mail-Links und Login bauen auf NEXT_PUBLIC_SITE_URL (lib/site-url.ts),
+// weil request.url im Container die interne Adresse enthält. Der Wert wird beim Build fest eingesetzt – ohne ihn
+// (oder mit der Adresse einer anderen Umgebung) landen Nutzer nach dem Klick auf den Link ohne Sitzung auf einer
+// fremden Adresse. Deshalb: jede Umgebung (Probe, Produktion) bekommt ihren eigenen Build mit ihrer Adresse.
+if (process.env.ICR_HOSTING === "self" && !process.env.NEXT_PUBLIC_SITE_URL?.trim()) {
+  throw new Error("NEXT_PUBLIC_SITE_URL fehlt: Auf dem eigenen Server muss die Adresse beim Build gesetzt sein (README.md).");
+}
 const PROD_SUPABASE_REF = "vxcwtfktnefreboejgpw";
 function jwtRef(token: string | undefined): string {
   try {
@@ -114,6 +122,14 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: securityHeaders,
+      },
+      // Event-Bilder: strengere CSP als zweite Sicherung (nichts ausführen, nichts nachladen). Muss hier stehen,
+      // nicht nur im Route Handler: Next setzt die Header aus next.config vorher, ein später gesetzter
+      // Content-Security-Policy-Header der Route würde nicht greifen. Der spätere Eintrag überschreibt den obigen.
+      // Die Anzeige als <img> auf den Seiten betrifft das nicht (dort gilt die CSP der Seite).
+      {
+        source: "/bilder/:path*",
+        headers: [{ key: "Content-Security-Policy", value: "default-src 'none'; sandbox" }],
       },
     ];
   },

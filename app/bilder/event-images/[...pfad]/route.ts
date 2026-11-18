@@ -55,9 +55,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ pfad
     "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
     "Content-Disposition": "inline",
-    // Zweite Sicherung: Selbst wenn hier einmal etwas anderes als ein Bild ausgeliefert würde, darf der
-    // Browser darin nichts ausführen und nichts nachladen.
-    "Content-Security-Policy": "default-src 'none'; sandbox",
+    // Die strenge CSP („default-src 'none'; sandbox“) für diese Route steht in next.config.ts (headers()),
+    // weil Next die Header aus der Konfiguration vor denen des Route Handlers setzt.
   });
   const etag = upstream.headers.get("etag");
   if (etag) headers.set("ETag", etag);

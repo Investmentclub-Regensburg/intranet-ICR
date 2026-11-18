@@ -67,6 +67,35 @@ test("animiertes GIF bleibt animiert", async () => {
   assert.equal((await sharp(r.bytes, { animated: true }).metadata()).pages, 3);
 });
 
+test("große Fotos werden auf höchstens 2560 px verkleinert, kleine nicht vergrößert", async () => {
+  const gross = await sharp({ create: { width: 4000, height: 3000, channels: 3, background: "#a30101" } }).jpeg().toBuffer();
+  const r = await reencodeEventImage(new Uint8Array(gross), "image/jpeg");
+  assert.equal(r.ok, true);
+  const m = await sharp(r.bytes).metadata();
+  assert.equal(m.width, 2560);
+  assert.equal(m.height, 1920);
+  const klein = await reencodeEventImage(new Uint8Array(await beispiel("png")), "image/png");
+  assert.equal((await sharp(klein.bytes).metadata()).width, 40);
+});
+
+test("Ergebnis über der Grenze: too_large statt stiller Ablehnung", async () => {
+  const r = await reencodeEventImage(new Uint8Array(await beispiel("png")), "image/png", 10);
+  assert.deepEqual(r, { ok: false, reason: "too_large" });
+});
+
+test("Animation mit zu vielen Pixeln über alle Einzelbilder wird abgelehnt", async () => {
+  // Verschiedene Farben, sonst fasst der GIF-Encoder gleiche Einzelbilder zusammen.
+  const einzelbilder = await Promise.all(
+    Array.from({ length: 25 }, (_, i) =>
+      sharp({ create: { width: 1000, height: 1000, channels: 3, background: { r: i * 10, g: 0, b: 0 } } }).png().toBuffer()
+    )
+  );
+  const animiert = await sharp(einzelbilder, { join: { animated: true } }).gif().toBuffer();
+  assert.equal((await sharp(animiert, { animated: true }).metadata()).pages, 25, "Vorbedingung: 25 Einzelbilder");
+  const r = await reencodeEventImage(new Uint8Array(animiert), "image/gif");
+  assert.deepEqual(r, { ok: false, reason: "unreadable" });
+});
+
 test("kein Bild, kaputtes Bild und unbekannter Typ werden abgelehnt", async () => {
   assert.equal((await reencodeEventImage(new Uint8Array(FREMD), "image/jpeg")).ok, false);
   const kaputt = (await beispiel("png")).subarray(0, 40);
