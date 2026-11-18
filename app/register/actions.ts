@@ -2,16 +2,9 @@
 import { createClient } from "@/utils/supabase/server";
 import { createServiceClient } from "@/utils/supabase/service";
 import { assertKeyRegistered, buildRegistrationSecrets, type MemberSecretValues } from "@/lib/member-secrets-server";
-import { validateIBAN, validateBICFormat } from "@/lib/iban";
-import { DEFAULT_COUNTRY, countryFromSelectValue, dialCodeFor } from "@/lib/country-codes";
-import {
-  FIELD_LIMITS,
-  checkBirthDate,
-  checkPhone,
-  checkPlz,
-  checkText,
-  firstError,
-} from "@/lib/member-fields";
+import { DEFAULT_COUNTRY, countryFromSelectValue } from "@/lib/country-codes";
+import { FIELD_LIMITS, checkText } from "@/lib/member-fields";
+import { pruefeRegistrierung, type FeldFehler } from "@/lib/member-forms";
 import { authErrorMessage, checkPasswordLength } from "@/lib/auth-messages";
 import { isPendingProfile } from "@/lib/profile-status";
 import { RATE_LIMITED_MESSAGE, checkTurnstile, clientIp, withinRateLimits } from "@/lib/bot-protection";
@@ -26,6 +19,9 @@ export type RegisterSavedState = {
   hausnummer: string;
   ort: string;
   plz: string;
+  /** Land der Anschrift (ISO). */
+  land: string;
+  /** Land der Handy-Vorwahl (ISO). */
   landesvorwahl: string;
   handynummer: string;
   student: string;
@@ -40,6 +36,8 @@ export type RegisterSavedState = {
 
 export type RegisterActionState = {
   error: string;
+  /** Meldungen je Feld (lib/member-rules.ts), Schlüssel = Feldname der Regeln. */
+  fieldErrors?: FeldFehler;
   redirect?: string;
   saved?: RegisterSavedState;
   confirmationMessage?: string;
@@ -49,73 +47,80 @@ export async function registerAction(
   _prevState: RegisterActionState,
   formData: FormData
 ): Promise<RegisterActionState> {
-  const email = (formData.get("email") as string)?.trim();
-  const password = formData.get("password") as string;
-  const passwordRepeat = formData.get("passwordRepeat") as string;
-  const vorname = (formData.get("vorname") as string)?.trim();
-  const nachname = (formData.get("nachname") as string)?.trim();
-  const geburtstagRaw = (formData.get("geburtstag") as string)?.trim();
-  const strasse = (formData.get("strasse") as string)?.trim();
-  const hausnummer = (formData.get("hausnummer") as string)?.trim();
-  const ort = (formData.get("ort") as string)?.trim();
-  const plz = (formData.get("plz") as string)?.trim();
-  // Die Auswahl liefert den ISO-Code (z. B. "DE", eindeutig auch für +1); gespeichert wird bis zur
-  // Umstellung auf E.164 (Paket Mitgliederdaten, PR 2) weiter „Vorwahl Eingabe“.
-  const land = countryFromSelectValue((formData.get("landesvorwahl") as string) || DEFAULT_COUNTRY);
-  const landesvorwahl = dialCodeFor(land) ?? "";
-  const handynummerRaw = (formData.get("handynummer") as string)?.trim();
-  const handynummer = handynummerRaw
-    ? `${landesvorwahl} ${handynummerRaw}`.trim()
-    : "";
-  const student = formData.get("student") as string;
-  const studiengang = (formData.get("studiengang") as string)?.trim();
-  const abschluss = (formData.get("abschluss") as string)?.trim();
-  const semester = (formData.get("semester") as string)?.trim();
-  const iban = (formData.get("iban") as string)?.trim();
-  const bic = (formData.get("bic") as string)?.trim();
-  const hochschultyp = formData.get("hochschultyp") as string;
+  const text = (key: string) => {
+    const v = formData.get(key);
+    return typeof v === "string" ? v : "";
+  };
+  const email = text("email").trim();
+  const password = text("password");
+  const passwordRepeat = text("passwordRepeat");
+  const vorname = text("vorname").trim();
+  const nachname = text("nachname").trim();
+  const geburtstagRaw = text("geburtstag").trim();
+  const strasse = text("strasse").trim();
+  const hausnummer = text("hausnummer").trim();
+  const ort = text("ort").trim();
+  const plz = text("plz").trim();
+  const landRaw = text("land").trim();
+  // Die Auswahl liefert den ISO-Code (eindeutig auch für +1); alte Formulare schicken noch die Vorwahl.
+  const handyLand = countryFromSelectValue(text("landesvorwahl") || DEFAULT_COUNTRY);
+  const handynummerRaw = text("handynummer").trim();
+  const student = text("student");
+  const studiengang = text("studiengang").trim();
+  const abschluss = text("abschluss").trim();
+  const semester = text("semester").trim();
+  const iban = text("iban").trim();
+  const bic = text("bic").trim();
+  const hochschultyp = text("hochschultyp");
   const sepa = formData.get("sepa") === "on";
 
   /** Bei Fehler zurückgeben, damit die Eingaben im Formular erhalten bleiben (keine Passwörter). */
   const saved: RegisterSavedState = {
-    vorname: vorname ?? "",
-    nachname: nachname ?? "",
-    email: email ?? "",
-    geburtstag: geburtstagRaw ?? "",
-    strasse: strasse ?? "",
-    hausnummer: hausnummer ?? "",
-    ort: ort ?? "",
-    plz: plz ?? "",
-    landesvorwahl: land ?? DEFAULT_COUNTRY,
-    handynummer: handynummerRaw ?? "",
-    student: student ?? "",
-    studiengang: studiengang ?? "",
-    abschluss: abschluss ?? "",
-    semester: semester ?? "",
-    iban: iban ?? "",
-    bic: bic ?? "",
-    hochschultyp: hochschultyp ?? "",
-    sepa,
-  };
-
-  // Validierung Pflichtfelder
-  const required: Record<string, unknown> = {
-    email,
-    password,
-    passwordRepeat,
     vorname,
     nachname,
+    email,
     geburtstag: geburtstagRaw,
     strasse,
     hausnummer,
     ort,
     plz,
+    land: landRaw || DEFAULT_COUNTRY,
+    landesvorwahl: handyLand ?? DEFAULT_COUNTRY,
     handynummer: handynummerRaw,
     student,
+    studiengang,
+    abschluss,
+    semester,
     iban,
     bic,
+    hochschultyp,
+    sepa,
   };
 
+  // Mitgliederdaten ausschließlich nach lib/member-rules.ts (Kontext „registrierung“): Pflichtfelder,
+  // Formate, E-Mail (isValidEmail), Handy → E.164, IBAN nur SEPA, BIC optional, PLZ je Land.
+  const pruefung = pruefeRegistrierung({
+    vorname,
+    nachname,
+    email,
+    geburtsdatum: geburtstagRaw,
+    strasse,
+    hausnummer,
+    plz,
+    ort,
+    land: landRaw || DEFAULT_COUNTRY,
+    // Unbekannter Wert der Auswahl: Rohwert weitergeben, die Regel meldet ihn.
+    handyLand: handyLand ?? text("landesvorwahl"),
+    handynummer: handynummerRaw,
+    iban,
+    bic,
+  });
+  if (!pruefung.gueltig) {
+    return { error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fieldErrors: pruefung.fehler, saved };
+  }
+
+  // Übrige Pflichtangaben (Passwort, Studium)
+  const required: Record<string, unknown> = { password, passwordRepeat, student };
   // Studiendaten sind nur Pflicht, wenn "Student = Ja"
   if (student === "Ja") {
     required.studiengang = studiengang;
@@ -123,10 +128,7 @@ export async function registerAction(
     required.semester = semester;
     required.hochschultyp = hochschultyp;
   }
-  const missing = Object.entries(required)
-    .filter(([, v]) => !v)
-    .map(([k]) => k);
-  if (missing.length > 0) {
+  if (Object.values(required).some((v) => !v)) {
     return { error: "Bitte alle Pflichtfelder ausfüllen.", saved };
   }
 
@@ -134,21 +136,10 @@ export async function registerAction(
     return { error: "Die SEPA-Bestätigung ist erforderlich.", saved };
   }
 
-  // Format und Länge der Angaben prüfen (gleiche Regeln wie im Profil).
-  const fieldError = firstError(
-    email!.length > 254 ? "Die E-Mail-Adresse ist zu lang." : null,
-    checkText(vorname!, "Vorname", FIELD_LIMITS.name),
-    checkText(nachname!, "Nachname", FIELD_LIMITS.name),
-    checkText(strasse!, "Straße", FIELD_LIMITS.strasse),
-    checkText(hausnummer!, "Hausnummer", FIELD_LIMITS.hausnummer),
-    checkText(ort!, "Ort", FIELD_LIMITS.ort),
-    checkPlz(plz!),
-    land ? null : "Bitte eine gültige Ländervorwahl wählen.",
-    checkPhone(handynummerRaw!),
-    checkText(studiengang ?? "", "Studiengang", FIELD_LIMITS.studium),
-    checkText(abschluss ?? "", "Abschluss", FIELD_LIMITS.studium),
-    checkText(hochschultyp ?? "", "Hochschulart", FIELD_LIMITS.studium)
-  );
+  const fieldError =
+    checkText(studiengang, "Studiengang", FIELD_LIMITS.studium) ??
+    checkText(abschluss, "Abschluss", FIELD_LIMITS.studium) ??
+    checkText(hochschultyp, "Hochschulart", FIELD_LIMITS.studium);
   if (fieldError) {
     return { error: fieldError, saved };
   }
@@ -162,27 +153,12 @@ export async function registerAction(
     return { error: passwordError, saved };
   }
 
-  if (checkBirthDate(geburtstagRaw!)) {
-    return { error: "Bitte wähle ein gültiges Geburtsdatum im Picker aus.", saved };
-  }
-
   const semesterNumber = Number(semester);
   if (
     student === "Ja" &&
     (!Number.isInteger(semesterNumber) || semesterNumber < 1 || semesterNumber > 99)
   ) {
     return { error: "Bitte gib ein gültiges Semester als Zahl ein.", saved };
-  }
-
-  const ibanClean = iban!.replace(/\s/g, "");
-  const bicClean = bic!.replace(/\s/g, "");
-
-  if (!validateIBAN(ibanClean)) {
-    return { error: "Die IBAN ist ungültig.", saved };
-  }
-
-  if (!validateBICFormat(bicClean)) {
-    return { error: "Die BIC ist ungültig (8 oder 11 Zeichen).", saved };
   }
 
   // Bremse gegen Massen-Registrierungen je IP, dann Turnstile (VOR signUp).
@@ -208,8 +184,8 @@ export async function registerAction(
   // Keys exakt wie vom SQL-Trigger erwartet (provision_profile_for_auth_user). Geprüfte, getrimmte
   // Werte übergeben (nicht die Roh-Formulardaten). Sensible Angaben nur verschlüsselt (siehe unten).
   const registration = {
-    Vorname: vorname,
-    Nachname: nachname,
+    Vorname: pruefung.werte.vorname,
+    Nachname: pruefung.werte.nachname,
     Fach: studiengang || null,
     Abschluss: abschluss || null,
     Semester: student === "Ja" ? String(semesterNumber) : "",
@@ -218,26 +194,17 @@ export async function registerAction(
     // Der letzte Schritt lautet „Mit der Registrierung akzeptierst du die Vereinssatzung“.
     "Vereinsatzung-Bestätigung": true,
   };
-  const sensitive: MemberSecretValues = {
-    iban: ibanClean,
-    bic: bicClean,
-    geburtsdatum: geburtstagRaw!,
-    strasse: strasse!,
-    hausnummer: hausnummer!,
-    plz: plz!,
-    ort: ort!,
-    handynummer, // Vorwahl + Nummer (bereits aus formData zusammengesetzt)
-    land: DEFAULT_COUNTRY,
-  };
+  // Normalisierte Werte der Regeln (E.164, IBAN ohne Leerzeichen, PLZ ohne Länderpräfix, Land).
+  const sensitive: Partial<MemberSecretValues> = pruefung.aenderungen;
 
   // Am Konto (und damit im Session-Cookie) stehen nur die Namen. Alles andere geht unten in
   // pending_registrations und wird bei der E-Mail-Bestätigung ins Profil übernommen.
   const { data: authData, error: signUpError } = await supabase.auth.signUp({
-    email: email!,
-    password: password!,
+    email: pruefung.werte.email,
+    password,
     options: {
       ...(captcha.captchaToken ? { captchaToken: captcha.captchaToken } : {}),
-      data: { Vorname: vorname, Nachname: nachname },
+      data: { Vorname: pruefung.werte.vorname, Nachname: pruefung.werte.nachname },
     },
   });
 
@@ -315,7 +282,7 @@ async function canStoreRegistrationData(): Promise<boolean> {
 async function storePendingRegistration(
   userId: string,
   data: Record<string, unknown>,
-  sensitive: MemberSecretValues,
+  sensitive: Partial<MemberSecretValues>,
 ): Promise<boolean> {
   try {
     const admin = createServiceClient();

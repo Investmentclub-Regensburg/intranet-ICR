@@ -15,15 +15,15 @@ import {
   type MemberSecretsResult,
 } from "@/lib/member-secrets-server";
 import {
-  FIELD_LIMITS,
-  checkBic,
-  checkBirthDate,
-  checkIban,
-  checkPhone,
-  checkPlz,
-  checkText,
-  firstError,
-} from "@/lib/member-fields";
+  KORREKTUR_FELDER,
+  bicHinweis,
+  geaenderteKorrekturFelder,
+  korrekturWerte,
+  pruefeKorrektur,
+  type FeldFehler,
+  type KorrekturWerte,
+} from "@/lib/member-forms";
+import { normalizeIban } from "@/lib/member-crypto";
 import { maskIban } from "@/components/profile/profile-format";
 
 export type AdminMemberRow = {
@@ -130,33 +130,21 @@ export async function getCancellations(): Promise<CancellationRow[]> {
   });
 }
 
-/** Daten für den Korrekturdialog (Vorstand). Die IBAN nur gekürzt – ersetzt wird sie durch Neueingabe. */
-export type MemberCorrectionData = {
+/**
+ * Daten für den Korrekturdialog (Vorstand). Handy aufgeteilt in Länderauswahl + Nummer (Altwerte roh mit DE),
+ * Land der Anschrift mit Standard DE. Die IBAN nur gekürzt – ersetzt wird sie durch Neueingabe.
+ */
+export type MemberCorrectionData = KorrekturWerte & {
   name: string;
-  strasse: string;
-  hausnummer: string;
-  plz: string;
-  ort: string;
-  handynummer: string;
-  geburtsdatum: string;
-  bic: string;
   ibanMasked: string;
+  /** Nicht blockierender Hinweis zur BIC (Land weicht von der IBAN ab), sonst null. */
+  bicHinweis: string | null;
 };
 
-/** Bearbeitbare Felder (ohne IBAN). */
-const CORRECTION_FIELDS = ["strasse", "hausnummer", "plz", "ort", "handynummer", "geburtsdatum", "bic"] as const;
-type CorrectionField = (typeof CORRECTION_FIELDS)[number];
-
-export type MemberCorrectionInput = Record<CorrectionField, string> & {
+export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
   /** Neue IBAN; leer = unverändert. */
   iban: string;
 };
-
-/** Gleiche Normalisierung für Formular, Ausgangswerte und gespeicherte Werte (sonst Scheinänderungen). */
-function normalizeCorrection(field: CorrectionField, value: unknown): string {
-  const text = typeof value === "string" ? value.trim() : "";
-  return field === "bic" ? text.replace(/\s/g, "").toUpperCase() : text;
-}
 
 async function loadCorrectionValues(
   admin: ReturnType<typeof createServiceClient>,
@@ -196,30 +184,34 @@ export async function getMemberCorrectionData(
   return {
     data: {
       name: loaded.name,
-      strasse: v.strasse ?? "",
-      hausnummer: v.hausnummer ?? "",
-      plz: v.plz ?? "",
-      ort: v.ort ?? "",
-      handynummer: v.handynummer ?? "",
-      geburtsdatum: v.geburtsdatum ?? "",
-      bic: v.bic ?? "",
+      ...korrekturWerte(v),
       ibanMasked: v.iban ? maskIban(v.iban) : "",
+      bicHinweis: bicHinweis(v.bic, v.iban),
     },
   };
 }
 
+/** Nur Zeichenketten aus dem Client übernehmen (feste Feldliste). */
+function korrekturText(obj: unknown, feld: string): string {
+  const v = obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, feld)
+    ? (obj as Record<string, unknown>)[feld]
+    : undefined;
+  return typeof v === "string" ? v : "";
+}
+
 /**
  * Korrektur der verschlüsselten Mitgliedsdaten durch den Vorstand (z. B. Geburtsdatum, Tippfehler in der
- * Adresse). Speichert über saveMemberSecrets mit Protokoll (member_data_corrections, nur Feldnamen).
- * `base` sind die Werte beim Öffnen des Dialogs: Gespeichert werden nur Felder, die der Vorstand gegenüber
- * `base` geändert hat – und nur, wenn sie in der Datenbank noch `base` entsprechen (sonst hätte z. B. das
- * Mitglied inzwischen geändert und die Korrektur würde das still zurückdrehen).
+ * Adresse). Geprüft wird nur über lib/member-rules.ts (`pruefeVorstandskorrektur` über lib/member-forms.ts):
+ * nur die Felder, die der Vorstand gegenüber `base` (Werte beim Öffnen) geändert hat; alte Fehler in anderen
+ * Feldern blockieren nicht. Gespeichert werden die normalisierten Werte – und nur, wenn die Felder in der
+ * Datenbank noch `base` entsprechen (sonst hätte z. B. das Mitglied inzwischen geändert). Protokoll in
+ * member_data_corrections (nur Feldnamen).
  */
 export async function correctMemberData(
   profileId: string,
   input: MemberCorrectionInput,
   base: MemberCorrectionData
-): Promise<{ error: string; unchanged?: boolean }> {
+): Promise<{ error: string; unchanged?: boolean; fehler?: FeldFehler }> {
   const auth = await requireRole(["board"], "Nur der Vorstand darf Mitgliedsdaten korrigieren.");
   if (!auth.ok) return { error: auth.error };
   if (!isUuid(profileId) || !input || typeof input !== "object" || !base || typeof base !== "object") {
@@ -228,48 +220,39 @@ export async function correctMemberData(
   const actorId = String(auth.profile?.id ?? "");
   if (!isUuid(actorId)) return { error: "Dein Profil konnte nicht zugeordnet werden." };
 
-  const changes: Partial<MemberSecretValues> = {};
-  for (const field of CORRECTION_FIELDS) {
-    const value = normalizeCorrection(field, input[field]);
-    if (value !== normalizeCorrection(field, base[field])) changes[field] = value;
+  const eingabe = {} as MemberCorrectionInput;
+  const basis = {} as KorrekturWerte;
+  for (const feld of KORREKTUR_FELDER) {
+    eingabe[feld] = korrekturText(input, feld);
+    basis[feld] = korrekturText(base, feld);
   }
-  const iban = (typeof input.iban === "string" ? input.iban : "").replace(/\s/g, "").toUpperCase();
-  if (iban) changes.iban = iban;
-
-  if (changes.geburtsdatum === "") {
-    return { error: "Das Geburtsdatum kann nicht gelöscht werden. Bitte ein vollständiges Datum eingeben." };
-  }
-  // Nur geänderte Felder prüfen (unveränderte Altdaten sollen eine Korrektur nicht blockieren).
-  const has = (field: keyof MemberSecretValues) => typeof changes[field] === "string" && changes[field] !== "";
-  const validationError = firstError(
-    "strasse" in changes ? checkText(changes.strasse!, "Straße", FIELD_LIMITS.strasse) : null,
-    "hausnummer" in changes ? checkText(changes.hausnummer!, "Hausnummer", FIELD_LIMITS.hausnummer) : null,
-    "ort" in changes ? checkText(changes.ort!, "Ort", FIELD_LIMITS.ort) : null,
-    has("plz") ? checkPlz(changes.plz!) : null,
-    has("handynummer") ? checkPhone(changes.handynummer!) : null,
-    has("geburtsdatum") ? checkBirthDate(changes.geburtsdatum!) : null,
-    has("iban") ? checkIban(changes.iban!) : null,
-    has("bic") ? checkBic(changes.bic!) : null
-  );
-  if (validationError) return { error: validationError };
+  eingabe.iban = korrekturText(input, "iban");
+  const baseIbanMasked = korrekturText(base, "ibanMasked");
 
   const admin = createServiceClient();
   const loaded = await loadCorrectionValues(admin, profileId);
   if ("error" in loaded) return loaded;
-
   const current = loaded.values;
+
+  // Geänderte Felder dürfen sich seit dem Öffnen nicht verändert haben.
+  const geaendert = geaenderteKorrekturFelder(eingabe, basis);
+  const inzwischen = geaenderteKorrekturFelder(korrekturWerte(current), basis);
+  const neueIban = normalizeIban(eingabe.iban);
   const stale =
-    CORRECTION_FIELDS.some(
-      (field) => field in changes && normalizeCorrection(field, current[field]) !== normalizeCorrection(field, base[field])
-    ) || (changes.iban !== undefined && (current.iban ? maskIban(current.iban) : "") !== (base.ibanMasked ?? ""));
+    [...geaendert].some((feld) => inzwischen.has(feld)) ||
+    (neueIban !== "" && (current.iban ? maskIban(current.iban) : "") !== baseIbanMasked);
   if (stale) {
     return { error: "Die Daten wurden inzwischen geändert. Bitte den Dialog schließen und neu öffnen." };
   }
-  if (changes.iban && changes.iban === (current.iban ?? "").replace(/\s/g, "").toUpperCase()) delete changes.iban;
-  if (Object.keys(changes).length === 0) return { error: "", unchanged: true };
+
+  const pruefung = pruefeKorrektur(eingabe, basis, current);
+  if (!pruefung.gueltig) {
+    return { error: pruefung.ersterFehler ?? "Bitte prüf die Angaben.", fehler: pruefung.fehler };
+  }
+  if (Object.keys(pruefung.aenderungen).length === 0) return { error: "", unchanged: true };
 
   try {
-    await saveMemberSecrets(admin, profileId, changes, { correctedBy: actorId });
+    await saveMemberSecrets(admin, profileId, pruefung.aenderungen, { correctedBy: actorId });
   } catch (err) {
     if (err instanceof MemberSecretsConflictError) {
       return { error: "Die Daten wurden gerade an anderer Stelle geändert. Bitte erneut öffnen." };

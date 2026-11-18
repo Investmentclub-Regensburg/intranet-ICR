@@ -206,6 +206,16 @@ export function plainToSecretValues(profile: Record<string, unknown> | null | un
   return values;
 }
 
+/** Ein Feld aus `nurWennLeer` ist schon gesetzt (z. B. Geburtsdatum: nachtragen nur einmal). */
+export class MemberSecretFieldSetError extends Error {
+  readonly field: SecretField;
+  constructor(field: SecretField) {
+    super("Das Feld ist bereits gesetzt.");
+    this.name = "MemberSecretFieldSetError";
+    this.field = field;
+  }
+}
+
 export class MemberSecretsConflictError extends Error {
   constructor() {
     super("Die Daten wurden gleichzeitig an anderer Stelle geändert.");
@@ -218,12 +228,14 @@ export class MemberSecretsConflictError extends Error {
  * bleiben erhalten. Legt die Zeile bei Bedarf an (dann sind die übrigen Felder leer).
  * Erkennt IBAN-Änderungen (ibanChanged) und meldet sie über die Datenbank; die erste Hinterlegung zählt nicht.
  * `correctedBy`: Profil-ID des Vorstandsmitglieds bei einer Korrektur im Admin-Bereich (wird protokolliert).
+ * `nurWennLeer`: Felder, die nur geschrieben werden, solange sie im frisch gelesenen Stand leer sind (Mitglied
+ * trägt das Geburtsdatum einmal selbst nach); sonst MemberSecretFieldSetError, nichts wird gespeichert.
  */
 export async function saveMemberSecrets(
   admin: SupabaseClient,
   profileId: string,
   changes: Partial<MemberSecretValues>,
-  options: { correctedBy?: string } = {},
+  options: { correctedBy?: string; nurWennLeer?: readonly SecretField[] } = {},
 ): Promise<void> {
   await assertKeyRegistered(admin);
   const keyring = getKeyring();
@@ -232,6 +244,9 @@ export async function saveMemberSecrets(
     const row = await loadRow(admin, profileId);
 
     const current = row ? decryptRow(row) : emptySecretValues();
+    for (const field of options.nurWennLeer ?? []) {
+      if (field in changes && (current[field] ?? "").trim() !== "") throw new MemberSecretFieldSetError(field);
+    }
     const next: MemberSecretValues = { ...current };
     for (const field of SECRET_FIELDS) {
       if (field in changes) {

@@ -6,58 +6,53 @@ import { createClient } from "@/utils/supabase/server";
 import { getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
-import { isCancelledProfile } from "@/lib/profile-status";
-import { MemberSecretsConflictError, saveMemberSecrets } from "@/lib/member-secrets-server";
+import { isAlumniProfile, isCancelledProfile } from "@/lib/profile-status";
+import {
+  MemberSecretFieldSetError,
+  MemberSecretsConflictError,
+  emptySecretValues,
+  readMemberSecrets,
+  saveMemberSecrets,
+} from "@/lib/member-secrets-server";
+import { pruefeProfil, type FeldFehler, type ProfilAbschnitt } from "@/lib/member-forms";
 import { CANCELLATION_TEXT_MAX, isCancellationReason } from "@/lib/cancellation-reasons";
 import { authErrorMessage } from "@/lib/auth-messages";
 import { RATE_LIMITED_MESSAGE, withinRateLimits } from "@/lib/bot-protection";
 import { isValidEmail } from "@/lib/events";
-import {
-  FIELD_LIMITS,
-  checkBic,
-  checkIban,
-  checkPhone,
-  checkPlz,
-  checkText,
-  firstError,
-} from "@/lib/member-fields";
 
 export type ProfileActionState = {
   success: boolean;
   error: string;
 };
 
+export type ProfileDataState = ProfileActionState & {
+  /** Meldungen je Feld (Mangel nach lib/member-rules.ts). */
+  fehler?: FeldFehler;
+};
+
+/** Felder je Abschnitt, wie sie das Formular sendet. */
+const FORM_FIELDS: Record<ProfilAbschnitt, readonly string[]> = {
+  personal: ["strasse", "hausnummer", "plz", "ort", "land", "handyLand", "handynummer", "geburtsdatum"],
+  bank: ["iban", "bic"],
+};
+
+/**
+ * Profil speichern (eigene Daten). Geprüft wird nur über lib/member-rules.ts (lib/member-forms.ts,
+ * Kontext `mitglied`), gespeichert werden die normalisierten Werte des bearbeiteten Abschnitts
+ * (`section` = personal | bank). Pflichtfelder lassen sich nicht leeren; das Geburtsdatum kann ein Mitglied
+ * nur nachtragen, solange keins gespeichert ist.
+ */
 export async function updateProfile(
-  _prev: ProfileActionState,
+  _prev: ProfileDataState,
   formData: FormData
-): Promise<ProfileActionState> {
+): Promise<ProfileDataState> {
   const auth = await requireUser();
   if (!auth.ok) return { success: false, error: auth.error };
   const user = auth.user;
 
-  const strasse = (formData.get("strasse") as string | null)?.trim() ?? "";
-  const hausnummer = (formData.get("hausnummer") as string | null)?.trim() ?? "";
-  const plz = (formData.get("plz") as string | null)?.trim() ?? "";
-  const ort = (formData.get("ort") as string | null)?.trim() ?? "";
-  const mobil = (formData.get("mobil") as string | null)?.trim() ?? "";
-  const ibanRaw = (formData.get("iban") as string | null) ?? "";
-  const bicRaw = (formData.get("bic") as string | null) ?? "";
-
-  const iban = ibanRaw.replace(/\s/g, "").toUpperCase();
-  const bic = bicRaw.replace(/\s/g, "").toUpperCase();
-
-  // Eingaben prüfen (gleiche Regeln wie bei der Registrierung); leere Felder bleiben erlaubt.
-  const validationError = firstError(
-    checkText(strasse, "Straße", FIELD_LIMITS.strasse),
-    checkText(hausnummer, "Hausnummer", FIELD_LIMITS.hausnummer),
-    checkText(ort, "Ort", FIELD_LIMITS.ort),
-    plz ? checkPlz(plz) : null,
-    mobil ? checkPhone(mobil) : null,
-    iban ? checkIban(iban) : null,
-    bic ? checkBic(bic) : null
-  );
-  if (validationError) {
-    return { success: false, error: validationError };
+  const section = formData.get("section");
+  if (section !== "personal" && section !== "bank") {
+    return { success: false, error: "Ungültige Anfrage." };
   }
 
   // Für Updates nutzen wir den Service-Role-Client (Ziel ist ausschließlich die eigene Zeile über user.id).
@@ -66,14 +61,14 @@ export async function updateProfile(
   // Zuerst den passenden Profil-Datensatz auflösen (analog zur Kündigungs-Logik)
   let { data: profileRow, error: profileLookupError } = await admin
     .from("profiles")
-    .select("id")
+    .select("id, Rolle, Status")
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (!profileRow && !profileLookupError) {
     const fallback = await admin
       .from("profiles")
-      .select("id")
+      .select("id, Rolle, Status")
       .eq("id", user.id)
       .maybeSingle();
     profileRow = fallback.data;
@@ -81,11 +76,12 @@ export async function updateProfile(
   }
 
   if (profileLookupError) {
-    console.error("Profil laden:", profileLookupError);
+    console.error("Profil laden:", profileLookupError.code);
     return { success: false, error: "Profil konnte nicht geladen werden." };
   }
 
-  const profileId = String((profileRow as { id?: unknown } | null)?.id ?? "").trim();
+  const profile = (profileRow ?? null) as Record<string, unknown> | null;
+  const profileId = String(profile?.id ?? "").trim();
   if (!profileId) {
     return {
       success: false,
@@ -94,22 +90,37 @@ export async function updateProfile(
     };
   }
 
-  // Verschlüsselt speichern (member_secrets) und in der Übergangsphase Klartext mitschreiben.
-  // IBAN-Änderungen erkennt saveMemberSecrets selbst und meldet sie dem Vorstand.
+  let bestand;
   try {
-    // Nur die Felder des bearbeiteten Abschnitts speichern (ohne Angabe: alle, wie bisher). Sonst würde
-    // ein offenes Formular eine zwischenzeitliche Korrektur des Vorstands im anderen Abschnitt zurückdrehen.
-    const section = formData.get("section");
-    const personal = { strasse, hausnummer, plz, ort, handynummer: mobil };
-    const bank = { iban, bic };
-    await saveMemberSecrets(
-      admin,
-      profileId,
-      section === "personal" ? personal : section === "bank" ? bank : { ...personal, ...bank }
-    );
+    bestand = (await readMemberSecrets(admin, profileId)) ?? emptySecretValues();
+  } catch (err) {
+    console.error("updateProfile: lesen", err instanceof Error ? err.message : "unbekannt");
+    return { success: false, error: "Deine Daten können gerade nicht gelesen werden. Bitte wende dich an den Vorstand." };
+  }
+
+  const eingabe: Record<string, unknown> = {};
+  for (const key of FORM_FIELDS[section]) eingabe[key] = formData.get(key);
+  const pruefung = pruefeProfil(section, eingabe, bestand, isAlumniProfile(profile));
+  if (!pruefung.gueltig) {
+    return { success: false, error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fehler: pruefung.fehler };
+  }
+  if (Object.keys(pruefung.aenderungen).length === 0) return { success: true, error: "" };
+
+  // Verschlüsselt speichern (member_secrets). IBAN-Änderungen erkennt saveMemberSecrets selbst und meldet sie
+  // dem Vorstand. Nur die Felder des Abschnitts: eine zwischenzeitliche Korrektur des Vorstands im anderen
+  // Abschnitt bleibt erhalten.
+  try {
+    await saveMemberSecrets(admin, profileId, pruefung.aenderungen, { nurWennLeer: ["geburtsdatum"] });
   } catch (err) {
     if (err instanceof MemberSecretsConflictError) {
       return { success: false, error: "Deine Daten wurden gerade an anderer Stelle geändert. Bitte lade die Seite neu." };
+    }
+    if (err instanceof MemberSecretFieldSetError) {
+      return {
+        success: false,
+        error: "Dein Geburtsdatum ist schon eingetragen. Ändern kann es nur der Vorstand.",
+        fehler: { geburtsdatum: "Schon eingetragen. Ändern kann es nur der Vorstand." },
+      };
     }
     console.error("updateProfile:", err instanceof Error ? err.message : "unbekannt");
     return { success: false, error: "Änderungen konnten nicht gespeichert werden." };
@@ -317,11 +328,12 @@ export async function requestEmailChange(formData: FormData): Promise<EmailChang
   if (!auth.ok) return { success: false, error: auth.error };
   const user = auth.user;
 
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = String(formData.get("email") ?? "").normalize("NFC").trim().toLowerCase();
   if (!isValidEmail(email)) {
     return { success: false, error: "Bitte eine gültige E-Mail-Adresse angeben." };
   }
-  if (email === (user.email ?? "").toLowerCase()) {
+  // Beidseitig NFC + klein (Regeln für Aufrufer, Punkt 6).
+  if (email === (user.email ?? "").normalize("NFC").trim().toLowerCase()) {
     return { success: false, error: "Das ist bereits deine aktuelle E-Mail-Adresse." };
   }
 
