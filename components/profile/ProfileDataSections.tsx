@@ -18,6 +18,17 @@ import { Label } from "@/components/ui/label";
 import { ReadField, ReadSection } from "@/components/kit/ReadSection";
 import { requestEmailChange, updateProfile } from "@/app/(intranet)/profile/actions";
 import { maskIban } from "@/components/profile/profile-format";
+import {
+  FeldFehler,
+  FeldHinweis,
+  GespeichertHaken,
+  HandyEingabe,
+  IbanEingabe,
+  LandAuswahl,
+  type HandyWert,
+} from "@/components/member/MemberInputs";
+import { emailTippfehler, ibanInViererbloecken } from "@/lib/member-rules-client";
+import { bicLandHinweis, plzInputMode } from "@/lib/member-inputs";
 
 export type ProfileContactData = {
   vorname: string;
@@ -29,18 +40,35 @@ export type ProfileContactData = {
   hausnummer: string;
   plz: string;
   ort: string;
-  mobil: string;
+  /** Land der Anschrift (ISO), leer gespeichert = DE. */
+  land: string;
+  /** Name des Landes für die Anzeige, leer bei Deutschland. */
+  landName: string;
+  /** Handy für die Eingabe aufgeteilt (Altwerte: DE + roh). */
+  handyLand: string;
+  handyNummer: string;
+  /** Handy für die Anzeige (international formatiert, Altwerte roh). */
+  handyAnzeige: string;
+  /** Geburtsdatum YYYY-MM-DD oder leer (das Mitglied ändert es selbst, Entscheidung 11). */
+  geburtsdatum: string;
+  /** Alumni zahlen keinen Beitrag: IBAN nicht Pflicht. */
+  alumni: boolean;
   iban: string;
   bic: string;
+  /** Nicht blockierender Hinweis zur BIC (Land weicht ab), sonst null. */
+  bicHinweis: string | null;
+  /** Version der verschlüsselten Zeile beim Laden (0 = keine): optimistische Sperre beim Speichern. */
+  version: number;
+  /** Ohne Spalte land geladen (Übergang): der Server speichert das Land dann nicht. */
+  landUnbekannt: boolean;
 };
 
+type Fehler = Partial<Record<string, string>>;
+
 /**
- * Persönliche Daten und Bankverbindung: erst Lesesicht (ReadSection), der Stift öffnet
- * das Formular des jeweiligen Abschnitts. Gespeichert wird über dieselbe Server Action
- * wie bisher (updateProfile, gleiche Prüfung inkl. IBAN/BIC). Jedes Formular trägt die Werte
- * des anderen Abschnitts als versteckte Felder mit (Prüfung); gespeichert werden über `section`
- * nur die Felder des eigenen Abschnitts – eine zwischenzeitliche Korrektur des Vorstands im
- * anderen Abschnitt bleibt so erhalten.
+ * Persönliche Daten und Bankverbindung: erst Lesesicht (ReadSection), der Stift öffnet das Formular des
+ * jeweiligen Abschnitts. Gespeichert wird über updateProfile; der Server prüft nach lib/member-rules.ts nur
+ * die Felder des Abschnitts (`section`) und meldet Fehler je Feld. Nach dem Speichern zeichnet sich ein Haken.
  */
 export function ProfileDataSections({ profile }: { profile: ProfileContactData }) {
   return (
@@ -53,43 +81,103 @@ export function ProfileDataSections({ profile }: { profile: ProfileContactData }
 
 function PersonalSection({ profile }: { profile: ProfileContactData }) {
   const id = useId();
-  const editor = useSectionEditor(id, "Persönliche Daten gespeichert.");
+  const editor = useSectionEditor(id);
+  const [land, setLand] = useState(profile.land);
+  const [handy, setHandy] = useState<HandyWert>({ land: profile.handyLand, nummer: profile.handyNummer });
   const name = `${profile.vorname} ${profile.nachname}`.trim();
   const streetLine = `${profile.strasse} ${profile.hausnummer}`.trim();
   const cityLine = `${profile.plz} ${profile.ort}`.trim();
+  const f = editor.fehler;
+
+  function open() {
+    setLand(profile.land);
+    setHandy({ land: profile.handyLand, nummer: profile.handyNummer });
+    editor.open();
+  }
 
   return (
     <div id={id}>
       {editor.editing ? (
         <EditCard title="Persönliche Daten" Icon={UserRound}>
-          <EditForm editor={editor}>
-            <input type="hidden" name="section" value="personal" />
-            <input type="hidden" name="iban" value={profile.iban} />
-            <input type="hidden" name="bic" value={profile.bic} />
-            <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:gap-4">
-              <Field id={`${id}-strasse`} label="Straße">
-                <Input id={`${id}-strasse`} name="strasse" defaultValue={profile.strasse} autoComplete="address-line1" autoFocus />
+          {editor.saved ? (
+            <GespeichertHaken text="Persönliche Daten gespeichert" onFertig={editor.close} />
+          ) : (
+            <EditForm editor={editor}>
+              <input type="hidden" name="section" value="personal" />
+              <input type="hidden" name="version" value={profile.version} />
+              <input type="hidden" name="vornameVorher" value={profile.vorname} />
+              <input type="hidden" name="nachnameVorher" value={profile.nachname} />
+              <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+                <Field id={`${id}-vorname`} label="Vorname" fehler={f.vorname}>
+                  <Input id={`${id}-vorname`} name="vorname" defaultValue={profile.vorname} autoComplete="given-name" autoFocus {...invalid(`${id}-vorname`, f.vorname)} onInput={() => editor.clear("vorname")} />
+                </Field>
+                <Field id={`${id}-nachname`} label="Nachname" fehler={f.nachname}>
+                  <Input id={`${id}-nachname`} name="nachname" defaultValue={profile.nachname} autoComplete="family-name" {...invalid(`${id}-nachname`, f.nachname)} onInput={() => editor.clear("nachname")} />
+                </Field>
+              </div>
+              {profile.landUnbekannt && <input type="hidden" name="landUnbekannt" value="1" />}
+              <div className="grid grid-cols-[1fr_6.5rem] gap-3 sm:gap-4">
+                <Field id={`${id}-strasse`} label="Straße" fehler={f.strasse}>
+                  <Input id={`${id}-strasse`} name="strasse" defaultValue={profile.strasse} autoComplete="address-line1" {...invalid(`${id}-strasse`, f.strasse)} onInput={() => editor.clear("strasse")} />
+                </Field>
+                <Field id={`${id}-hausnummer`} label="Hausnr." fehler={f.hausnummer}>
+                  <Input id={`${id}-hausnummer`} name="hausnummer" defaultValue={profile.hausnummer} {...invalid(`${id}-hausnummer`, f.hausnummer)} onInput={() => editor.clear("hausnummer")} />
+                </Field>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor={`${id}-land`} className="text-xs font-medium text-muted-foreground">
+                  Land
+                </Label>
+                <LandAuswahl
+                  id={`${id}-land`}
+                  wert={land}
+                  onChange={(l) => {
+                    setLand(l);
+                    editor.clear("land", "plz", "hausnummer", "ort");
+                  }}
+                  fehler={f.land}
+                />
+              </div>
+              <div className="grid grid-cols-[6.5rem_1fr] gap-3 sm:gap-4">
+                <Field id={`${id}-plz`} label="PLZ" fehler={f.plz}>
+                  <Input id={`${id}-plz`} name="plz" defaultValue={profile.plz} autoComplete="postal-code" inputMode={plzInputMode(land)} {...invalid(`${id}-plz`, f.plz)} onInput={() => editor.clear("plz")} />
+                </Field>
+                <Field id={`${id}-ort`} label="Ort" fehler={f.ort}>
+                  <Input id={`${id}-ort`} name="ort" defaultValue={profile.ort} autoComplete="address-level2" {...invalid(`${id}-ort`, f.ort)} onInput={() => editor.clear("ort")} />
+                </Field>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor={`${id}-handy`} className="text-xs font-medium text-muted-foreground">
+                  Handynummer
+                </Label>
+                <HandyEingabe
+                  id={`${id}-handy`}
+                  wert={handy}
+                  onChange={(w) => {
+                    setHandy(w);
+                    editor.clear("handynummer");
+                  }}
+                  autoComplete="tel"
+                  fehler={f.handynummer}
+                />
+              </div>
+              <Field id={`${id}-geburtsdatum`} label="Geburtsdatum" fehler={f.geburtsdatum}>
+                <Input
+                  id={`${id}-geburtsdatum`}
+                  name="geburtsdatum"
+                  type="date"
+                  defaultValue={profile.geburtsdatum}
+                  max={new Date().toISOString().slice(0, 10)}
+                  autoComplete="bday"
+                  {...invalid(`${id}-geburtsdatum`, f.geburtsdatum)}
+                  onInput={() => editor.clear("geburtsdatum")}
+                />
               </Field>
-              <Field id={`${id}-hausnummer`} label="Hausnr.">
-                <Input id={`${id}-hausnummer`} name="hausnummer" defaultValue={profile.hausnummer} />
-              </Field>
-            </div>
-            <div className="grid grid-cols-[6.5rem_1fr] gap-3 sm:gap-4">
-              <Field id={`${id}-plz`} label="PLZ">
-                <Input id={`${id}-plz`} name="plz" defaultValue={profile.plz} autoComplete="postal-code" inputMode="numeric" />
-              </Field>
-              <Field id={`${id}-ort`} label="Ort">
-                <Input id={`${id}-ort`} name="ort" defaultValue={profile.ort} autoComplete="address-level2" />
-              </Field>
-            </div>
-            <Field id={`${id}-mobil`} label="Handynummer">
-              <Input id={`${id}-mobil`} name="mobil" type="tel" defaultValue={profile.mobil} autoComplete="tel" />
-            </Field>
-            <p className="text-xs text-muted-foreground">Den Namen ändert der Vorstand.</p>
-          </EditForm>
+            </EditForm>
+          )}
         </EditCard>
       ) : (
-        <ReadSection title="Persönliche Daten" Icon={UserRound} onEdit={editor.open}>
+        <ReadSection title="Persönliche Daten" Icon={UserRound} onEdit={open}>
           <ReadField label="Name" value={name} />
           <EmailField email={profile.email} pendingEmail={profile.pendingEmail} />
           <ReadField
@@ -99,15 +187,28 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
                 <>
                   {streetLine && <span className="block">{streetLine}</span>}
                   {cityLine && <span className="block">{cityLine}</span>}
+                  {profile.landName && <span className="block">{profile.landName}</span>}
                 </>
               ) : null
             }
           />
-          <ReadField label="Handynummer" value={profile.mobil} />
+          <ReadField label="Handynummer" value={profile.handyAnzeige} />
+          <ReadField label="Geburtsdatum" value={datumDeutsch(profile.geburtsdatum)} empty="Noch nicht eingetragen" />
         </ReadSection>
       )}
     </div>
   );
+}
+
+/** YYYY-MM-DD → TT.MM.JJJJ (leer bleibt leer). */
+function datumDeutsch(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso;
+}
+
+/** aria-Attribute eines Felds mit Fehler. */
+function invalid(id: string, fehler?: string) {
+  return fehler ? { "aria-invalid": true as const, "aria-describedby": `${id}-fehler` } : {};
 }
 
 /**
@@ -120,6 +221,7 @@ function EmailField({ email, pendingEmail }: { email: string; pendingEmail: stri
   const [error, setError] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [tippfehler, setTippfehler] = useState<string | null>(null);
   const waitingFor = sentTo ?? (pendingEmail && pendingEmail !== email ? pendingEmail : null);
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -174,7 +276,9 @@ function EmailField({ email, pendingEmail }: { email: string; pendingEmail: stri
             placeholder="neue@adresse.de"
             required
             autoFocus
+            onChange={(e) => setTippfehler(emailTippfehler(e.target.value))}
           />
+          <FeldHinweis>{tippfehler}</FeldHinweis>
           <p className="text-xs text-muted-foreground">
             Wir schicken dir einen Bestätigungslink. Erst danach gilt die neue Adresse, auch für den Login.
           </p>
@@ -212,47 +316,80 @@ function EmailField({ email, pendingEmail }: { email: string; pendingEmail: stri
 
 function BankSection({ profile }: { profile: ProfileContactData }) {
   const id = useId();
-  const editor = useSectionEditor(id, "Bankverbindung gespeichert.");
+  const editor = useSectionEditor(id);
+  const [iban, setIban] = useState(() => ibanInViererbloecken(profile.iban));
+  const [bic, setBic] = useState(profile.bic);
+  const f = editor.fehler;
+  const hinweis = bicLandHinweis(iban, bic);
+
+  function open() {
+    setIban(ibanInViererbloecken(profile.iban));
+    setBic(profile.bic);
+    editor.open();
+  }
 
   return (
     <div id={id}>
       {editor.editing ? (
         <EditCard title="Bankverbindung" Icon={Landmark}>
-          <EditForm editor={editor}>
-            <input type="hidden" name="section" value="bank" />
-            <input type="hidden" name="strasse" value={profile.strasse} />
-            <input type="hidden" name="hausnummer" value={profile.hausnummer} />
-            <input type="hidden" name="plz" value={profile.plz} />
-            <input type="hidden" name="ort" value={profile.ort} />
-            <input type="hidden" name="mobil" value={profile.mobil} />
-            <Field id={`${id}-iban`} label="IBAN">
-              <Input
-                id={`${id}-iban`}
-                name="iban"
-                defaultValue={profile.iban}
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus
-                className="font-mono tracking-wide"
-              />
-            </Field>
-            <Field id={`${id}-bic`} label="BIC">
-              <Input
-                id={`${id}-bic`}
-                name="bic"
-                defaultValue={profile.bic}
-                autoComplete="off"
-                spellCheck={false}
-                className="font-mono tracking-wide"
-              />
-            </Field>
-          </EditForm>
+          {editor.saved ? (
+            <GespeichertHaken text="Bankverbindung gespeichert" onFertig={editor.close} />
+          ) : (
+            <EditForm editor={editor}>
+              <input type="hidden" name="section" value="bank" />
+              <input type="hidden" name="version" value={profile.version} />
+              <div className="space-y-1.5">
+                <Label htmlFor={`${id}-iban`} className="text-xs font-medium text-muted-foreground">
+                  IBAN
+                </Label>
+                <IbanEingabe
+                  id={`${id}-iban`}
+                  wert={iban}
+                  onChange={(w) => {
+                    setIban(w);
+                    editor.clear("iban");
+                  }}
+                  placeholder={profile.alumni ? "Als Alumni nicht nötig" : undefined}
+                  fehler={f.iban}
+                />
+              </div>
+              <Field id={`${id}-bic`} label="BIC (optional)" fehler={f.bic}>
+                <Input
+                  id={`${id}-bic`}
+                  name="bic"
+                  value={bic}
+                  onChange={(e) => {
+                    setBic(e.target.value);
+                    editor.clear("bic");
+                  }}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoCapitalize="characters"
+                  className="font-mono tracking-wide"
+                  {...invalid(`${id}-bic`, f.bic)}
+                />
+                {!f.bic && <FeldHinweis>{hinweis}</FeldHinweis>}
+              </Field>
+            </EditForm>
+          )}
         </EditCard>
       ) : (
         // Nur die letzten 4 Stellen der IBAN zeigen.
-        <ReadSection title="Bankverbindung" Icon={Landmark} onEdit={editor.open}>
+        <ReadSection title="Bankverbindung" Icon={Landmark} onEdit={open}>
           <ReadField label="IBAN" value={profile.iban ? maskIban(profile.iban) : null} mono />
-          <ReadField label="BIC" value={profile.bic} />
+          <ReadField
+            label="BIC"
+            value={
+              profile.bic ? (
+                <>
+                  <span className="block">{profile.bic}</span>
+                  {profile.bicHinweis && (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{profile.bicHinweis}</span>
+                  )}
+                </>
+              ) : null
+            }
+          />
         </ReadSection>
       )}
     </div>
@@ -272,22 +409,25 @@ function EditCard({ title, Icon, children }: { title: string; Icon: LucideIcon; 
   );
 }
 
-function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+function Field({ id, label, fehler, children }: { id: string; label: string; fehler?: string; children: ReactNode }) {
   return (
     <div className="min-w-0 space-y-1.5">
       <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
         {label}
       </Label>
       {children}
+      <FeldFehler id={`${id}-fehler`}>{fehler}</FeldFehler>
     </div>
   );
 }
 
 type SectionEditor = ReturnType<typeof useSectionEditor>;
 
-function useSectionEditor(anchorId: string, successMessage: string) {
+function useSectionEditor(anchorId: string) {
   const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [fehler, setFehler] = useState<Fehler>({});
   const [pending, startTransition] = useTransition();
   // Nach Abbrechen/Speichern bekommt der Stift den Fokus zurück, statt ihn zu verlieren.
   const [refocus, setRefocus] = useState(false);
@@ -299,11 +439,15 @@ function useSectionEditor(anchorId: string, successMessage: string) {
 
   function open() {
     setError("");
+    setFehler({});
+    setSaved(false);
     setEditing(true);
   }
 
   function close() {
     setError("");
+    setFehler({});
+    setSaved(false);
     setRefocus(true);
     setEditing(false);
   }
@@ -312,18 +456,34 @@ function useSectionEditor(anchorId: string, successMessage: string) {
     if (!pending) close();
   }
 
+  /** Fehler eines Felds beim Ändern wegnehmen (der Server prüft beim Speichern erneut). */
+  function clear(...felder: string[]) {
+    setFehler((alt) => {
+      if (!felder.some((feld) => alt[feld])) return alt;
+      const neu = { ...alt };
+      for (const feld of felder) delete neu[feld];
+      return neu;
+    });
+  }
+
   // Eigener Submit statt <form action>: React setzt Formulare nach einer Action sonst
   // zurück, und bei einem Prüffehler wären die Eingaben weg.
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     setError("");
+    setFehler({});
     startTransition(async () => {
       try {
         const result = await updateProfile({ success: false, error: "" }, formData);
         if (result.success) {
-          toast.success(successMessage);
-          close();
+          setSaved(true);
+        } else if (result.fehler && Object.keys(result.fehler).length > 0) {
+          setFehler(result.fehler);
+          // Fokus auf das erste Feld mit Fehler.
+          window.requestAnimationFrame(() =>
+            document.getElementById(anchorId)?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+          );
         } else {
           setError(result.error || "Speichern hat nicht geklappt.");
         }
@@ -333,7 +493,7 @@ function useSectionEditor(anchorId: string, successMessage: string) {
     });
   }
 
-  return { editing, error, pending, open, cancel, submit };
+  return { editing, saved, error, fehler, pending, open, close, cancel, clear, submit };
 }
 
 function EditForm({ editor, children }: { editor: SectionEditor; children: ReactNode }) {

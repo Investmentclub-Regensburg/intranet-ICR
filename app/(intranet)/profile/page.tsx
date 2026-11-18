@@ -16,7 +16,10 @@ import {
 } from "@/components/profile/profile-format";
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
-import { emptySecretValues, readMemberSecrets } from "@/lib/member-secrets-server";
+import { emptySecretValues, readMemberSecretsWithMeta, type MemberSecretValues } from "@/lib/member-secrets-server";
+import { bicHinweis, handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-forms";
+import { findCountry } from "@/lib/country-codes";
+import { isAlumniProfile } from "@/lib/profile-status";
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
   const emailNotice = (await searchParams).email;
@@ -50,11 +53,17 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   const profileId = String((profile as { id?: unknown } | null)?.id ?? "");
   // Kann eine vorhandene Zeile nicht gelesen werden: Hinweis statt Formular (leere Felder würden beim
   // Speichern die verschlüsselte Fassung überschreiben).
-  let secrets: Awaited<ReturnType<typeof readMemberSecrets>> = null;
+  let secrets: MemberSecretValues | null = null;
+  // Version der Zeile (0 = keine Zeile): das Formular schickt sie mit (optimistische Sperre).
+  let secretsVersion = 0;
+  let landUnbekannt = false;
   let secretsUnavailable = false;
   if (profileId) {
     try {
-      secrets = await readMemberSecrets(createServiceClient(), profileId);
+      const gelesen = await readMemberSecretsWithMeta(createServiceClient(), profileId);
+      secrets = gelesen?.values ?? null;
+      secretsVersion = gelesen?.version ?? 0;
+      landUnbekannt = gelesen ? !gelesen.landBekannt : false;
     } catch (err) {
       console.error("ProfilePage: member_secrets", err instanceof Error ? err.message : "unbekannt");
       secretsUnavailable = true;
@@ -74,10 +83,12 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     hausnummer: sensitive.hausnummer ?? "",
     plz: sensitive.plz ?? "",
     ort: sensitive.ort ?? "",
+    land: landAusBestand(sensitive.land),
     mobil: sensitive.handynummer ?? "",
     iban: sensitive.iban ?? "",
     bic: sensitive.bic ?? "",
   };
+  const handy = handyFuerEingabe(sensitive.handynummer);
 
   const alumniStatus = String((alumniRow as { status?: unknown } | null)?.status ?? "").trim().toLowerCase();
   const alumni: AlumniInfo = {
@@ -137,9 +148,18 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 hausnummer: p.hausnummer,
                 plz: p.plz,
                 ort: p.ort,
-                mobil: p.mobil,
+                land: p.land,
+                landName: p.land === "DE" ? "" : (findCountry(p.land)?.name ?? p.land),
+                handyLand: handy.land,
+                handyNummer: handy.nummer,
+                handyAnzeige: handyAnzeige(p.mobil),
+                geburtsdatum: (sensitive.geburtsdatum ?? "").trim(),
+                alumni: isAlumniProfile(profile as Record<string, unknown> | null),
                 iban: p.iban,
                 bic: p.bic,
+                bicHinweis: bicHinweis(p.bic, p.iban),
+                version: secretsVersion,
+                landUnbekannt,
               }}
             />
           ),

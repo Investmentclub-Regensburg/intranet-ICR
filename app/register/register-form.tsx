@@ -23,11 +23,15 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import {
+  pruefeRegistrierungsSchritt,
   registerAction,
   type RegisterActionState,
   type RegisterSavedState,
 } from "./actions";
-import { DEFAULT_COUNTRY, countryCodes, dialCodeFor } from "@/lib/country-codes";
+import { DEFAULT_COUNTRY, dialCodeFor, findCountry } from "@/lib/country-codes";
+import { emailTippfehler } from "@/lib/member-rules-client";
+import { plzInputMode } from "@/lib/member-inputs";
+import { FeldFehler, FeldHinweis, HandyEingabe, LandAuswahl } from "@/components/member/MemberInputs";
 import { IbanBicFields } from "./iban-bic-fields";
 import { AuthFrame, StageHeading, flyDelay } from "@/components/auth/AuthFrame";
 import {
@@ -65,6 +69,7 @@ const DEFAULT_FORM: RegisterSavedState = {
   hausnummer: "",
   ort: "",
   plz: "",
+  land: DEFAULT_COUNTRY,
   landesvorwahl: DEFAULT_COUNTRY,
   handynummer: "",
   student: "",
@@ -89,6 +94,39 @@ const STEPS = [
 
 type StepKey = (typeof STEPS)[number]["key"];
 
+/** Schritt je Feld der Regeln (für Fehler vom Server: dorthin springen). */
+const FIELD_STEP: Record<string, StepKey> = {
+  vorname: "person",
+  nachname: "person",
+  geburtsdatum: "person",
+  strasse: "address",
+  hausnummer: "address",
+  plz: "address",
+  ort: "address",
+  land: "address",
+  email: "contact",
+  handynummer: "contact",
+  iban: "bank",
+  bic: "bank",
+};
+
+/** Reihenfolge der Felder (erster Fehler bekommt den Fokus) und abweichende Element-IDs. */
+const FELD_REIHENFOLGE = [
+  "vorname",
+  "nachname",
+  "geburtsdatum",
+  "strasse",
+  "hausnummer",
+  "land",
+  "plz",
+  "ort",
+  "email",
+  "handynummer",
+  "iban",
+  "bic",
+] as const;
+const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag" };
+
 const HOCHSCHULEN = [
   { value: "Universität Regensburg", label: "Universität Regensburg" },
   { value: "Ostbayerische Technische Hochschule", label: "Ostbayerische Technische Hochschule" },
@@ -96,16 +134,32 @@ const HOCHSCHULEN = [
 ];
 
 const FIELD_CLASS = "h-11";
-const SELECT_CLASS =
-  "flex h-11 rounded-lg border border-input bg-card px-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15";
 
-function Field({ id, label, className, children }: { id: string; label: string; className?: string; children: ReactNode }) {
+function Field({
+  id,
+  label,
+  className,
+  fehler,
+  children,
+}: {
+  id: string;
+  label: string;
+  className?: string;
+  fehler?: string;
+  children: ReactNode;
+}) {
   return (
     <div className={cn("space-y-2", className)}>
       <Label htmlFor={id}>{label}</Label>
       {children}
+      <FeldFehler id={`${id}-fehler`}>{fehler}</FeldFehler>
     </div>
   );
+}
+
+/** aria-Attribute eines Felds mit Fehler vom Server. */
+function invalid(id: string, fehler?: string) {
+  return fehler ? { "aria-invalid": true as const, "aria-describedby": `${id}-fehler` } : {};
 }
 
 function formatDate(iso: string): string {
@@ -167,6 +221,17 @@ export function RegisterForm() {
     return () => window.clearTimeout(timeoutId);
   }, [state.saved]);
 
+  /** Fehler je Feld vom Server; verschwinden, sobald das Feld geändert wird. */
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<string, string>>>({});
+  const clearError = (...keys: string[]) =>
+    setFieldErrors((alt) => {
+      if (!keys.some((k) => alt[k])) return alt;
+      const neu = { ...alt };
+      for (const k of keys) delete neu[k];
+      return neu;
+    });
+  const fe = fieldErrors;
+
   const [password, setPassword] = useState("");
   const [passwordRepeat, setPasswordRepeat] = useState("");
   const [passwordMismatch, setPasswordMismatch] = useState(false);
@@ -200,13 +265,81 @@ export function RegisterForm() {
     }
   }, [step]);
 
+  // Fehler vom Server: am Feld zeigen und einmal je Antwort zum ersten betroffenen Schritt springen.
+  // goTo ist nicht stabil (neu je Render), deshalb über eine Ref, abhängig nur von der Antwort.
+  const goToRef = useRef(wizard.goTo);
+  useEffect(() => {
+    goToRef.current = wizard.goTo;
+  });
+  useEffect(() => {
+    const errors = state.fieldErrors;
+    if (!errors) return;
+    const timeoutId = window.setTimeout(() => {
+      setFieldErrors(errors);
+      const first = STEPS.find((s) => Object.keys(errors).some((k) => FIELD_STEP[k] === s.key));
+      if (first) goToRef.current(first.key);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [state.fieldErrors]);
+
   /** Weiter: erst die Felder des Schritts prüfen (gleiche Regeln wie bisher beim Absenden). */
-  const handleNext = () => {
+  const [checking, setChecking] = useState(false);
+  const handleNext = async () => {
     // Fokus lösen, damit Prüfungen beim Verlassen eines Felds (IBAN/BIC) laufen.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     if (!reportStepValidity(formRef.current, step)) return;
+    // Felder des Schritts mit denselben Regeln wie beim Absenden prüfen (Server-Action, speichert nichts).
+    const felder = schrittFelder(step);
+    if (felder) {
+      if (checking) return;
+      setChecking(true);
+      try {
+        const antwort = await pruefeRegistrierungsSchritt(step, felder);
+        if (antwort.error) {
+          setStepError(antwort.error);
+          return;
+        }
+        setStepError("");
+        if (Object.keys(antwort.fehler).length > 0) {
+          setFieldErrors((alt) => ({ ...alt, ...antwort.fehler }));
+          // Fokus aufs erste fehlerhafte Feld erst nach dem Rendern der Fehler (Firefox, Gegenprüfung N2).
+          const erstes = FELD_REIHENFOLGE.find((k) => antwort.fehler[k as keyof typeof antwort.fehler]);
+          if (erstes) setFokusZiel({ id: FELD_ID[erstes] ?? erstes });
+          return;
+        }
+      } catch {
+        // Prüfung nicht erreichbar: weiter, beim Absenden prüft der Server ohnehin.
+      } finally {
+        setChecking(false);
+      }
+    }
     wizard.complete();
   };
+
+  /** Werte eines Schritts für die Prüfung (null = Schritt ohne Mitgliederdaten). */
+  const schrittFelder = (key: StepKey): Record<string, string> | null => {
+    const w = formValues;
+    switch (key) {
+      case "person":
+        return { vorname: w.vorname, nachname: w.nachname, geburtsdatum: w.geburtstag };
+      case "address":
+        return { strasse: w.strasse, hausnummer: w.hausnummer, plz: w.plz, ort: w.ort, land: w.land };
+      case "contact":
+        return { email: w.email, handyLand: w.landesvorwahl, handynummer: w.handynummer };
+      case "bank":
+        return { iban: bankPreview.iban, bic: bankPreview.bic };
+      default:
+        return null;
+    }
+  };
+  const [stepError, setStepError] = useState("");
+  /** Feld, das nach einem Prüffehler den Fokus bekommt (neues Objekt je Fehler, damit der Effekt erneut läuft). */
+  const [fokusZiel, setFokusZiel] = useState<{ id: string } | null>(null);
+  useEffect(() => {
+    if (!fokusZiel) return;
+    const id = window.setTimeout(() => document.getElementById(fokusZiel.id)?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [fokusZiel]);
 
   /** Absenden: Ist irgendwo noch etwas ungültig, dorthin springen statt zu senden. */
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -244,7 +377,9 @@ export function RegisterForm() {
       key: "address",
       label: "Adresse",
       Icon: MapPin,
-      value: `${v.strasse} ${v.hausnummer}, ${v.plz} ${v.ort}`,
+      value: `${v.strasse} ${v.hausnummer}, ${v.plz} ${v.ort}${
+        v.land && v.land !== DEFAULT_COUNTRY ? `, ${findCountry(v.land)?.name ?? v.land}` : ""
+      }`,
     });
   }
   if (done("contact")) {
@@ -334,7 +469,7 @@ export function RegisterForm() {
           if (e.key !== "Enter" || step === "check") return;
           if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) {
             e.preventDefault();
-            handleNext();
+            void handleNext();
           }
         }}
         onChange={(e) => {
@@ -345,12 +480,18 @@ export function RegisterForm() {
         }}
         className="space-y-8"
       >
+        {stepError && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
+            {stepError}
+          </p>
+        )}
         {/* 1 Name */}
         <WizardStep {...stepProps("person")} title="Wie heißt du?">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field id="vorname" label="Vorname">
+            <Field id="vorname" label="Vorname" fehler={fe.vorname}>
               <Input
                 id="vorname"
+                {...invalid("vorname", fe.vorname)}
                 name="vorname"
                 type="text"
                 placeholder="Max"
@@ -358,12 +499,16 @@ export function RegisterForm() {
                 autoComplete="given-name"
                 className={FIELD_CLASS}
                 value={v.vorname}
-                onChange={(e) => setField("vorname", e.target.value)}
+                onChange={(e) => {
+                  setField("vorname", e.target.value);
+                  clearError("vorname");
+                }}
               />
             </Field>
-            <Field id="nachname" label="Nachname">
+            <Field id="nachname" label="Nachname" fehler={fe.nachname}>
               <Input
                 id="nachname"
+                {...invalid("nachname", fe.nachname)}
                 name="nachname"
                 type="text"
                 placeholder="Mustermann"
@@ -371,13 +516,17 @@ export function RegisterForm() {
                 autoComplete="family-name"
                 className={FIELD_CLASS}
                 value={v.nachname}
-                onChange={(e) => setField("nachname", e.target.value)}
+                onChange={(e) => {
+                  setField("nachname", e.target.value);
+                  clearError("nachname");
+                }}
               />
             </Field>
           </div>
-          <Field id="geburtstag" label="Geburtstag">
+          <Field id="geburtstag" label="Geburtstag" fehler={fe.geburtsdatum}>
             <Input
               id="geburtstag"
+              {...invalid("geburtstag", fe.geburtsdatum)}
               name="geburtstag"
               type="date"
               required
@@ -385,12 +534,15 @@ export function RegisterForm() {
               autoComplete="bday"
               className={cn(FIELD_CLASS, "sm:w-1/2")}
               value={v.geburtstag}
-              onChange={(e) => setField("geburtstag", e.target.value)}
+              onChange={(e) => {
+                setField("geburtstag", e.target.value);
+                clearError("geburtsdatum");
+              }}
             />
           </Field>
           <WizardNav>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -399,9 +551,10 @@ export function RegisterForm() {
         {/* 2 Adresse */}
         <WizardStep {...stepProps("address")} title="Wo wohnst du?">
           <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-            <Field id="strasse" label="Straße">
+            <Field id="strasse" label="Straße" fehler={fe.strasse}>
               <Input
                 id="strasse"
+                {...invalid("strasse", fe.strasse)}
                 name="strasse"
                 type="text"
                 placeholder="Musterstraße"
@@ -409,39 +562,65 @@ export function RegisterForm() {
                 autoComplete="street-address"
                 className={FIELD_CLASS}
                 value={v.strasse}
-                onChange={(e) => setField("strasse", e.target.value)}
+                onChange={(e) => {
+                  setField("strasse", e.target.value);
+                  clearError("strasse");
+                }}
               />
             </Field>
-            <Field id="hausnummer" label="Hausnummer">
+            <Field id="hausnummer" label="Hausnummer" fehler={fe.hausnummer}>
               <Input
                 id="hausnummer"
+                {...invalid("hausnummer", fe.hausnummer)}
                 name="hausnummer"
                 type="text"
                 placeholder="42"
-                required
+                required={v.land === DEFAULT_COUNTRY}
                 className={FIELD_CLASS}
                 value={v.hausnummer}
-                onChange={(e) => setField("hausnummer", e.target.value)}
+                onChange={(e) => {
+                  setField("hausnummer", e.target.value);
+                  clearError("hausnummer");
+                }}
               />
             </Field>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="land">Land</Label>
+            <LandAuswahl
+              id="land"
+              wert={v.land}
+              onChange={(land) => {
+                setField("land", land);
+                clearError("land", "plz", "hausnummer", "ort");
+              }}
+              fehler={fe.land}
+              className={cn(FIELD_CLASS, "sm:w-1/2")}
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
-            <Field id="plz" label="PLZ">
+            <Field id="plz" label="PLZ" fehler={fe.plz}>
               <Input
                 id="plz"
+                {...invalid("plz", fe.plz)}
                 name="plz"
                 type="text"
                 placeholder="80331"
-                required
+                inputMode={plzInputMode(v.land)}
+                required={v.land === DEFAULT_COUNTRY}
                 autoComplete="postal-code"
                 className={FIELD_CLASS}
                 value={v.plz}
-                onChange={(e) => setField("plz", e.target.value)}
+                onChange={(e) => {
+                  setField("plz", e.target.value);
+                  clearError("plz");
+                }}
               />
             </Field>
-            <Field id="ort" label="Ort">
+            <Field id="ort" label="Ort" fehler={fe.ort}>
               <Input
                 id="ort"
+                {...invalid("ort", fe.ort)}
                 name="ort"
                 type="text"
                 placeholder="München"
@@ -449,13 +628,16 @@ export function RegisterForm() {
                 autoComplete="address-level2"
                 className={FIELD_CLASS}
                 value={v.ort}
-                onChange={(e) => setField("ort", e.target.value)}
+                onChange={(e) => {
+                  setField("ort", e.target.value);
+                  clearError("ort");
+                }}
               />
             </Field>
           </div>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -463,9 +645,10 @@ export function RegisterForm() {
 
         {/* 3 Kontakt */}
         <WizardStep {...stepProps("contact")} title="Wie erreichen wir dich?">
-          <Field id="email" label="E-Mail">
+          <Field id="email" label="E-Mail" fehler={fe.email}>
             <Input
               id="email"
+              {...invalid("email", fe.email)}
               name="email"
               type="email"
               placeholder="name@beispiel.de"
@@ -473,41 +656,31 @@ export function RegisterForm() {
               autoComplete="email"
               className={FIELD_CLASS}
               value={v.email}
-              onChange={(e) => setField("email", e.target.value)}
+              onChange={(e) => {
+                setField("email", e.target.value);
+                clearError("email");
+              }}
             />
+            {!fe.email && <FeldHinweis>{emailTippfehler(v.email)}</FeldHinweis>}
           </Field>
-          <Field id="handynummer" label="Handynummer">
-            <div className="flex gap-2">
-              <select
-                id="landesvorwahl"
-                name="landesvorwahl"
-                value={v.landesvorwahl}
-                onChange={(e) => setField("landesvorwahl", e.target.value)}
-                className={cn(SELECT_CLASS, "w-28 shrink-0")}
-                aria-label="Ländervorwahl"
-              >
-                {countryCodes.map(({ code, dialCode }) => (
-                  <option key={code} value={code}>
-                    {dialCode} {code}
-                  </option>
-                ))}
-              </select>
-              <Input
-                id="handynummer"
-                name="handynummer"
-                type="tel"
-                placeholder="171 1234567"
-                required
-                autoComplete="tel-national"
-                className={cn(FIELD_CLASS, "flex-1")}
-                value={v.handynummer}
-                onChange={(e) => setField("handynummer", e.target.value)}
-              />
-            </div>
-          </Field>
+          <div className="space-y-2">
+            <Label htmlFor="handynummer">Handynummer</Label>
+            <HandyEingabe
+              id="handynummer"
+              landName="landesvorwahl"
+              wert={{ land: v.landesvorwahl, nummer: v.handynummer }}
+              onChange={(w) => {
+                setFormValues((f) => ({ ...f, landesvorwahl: w.land, handynummer: w.nummer }));
+                clearError("handynummer");
+              }}
+              required
+              fehler={fe.handynummer}
+              className="[&_input]:h-11 [&_select]:h-11"
+            />
+          </div>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -557,8 +730,8 @@ export function RegisterForm() {
             )}
           </Field>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -658,8 +831,8 @@ export function RegisterForm() {
             </div>
           )}
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -674,7 +847,12 @@ export function RegisterForm() {
               Semester buchen wir 15&nbsp;€ je Semester per SEPA-Lastschrift ab.
             </p>
           </div>
-          <IbanBicFields initialIban={v.iban} initialBic={v.bic} />
+          <IbanBicFields
+            initialIban={v.iban}
+            initialBic={v.bic}
+            serverErrors={{ iban: fe.iban, bic: fe.bic }}
+            onEdit={(feld) => clearError(feld)}
+          />
           <PickTile
             type="checkbox"
             name="sepa"
@@ -685,8 +863,8 @@ export function RegisterForm() {
             onChange={(e) => setField("sepa", e.target.checked)}
           />
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>

@@ -616,7 +616,7 @@ export function pruefeName(eingabeName: unknown, feld: "vorname" | "nachname"): 
   const text = textMangel(wert, feld === "vorname" ? "Vorname" : "Nachname", FIELD_LIMITS.name);
   if (text) return text;
   if (!NAME_ZEICHEN.test(wert) || !BUCHSTABE.test(wert)) {
-    return MANGEL(wert, "format", "Im Namen sind nur Buchstaben, Leerzeichen, - ' und . erlaubt.");
+    return MANGEL(wert, "format", "Bitte nur Buchstaben, Leerzeichen, - ' und .");
   }
   return OK(wert);
 }

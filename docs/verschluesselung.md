@@ -4,8 +4,8 @@ Stand: 21.10.2026. In der Produktion abgeschlossen: seit 21.10.2026 ist der Klar
 
 ## Ziel und Schutzumfang
 
-Verschlüsselt werden IBAN, BIC, Geburtsdatum, Straße, Hausnummer, PLZ, Ort und Handynummer. Name und
-E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
+Verschlüsselt werden IBAN, BIC, Geburtsdatum, Straße, Hausnummer, PLZ, Ort, Handynummer und (seit 18.11.2026)
+das Land der Anschrift. Name und E-Mail bleiben lesbar, weil Login, Suche und Mails sie brauchen.
 
 | Schützt gegen | Schützt nicht gegen |
 |---|---|
@@ -290,6 +290,20 @@ gewollt (fail closed).
    - Die ganze `member_secrets`-Zeile löschen, nicht nur den Datenschlüssel, und die zugehörigen
      Events bereinigen.
    - Die Aufbewahrungsfrist der Backups im Verzeichnis der Verarbeitungstätigkeiten dokumentieren.
+
+## Land der Anschrift (18.11.2026)
+
+- Feld `land` (ISO-Code, z. B. `DE`) in `SECRET_FIELDS` und `member_secrets.land` (Format `e1.`), Migration
+  `20261118120000_member_secrets_land.sql`. Es gibt **keine** Klartextspalte in `profiles`; `PLAIN_COLUMNS` und
+  `PLAIN_SECRET_FIELDS` umfassen nur die 8 älteren Felder, Prüflauf und Backfill vergleichen nur diese.
+- Leer (Altdaten) bedeutet Deutschland. Die App liest leer als `DE` für Prüfung und Anzeige und speichert das Land
+  erst beim nächsten Speichern durch Mitglied oder Vorstand.
+- `save_member_secrets` verlangt weiter die 8 älteren Felder. Fehlt der Schlüssel `land` in `p_secrets` (ältere
+  App-Fassung, Skripte), bleibt der gespeicherte Wert stehen. Die App sendet `land` immer mit.
+- Release-Reihenfolge: **erst die Migration einspielen, dann nach `prod` mergen** (`supabase/README.md`,
+  „Produktion“). Läuft die neue App doch kurz gegen eine Datenbank ohne Spalte (Postgres-Fehler 42703), liest
+  und speichert sie ohne `land` (Land = DE, die alte `save_member_secrets` nimmt 8 Felder) und schreibt einmal
+  eine Warnung ins Server-Log; nach 5 Minuten versucht sie es wieder mit `land`.
 
 ## Aufräumen nach dem Abschluss (21.10.2026)
 

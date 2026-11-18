@@ -4,22 +4,33 @@ import { useState, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
+import { ibanInViererbloecken } from "@/lib/member-rules-client";
+import { FeldFehler, FeldHinweis, IbanEingabe } from "@/components/member/MemberInputs";
+import { bicLandHinweis } from "@/lib/member-inputs";
 import { validateIbanAction } from "./validate-iban-action";
 
 type IbanBicFieldsProps = {
   initialIban?: string;
   initialBic?: string;
+  /** Fehler je Feld vom Server (lib/member-rules.ts). */
+  serverErrors?: { iban?: string; bic?: string };
+  /** Feld wurde geändert (Fehler vom Server wegnehmen). */
+  onEdit?: (feld: "iban" | "bic") => void;
 };
 
-export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFieldsProps) {
-  const [iban, setIban] = useState(initialIban);
+/**
+ * IBAN (in Viererblöcken, Live-Check über openiban.com – nur in der Registrierung, so steht es in der
+ * Datenschutzerklärung) und BIC (optional). Entscheidend ist die Prüfung auf dem Server.
+ */
+export function IbanBicFields({ initialIban = "", initialBic = "", serverErrors, onEdit }: IbanBicFieldsProps) {
+  const [iban, setIban] = useState(() => ibanInViererbloecken(initialIban));
   const [bic, setBic] = useState(initialBic);
   // Neue Startwerte (z. B. nach fehlgeschlagenem Absenden) übernehmen – während des Renderns statt
   // per Effekt (https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
   const [prevInitial, setPrevInitial] = useState({ iban: initialIban, bic: initialBic });
   if (prevInitial.iban !== initialIban || prevInitial.bic !== initialBic) {
     setPrevInitial({ iban: initialIban, bic: initialBic });
-    setIban(initialIban);
+    setIban(ibanInViererbloecken(initialIban));
     setBic(initialBic);
   }
   const [ibanError, setIbanError] = useState<string | null>(null);
@@ -38,7 +49,7 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
     if (!value) return;
 
     if (!validateIBAN(value)) {
-      setIbanError("IBAN ist ungültig (Format oder Prüfsumme).");
+      setIbanError("Die IBAN stimmt so nicht (Länge oder Prüfziffer). Nur Konten aus dem SEPA-Raum.");
       ibanRef.current?.setCustomValidity("IBAN ist ungültig.");
       return;
     }
@@ -52,7 +63,7 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
         setBankName(result.bankName ?? null);
         ibanRef.current?.setCustomValidity("");
       } else {
-        setIbanError(result.error ?? "IBAN konnte nicht validiert werden.");
+        setIbanError(result.error ?? "IBAN konnte nicht geprüft werden.");
         setBankName(null);
         ibanRef.current?.setCustomValidity(result.error ?? "Ungültige IBAN");
       }
@@ -61,13 +72,6 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
     }
   }, [iban]);
 
-  const handleIbanChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\s/g, "").toUpperCase();
-    setIban(value);
-    if (ibanError) setIbanError(null);
-    if (bankName) setBankName(null);
-  };
-
   const handleBicBlur = useCallback(() => {
     const value = bic.replace(/\s/g, "").trim();
     setBicError(null);
@@ -75,69 +79,65 @@ export function IbanBicFields({ initialIban = "", initialBic = "" }: IbanBicFiel
     if (!value) return;
 
     if (!validateBICFormat(value)) {
-      setBicError("BIC muss 8 oder 11 Zeichen haben (z.B. COBADEFFXXX).");
+      setBicError("Die BIC hat 8 oder 11 Zeichen, z. B. COBADEFFXXX.");
       bicRef.current?.setCustomValidity("BIC-Format ungültig.");
     }
   }, [bic]);
 
-  const handleBicChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setBic(e.target.value.replace(/\s/g, "").toUpperCase());
-    if (bicError) setBicError(null);
-  };
+  const ibanFehler = ibanError ?? serverErrors?.iban ?? undefined;
+  const bicFehler = bicError ?? serverErrors?.bic ?? undefined;
 
   return (
     <div className="space-y-4">
-      <div className="space-y-2">
+      <div className="space-y-2 [&_input]:h-11">
         <Label htmlFor="iban">IBAN</Label>
-        <Input
-          ref={ibanRef}
+        <IbanEingabe
           id="iban"
-          name="iban"
-          type="text"
-          placeholder="DE89 3704 0044 0532 0130 00"
-          required
-          value={iban}
-          onChange={handleIbanChange}
+          inputRef={ibanRef}
+          wert={iban}
+          onChange={(wert) => {
+            setIban(wert);
+            if (ibanError) setIbanError(null);
+            if (bankName) setBankName(null);
+            ibanRef.current?.setCustomValidity("");
+            onEdit?.("iban");
+          }}
           onBlur={handleIbanBlur}
-          className={ibanError ? "h-11 border-destructive" : "h-11"}
-          aria-invalid={!!ibanError}
-          aria-describedby={ibanError ? "iban-error" : bankName ? "iban-bank" : undefined}
+          required
+          fehler={ibanFehler}
+          describedBy={bankName ? "iban-bank" : undefined}
         />
-        {ibanLoading && (
-          <p className="text-xs text-muted-foreground">Wird geprüft…</p>
-        )}
-        {ibanError && (
-          <p id="iban-error" className="text-sm text-destructive" role="alert">
-            {ibanError}
-          </p>
-        )}
-        {bankName && !ibanError && (
+        {ibanLoading && <p className="text-xs text-muted-foreground">Wird geprüft…</p>}
+        {bankName && !ibanFehler && (
           <p id="iban-bank" className="text-sm text-muted-foreground">
             Bank: {bankName}
           </p>
         )}
       </div>
       <div className="space-y-2">
-        <Label htmlFor="bic">BIC</Label>
+        <Label htmlFor="bic">BIC (optional)</Label>
         <Input
           ref={bicRef}
           id="bic"
           name="bic"
           type="text"
           placeholder="COBADEFFXXX"
-          required
           value={bic}
-          onChange={handleBicChange}
+          onChange={(e) => {
+            setBic(e.target.value.replace(/\s/g, "").toUpperCase());
+            if (bicError) setBicError(null);
+            bicRef.current?.setCustomValidity("");
+            onEdit?.("bic");
+          }}
           onBlur={handleBicBlur}
-          className={bicError ? "h-11 border-destructive" : "h-11"}
-          aria-invalid={!!bicError}
-          aria-describedby={bicError ? "bic-error" : undefined}
+          autoComplete="off"
+          spellCheck={false}
+          className="h-11 font-mono tracking-wide"
+          aria-invalid={bicFehler ? true : undefined}
+          aria-describedby={bicFehler ? "bic-fehler" : undefined}
         />
-        {bicError && (
-          <p id="bic-error" className="text-sm text-destructive" role="alert">
-            {bicError}
-          </p>
-        )}
+        <FeldFehler id="bic-fehler">{bicFehler}</FeldFehler>
+        {!bicFehler && <FeldHinweis>{bicLandHinweis(iban, bic)}</FeldHinweis>}
       </div>
     </div>
   );
