@@ -13,12 +13,15 @@ import {
   normalisiereBic,
   pruefeBic,
   pruefeFormular,
+  pruefeHandy,
   pruefeVorstandskorrektur,
+  repariereHandy,
   type Feld,
   type Mitgliederdaten,
   type Pruefergebnis,
 } from "./member-rules";
 import type { MemberSecretValues } from "./member-secrets-server";
+import { gleicheHandyEingabe } from "./member-inputs";
 
 export type FeldFehler = Partial<Record<Feld, string>>;
 
@@ -48,26 +51,47 @@ export function landAusBestand(gespeichert: string | null | undefined): string {
 export function handyFuerEingabe(gespeichert: string | null | undefined): { land: string; nummer: string } {
   const roh = text(gespeichert).trim();
   if (!roh) return { land: DEFAULT_COUNTRY, nummer: "" };
-  if (/^\+\d+$/.test(roh)) {
-    const nummer = parsePhoneNumberFromString(roh);
-    const land = nummer?.country;
-    if (nummer && nummer.isValid() && land && findCountry(land)) {
-      const international = nummer.formatInternational();
-      const prefix = `+${nummer.countryCallingCode}`;
-      return {
-        land,
-        nummer: international.startsWith(prefix) ? international.slice(prefix.length).trim() : international,
-      };
-    }
-  }
-  return { land: DEFAULT_COUNTRY, nummer: roh };
+  const geteilt = teileE164(roh) ?? (() => {
+    // Altnummer, die sich sicher bereinigen lässt (`+49 0176…`, `0176…`, `0049…`): bereinigt anzeigen.
+    // „vorschlag“/„offen“ bleiben roh (Nachtrag PR 2, Punkt 4). Nur Anzeige: gilt als unverändert.
+    const bereinigt = handyBereinigt(roh);
+    return bereinigt ? teileE164(bereinigt) : null;
+  })();
+  return geteilt ?? { land: DEFAULT_COUNTRY, nummer: roh };
 }
 
-/** Anzeige einer gespeicherten Handynummer (international formatiert; Altwerte roh). */
+/** Gültige E.164-Nummer → Land + Nummer ohne Vorwahl (international formatiert), sonst null. */
+function teileE164(roh: string): { land: string; nummer: string } | null {
+  if (!/^\+\d+$/.test(roh)) return null;
+  const nummer = parsePhoneNumberFromString(roh);
+  const land = nummer?.country;
+  if (!nummer || !nummer.isValid() || !land || !findCountry(land)) return null;
+  const international = nummer.formatInternational();
+  const prefix = `+${nummer.countryCallingCode}`;
+  return {
+    land,
+    nummer: international.startsWith(prefix) ? international.slice(prefix.length).trim() : international,
+  };
+}
+
+/** E.164 einer Altnummer, wenn `repariereHandy` sie als „sicher“ bereinigt; sonst null. */
+export function handyBereinigt(gespeichert: string | null | undefined): string | null {
+  const roh = text(gespeichert).trim();
+  if (!roh || /^\+\d+$/.test(roh)) return null;
+  const r = repariereHandy(roh, DEFAULT_COUNTRY);
+  return r.status === "sicher" ? r.wert : null;
+}
+
+/**
+ * Anzeige einer gespeicherten Handynummer: international formatiert; eine Altnummer, die `repariereHandy` sicher
+ * bereinigt, genauso bereinigt wie im Formular; sonst roh.
+ */
 export function handyAnzeige(gespeichert: string | null | undefined): string {
   const roh = text(gespeichert).trim();
   if (!roh) return "";
-  return /^\+\d+$/.test(roh) ? formatiereHandyAnzeige(roh) : roh;
+  if (/^\+\d+$/.test(roh)) return formatiereHandyAnzeige(roh);
+  const bereinigt = handyBereinigt(roh);
+  return bereinigt ? formatiereHandyAnzeige(bereinigt) : roh;
 }
 
 /** Nicht blockierender Hinweis zur BIC (Land weicht vom Land der IBAN ab), sonst null. Nur Anzeige. */
@@ -96,16 +120,22 @@ const FELD_REIHENFOLGE: readonly Feld[] = [
   "geburtsdatum",
 ];
 
+/** PLZ-Formatfehler in Deutschland: Land nennen (bei Auslandsadressen steht das Land evtl. noch auf DE). */
+export const PLZ_DE_MELDUNG = "In Deutschland hat die PLZ 5 Ziffern.";
+
 /**
  * Meldungen je Feld aus einem Prüfergebnis, optional auf `felder` beschränkt. `land_unbekannt` steht in den
- * Regeln an `land` UND `plz`; angezeigt wird es nur am Land (Regeln für Aufrufer, Punkt 4).
+ * Regeln an `land` UND `plz`; angezeigt wird es nur am Land (Regeln für Aufrufer, Punkt 4). `land` = Land der
+ * Anschrift, gegen das geprüft wurde.
  */
-function fehlerJeFeld(r: Pruefergebnis, felder?: readonly Feld[]): FeldFehler {
+function fehlerJeFeld(r: Pruefergebnis, land: unknown, felder?: readonly Feld[]): FeldFehler {
   const fehler: FeldFehler = {};
+  const l = text(land).trim().toUpperCase();
+  const de = l === "" || l === DEFAULT_COUNTRY;
   for (const m of r.maengel) {
     if (felder && !felder.includes(m.feld)) continue;
     if (m.code === "land_unbekannt" && m.feld !== "land") continue;
-    fehler[m.feld] = r.fehler[m.feld] ?? "";
+    fehler[m.feld] = m.feld === "plz" && m.code === "format" && de ? PLZ_DE_MELDUNG : (r.fehler[m.feld] ?? "");
   }
   return fehler;
 }
@@ -114,10 +144,13 @@ function ersterFehler(fehler: FeldFehler): string | null {
   return FELD_REIHENFOLGE.map((f) => fehler[f]).find((f) => f !== undefined) ?? null;
 }
 
-/** Hat jemand die Handynummer (Länderauswahl oder Nummer) gegenüber der Anzeige des Bestands geändert? */
+/**
+ * Hat jemand die Handynummer (Länderauswahl oder Nummer) gegenüber der Anzeige des Bestands geändert?
+ * Verglichen wird nach der Eingabe-Formatierung: Hat das Feld eine Altnummer nur umformatiert
+ * (`0176 12` → `176 12`), gilt sie als unverändert.
+ */
 function handyGeaendert(land: unknown, nummer: unknown, gespeichert: string | null | undefined): boolean {
-  const vorher = handyFuerEingabe(gespeichert);
-  return text(land).trim().toUpperCase() !== vorher.land || text(nummer).trim() !== vorher.nummer;
+  return !gleicheHandyEingabe({ land: text(land), nummer: text(nummer) }, handyFuerEingabe(gespeichert));
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -150,7 +183,7 @@ export function pruefeRegistrierung(
 ): FormularErgebnis & { werte: { vorname: string; nachname: string; email: string } } {
   const r = pruefeFormular({ ...eingabe }, { alumni: false, wer: "registrierung", heute });
   const w = r.werte;
-  const fehler = fehlerJeFeld(r);
+  const fehler = fehlerJeFeld(r, eingabe.land);
   return {
     gueltig: r.gueltig,
     fehler,
@@ -172,11 +205,62 @@ export function pruefeRegistrierung(
   };
 }
 
+/** Felder je Schritt der Registrierung (Prüfung bei „Weiter“). */
+export const REGISTRIERUNG_SCHRITTE = {
+  person: ["vorname", "nachname", "geburtsdatum"],
+  address: ["strasse", "hausnummer", "plz", "ort", "land"],
+  contact: ["email", "handynummer"],
+  bank: ["iban", "bic"],
+} as const satisfies Record<string, readonly Feld[]>;
+export type RegistrierungSchritt = keyof typeof REGISTRIERUNG_SCHRITTE;
+
+export function istRegistrierungSchritt(schritt: unknown): schritt is RegistrierungSchritt {
+  return typeof schritt === "string" && Object.prototype.hasOwnProperty.call(REGISTRIERUNG_SCHRITTE, schritt);
+}
+
+/**
+ * Prüfung eines Schritts der Registrierung (bei „Weiter“): dieselben Regeln wie beim Absenden, gemeldet werden
+ * nur die Felder des Schritts. Querbezüge liegen im selben Schritt (Land → PLZ, IBAN → BIC).
+ */
+export function pruefeRegistrierungSchritt(
+  schritt: RegistrierungSchritt,
+  eingabe: Partial<RegistrierungEingabe>,
+  heute?: string
+): FeldFehler {
+  const leer: RegistrierungEingabe = {
+    vorname: "",
+    nachname: "",
+    email: "",
+    geburtsdatum: "",
+    strasse: "",
+    hausnummer: "",
+    plz: "",
+    ort: "",
+    land: "",
+    handyLand: "",
+    handynummer: "",
+    iban: "",
+    bic: "",
+  };
+  const daten = { ...leer };
+  const erlaubt: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...(schritt === "contact" ? ["handyLand"] : [])];
+  for (const key of erlaubt) {
+    if (Object.prototype.hasOwnProperty.call(eingabe, key)) daten[key as keyof RegistrierungEingabe] = eingabe[key as keyof RegistrierungEingabe];
+  }
+  const { fehler } = pruefeRegistrierung(daten, heute);
+  const out: FeldFehler = {};
+  for (const feld of REGISTRIERUNG_SCHRITTE[schritt]) if (fehler[feld]) out[feld] = fehler[feld];
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------------
 // Profil (Mitglied)
 // ---------------------------------------------------------------------------------------------------
 
 export type ProfilAbschnitt = "personal" | "bank";
+
+/** Name im Klartext (profiles.Vorname/Nachname). */
+export type Namen = { vorname?: string | null; nachname?: string | null };
 
 /** Felder je Abschnitt des Profils (das Geburtsdatum nur, solange keins gespeichert ist). */
 const ABSCHNITT_FELDER: Record<ProfilAbschnitt, readonly Feld[]> = {
@@ -196,13 +280,23 @@ const ABSCHNITT_FELDER: Record<ProfilAbschnitt, readonly Feld[]> = {
 export function pruefeProfil(
   abschnitt: ProfilAbschnitt,
   eingabe: Record<string, unknown>,
-  bestand: MemberSecretValues,
+  bestand: MemberSecretValues & Namen,
   alumni: boolean,
-  heute?: string
-): FormularErgebnis {
+  heute?: string,
+  /** Formular wurde ohne bekanntes Land geladen (Übergang vor der Migration): Land nicht speichern. */
+  landUnbekannt = false
+): FormularErgebnis & { namen: { vorname?: string; nachname?: string } } {
   const istAlumni = alumni === true;
-  const felder = ABSCHNITT_FELDER[abschnitt].filter((feld) => {
-    if (feld === "geburtsdatum") return !text(bestand.geburtsdatum).trim();
+  // Name (Klartext in profiles) gehört zu „Persönliches“, wenn das Formular ihn schickt (Entscheidung 11).
+  const namensFelder: Feld[] =
+    abschnitt === "personal" ? (["vorname", "nachname"] as const).filter((f) => f in eingabe) : [];
+  const felder = [...namensFelder, ...ABSCHNITT_FELDER[abschnitt]].filter((feld) => {
+    // Name und Geburtsdatum: ein unveränderter gespeicherter Wert wird nicht neu bewertet (Altdaten aus dem
+    // Import sollen das Speichern der Adresse nicht blockieren); leer ist immer ein Fehler (Pflicht).
+    if (feld === "vorname" || feld === "nachname" || feld === "geburtsdatum") {
+      const alt = text(bestand[feld]).trim();
+      return !alt || text(eingabe[feld]).trim() !== alt;
+    }
     // Unveränderte gespeicherte Nummer weder prüfen noch speichern: Die Länderauswahl gilt nur für eine neu
     // eingegebene Nummer (Regeln für Aufrufer, Punkt 1); Altnummern bestätigt das Abfrage-Fenster.
     if (feld === "handynummer" && text(bestand.handynummer).trim()) {
@@ -221,12 +315,44 @@ export function pruefeProfil(
   if (!felder.includes("iban")) daten.iban = bestand.iban ?? "";
 
   const r = pruefeFormular(daten, { alumni: istAlumni, wer: "mitglied", heute });
-  const fehler = fehlerJeFeld(r, felder);
+  const fehler = fehlerJeFeld(r, daten.land, felder);
   const gueltig = Object.keys(fehler).length === 0;
 
+  const namen: { vorname?: string; nachname?: string } = {};
+  if (gueltig) {
+    for (const feld of namensFelder) {
+      if (!felder.includes(feld)) continue;
+      const neu = r.werte[feld] ?? "";
+      if (neu !== text(bestand[feld as "vorname" | "nachname"]).trim()) namen[feld as "vorname" | "nachname"] = neu;
+    }
+  }
+
+  // Nur echte Änderungen speichern: ohne Änderung wird nichts geschrieben (keine neue Version, kein Protokoll).
+  // Das Land kommt mit, sobald sich irgendetwas ändert (Altdaten ohne Land bekommen so ihr Land).
   const aenderungen: Partial<MemberSecretValues> = {};
-  if (gueltig) for (const feld of felder) aenderungen[feld as keyof MemberSecretValues] = leerZuNull(r.werte[feld]);
-  return { gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen };
+  if (gueltig) {
+    for (const feld of felder) {
+      const neu = leerZuNull(r.werte[feld]);
+      if (feld === "vorname" || feld === "nachname") continue;
+      if (feld !== "land" && neu !== (bestand[feld as keyof MemberSecretValues] ?? null)) {
+        aenderungen[feld as keyof MemberSecretValues] = neu;
+      }
+    }
+    if (felder.includes("land") && !landUnbekannt) {
+      const land = leerZuNull(r.werte.land);
+      if (land !== (bestand.land ?? null) && (Object.keys(aenderungen).length > 0 || land !== landAusBestand(bestand.land))) {
+        aenderungen.land = land;
+      }
+    }
+    // Sicher bereinigbare Altnummer (nur angezeigt, nicht angefasst): mitspeichern, wenn der Abschnitt ohnehin
+    // gespeichert wird – geprüft, als E.164 ohne angenommene Länderauswahl.
+    const bereinigt = abschnitt === "personal" && !felder.includes("handynummer") ? handyBereinigt(bestand.handynummer) : null;
+    if (bereinigt && Object.keys(aenderungen).length > 0) {
+      const h = pruefeHandy(bereinigt, undefined, { alumni: istAlumni, wer: "mitglied", heute });
+      if (!h.code) aenderungen.handynummer = h.wert;
+    }
+  }
+  return { gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen, namen };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -235,6 +361,8 @@ export function pruefeProfil(
 
 /** Felder des Korrekturdialogs, wie sie angezeigt werden (Handy aufgeteilt, Land mit Standard DE). */
 export type KorrekturWerte = {
+  vorname: string;
+  nachname: string;
   strasse: string;
   hausnummer: string;
   plz: string;
@@ -247,6 +375,8 @@ export type KorrekturWerte = {
 };
 
 export const KORREKTUR_FELDER = [
+  "vorname",
+  "nachname",
   "strasse",
   "hausnummer",
   "plz",
@@ -259,9 +389,11 @@ export const KORREKTUR_FELDER = [
 ] as const satisfies readonly (keyof KorrekturWerte)[];
 
 /** Bestand → Anzeige im Korrekturdialog (Ausgangswerte für den Vergleich „geändert?“). */
-export function korrekturWerte(bestand: MemberSecretValues): KorrekturWerte {
+export function korrekturWerte(bestand: MemberSecretValues & Namen): KorrekturWerte {
   const handy = handyFuerEingabe(bestand.handynummer);
   return {
+    vorname: text(bestand.vorname).trim(),
+    nachname: text(bestand.nachname).trim(),
     strasse: bestand.strasse ?? "",
     hausnummer: bestand.hausnummer ?? "",
     plz: bestand.plz ?? "",
@@ -282,16 +414,18 @@ function vergleich(feld: keyof KorrekturWerte, wert: unknown): string {
   return t;
 }
 
-/** Felder, die der Vorstand gegenüber den Ausgangswerten geändert hat. Handy = Land oder Nummer geändert. */
+/**
+ * Felder, die der Vorstand gegenüber den Ausgangswerten geändert hat. Handy = Land oder Nummer geändert,
+ * verglichen nach der Eingabe-Formatierung (nur umformatiert = unverändert).
+ */
 export function geaenderteKorrekturFelder(eingabe: Partial<Record<keyof KorrekturWerte, unknown>>, basis: KorrekturWerte) {
   const geaendert = new Set<keyof KorrekturWerte>();
   for (const feld of KORREKTUR_FELDER) {
+    if (feld === "handyLand" || feld === "handynummer") continue;
     if (vergleich(feld, eingabe[feld]) !== vergleich(feld, basis[feld])) geaendert.add(feld);
   }
-  if (geaendert.has("handyLand")) {
-    geaendert.delete("handyLand");
-    geaendert.add("handynummer");
-  }
+  const handyNeu = { land: text(eingabe.handyLand), nummer: text(eingabe.handynummer) };
+  if (!gleicheHandyEingabe(handyNeu, { land: basis.handyLand, nummer: basis.handynummer })) geaendert.add("handynummer");
   return geaendert;
 }
 
@@ -303,10 +437,13 @@ export function geaenderteKorrekturFelder(eingabe: Partial<Record<keyof Korrektu
 export function pruefeKorrektur(
   eingabe: Partial<Record<keyof KorrekturWerte | "iban", unknown>>,
   basis: KorrekturWerte,
-  bestand: MemberSecretValues,
-  heute?: string
-): FormularErgebnis & { felder: (keyof MemberSecretValues)[] } {
+  bestand: MemberSecretValues & Namen,
+  heute?: string,
+  /** Dialog wurde ohne bekanntes Land geladen (Übergang vor der Migration): übermitteltes Land ignorieren. */
+  landUnbekannt = false
+): FormularErgebnis & { felder: (keyof MemberSecretValues)[]; namen: { vorname?: string; nachname?: string } } {
   const geaendert = geaenderteKorrekturFelder(eingabe, basis);
+  if (landUnbekannt) geaendert.delete("land");
   const aenderungen: Mitgliederdaten = {};
   for (const feld of geaendert) if (feld !== "handyLand") aenderungen[feld as Feld] = text(eingabe[feld]);
   if (geaendert.has("handynummer")) aenderungen.handyLand = text(eingabe.handyLand) || DEFAULT_COUNTRY;
@@ -319,9 +456,15 @@ export function pruefeKorrektur(
     land: landAusBestand(bestand.land),
   };
   const r = pruefeVorstandskorrektur(aenderungen, bestehend, heute);
-  const felder = Object.keys(r.werte) as (keyof MemberSecretValues)[];
-  const fehler = fehlerJeFeld(r);
+  const alleFelder = Object.keys(r.werte) as Feld[];
+  const felder = alleFelder.filter((f) => f !== "vorname" && f !== "nachname") as (keyof MemberSecretValues)[];
+  const fehler = fehlerJeFeld(r, aenderungen.land ?? bestehend.land);
   const out: Partial<MemberSecretValues> = {};
-  if (r.gueltig) for (const feld of felder) out[feld] = leerZuNull(r.werte[feld as Feld]);
-  return { gueltig: r.gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen: out, felder };
+  const namen: { vorname?: string; nachname?: string } = {};
+  if (r.gueltig) {
+    for (const feld of felder) out[feld] = leerZuNull(r.werte[feld as Feld]);
+    if (r.werte.vorname !== undefined) namen.vorname = r.werte.vorname;
+    if (r.werte.nachname !== undefined) namen.nachname = r.werte.nachname;
+  }
+  return { gueltig: r.gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen: out, felder, namen };
 }

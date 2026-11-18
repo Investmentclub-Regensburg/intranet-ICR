@@ -4,7 +4,13 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { assertKeyRegistered, buildRegistrationSecrets, type MemberSecretValues } from "@/lib/member-secrets-server";
 import { DEFAULT_COUNTRY, countryFromSelectValue } from "@/lib/country-codes";
 import { FIELD_LIMITS, checkText } from "@/lib/member-fields";
-import { pruefeRegistrierung, type FeldFehler } from "@/lib/member-forms";
+import {
+  REGISTRIERUNG_SCHRITTE,
+  istRegistrierungSchritt,
+  pruefeRegistrierung,
+  pruefeRegistrierungSchritt,
+  type FeldFehler,
+} from "@/lib/member-forms";
 import { authErrorMessage, checkPasswordLength } from "@/lib/auth-messages";
 import { isPendingProfile } from "@/lib/profile-status";
 import { RATE_LIMITED_MESSAGE, checkTurnstile, clientIp, withinRateLimits } from "@/lib/bot-protection";
@@ -260,6 +266,35 @@ export async function registerAction(
   }
 
   return { error: "", redirect: "/dashboard" };
+}
+
+/**
+ * Prüfung eines Schritts bei „Weiter“ (öffentlich, ohne Anmeldung): nur prüfen, nichts speichern, nichts
+ * loggen. Dieselben Regeln wie beim Absenden (die Handy-Typprüfung braucht die Metadaten auf dem Server).
+ * Bremse je IP wie bei den anderen öffentlichen Actions; maßgeblich bleibt die Prüfung beim Absenden.
+ */
+export async function pruefeRegistrierungsSchritt(
+  schritt: unknown,
+  felder: unknown
+): Promise<{ fehler: FeldFehler; error?: string }> {
+  if (!istRegistrierungSchritt(schritt) || !felder || typeof felder !== "object") {
+    return { fehler: {}, error: "Ungültige Anfrage." };
+  }
+  const allowed = await withinRateLimits([
+    { scope: "register-step-ip", value: await clientIp(), max: 300, windowSeconds: 60 * 60 },
+  ]);
+  if (!allowed) return { fehler: {}, error: RATE_LIMITED_MESSAGE };
+
+  // Nur bekannte Schlüssel des Schritts übernehmen, nur Zeichenketten bis 300 Zeichen.
+  const eingabe: Record<string, string> = {};
+  const schluessel: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...(schritt === "contact" ? ["handyLand"] : [])];
+  for (const key of schluessel) {
+    if (!Object.prototype.hasOwnProperty.call(felder, key)) continue;
+    const v = (felder as Record<string, unknown>)[key];
+    if (typeof v === "string") eingabe[key] = v.slice(0, 300);
+  }
+  if (schritt === "contact") eingabe.handyLand = countryFromSelectValue(eingabe.handyLand || DEFAULT_COUNTRY) ?? (eingabe.handyLand ?? "");
+  return { fehler: pruefeRegistrierungSchritt(schritt, eingabe) };
 }
 
 /** Verschlüsselung möglich (Master Key vorhanden und registriert)? */

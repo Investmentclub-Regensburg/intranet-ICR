@@ -49,8 +49,11 @@ nach `prod` ein.
 **Ab dem Umzug** (eigener Stack auf dataserver01) gibt es keine GitHub-Integration mehr. Migrationen werden
 nach dem Merge nach `prod` von Hand eingespielt, ohne neuen Automatismus:
 
-1. Release-PR `dev` → `prod` mergen (CI grün). Abwärtskompatibel bauen wie bisher: Die App deployt Coolify
-   beim Merge, die Migration folgt kurz danach von Hand.
+1. **Erst die Migration einspielen (Schritte 2 bis 4, vom Stand des Release-Branches aus), dann den
+   Release-PR `dev` → `prod` mergen** (CI grün; Coolify deployt die App beim Merge). Migrationen bleiben
+   abwärtskompatibel, d. h. die alte App läuft mit der neuen Datenbank weiter; umgekehrt gilt das nicht immer
+   (z. B. liest die App seit `20261118120000_member_secrets_land.sql` die Spalte `member_secrets.land`; sie
+   kommt zwar übergangsweise ohne sie aus, speichert dann aber kein Land).
 2. Vorher eine Sicherung: `docker exec icr-db pg_dump -U supabase_admin -d postgres -Fc > …` auf dataserver01
    (oder den letzten nächtlichen Dump prüfen).
 3. SSH-Tunnel zur Datenbank (nur Tailnet, Postgres lauscht dort nur auf `127.0.0.1:5433`):

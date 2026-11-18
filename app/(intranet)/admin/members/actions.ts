@@ -8,8 +8,8 @@ import { berlinToday } from "@/lib/berlin-date";
 import {
   MemberSecretsConflictError,
   emptySecretValues,
-  readMemberSecrets,
   readMemberSecretsMany,
+  readMemberSecretsWithMeta,
   saveMemberSecrets,
   type MemberSecretValues,
   type MemberSecretsResult,
@@ -17,14 +17,13 @@ import {
 import {
   KORREKTUR_FELDER,
   bicHinweis,
-  geaenderteKorrekturFelder,
   korrekturWerte,
   pruefeKorrektur,
   type FeldFehler,
   type KorrekturWerte,
 } from "@/lib/member-forms";
-import { normalizeIban } from "@/lib/member-crypto";
 import { maskIban } from "@/components/profile/profile-format";
+import { speichereNamen, type NamenStand } from "@/lib/member-names-server";
 
 export type AdminMemberRow = {
   id: string;
@@ -139,6 +138,10 @@ export type MemberCorrectionData = KorrekturWerte & {
   ibanMasked: string;
   /** Nicht blockierender Hinweis zur BIC (Land weicht von der IBAN ab), sonst null. */
   bicHinweis: string | null;
+  /** Version der verschlüsselten Zeile beim Öffnen (0 = keine): optimistische Sperre. */
+  version: number;
+  /** Ohne Spalte land geladen (Übergang): ein übermitteltes Land wird ignoriert. */
+  landUnbekannt: boolean;
 };
 
 export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
@@ -149,10 +152,13 @@ export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
 async function loadCorrectionValues(
   admin: ReturnType<typeof createServiceClient>,
   profileId: string
-): Promise<{ name: string; values: MemberSecretValues } | { error: string }> {
+): Promise<
+  | { name: string; namen: NamenStand; userId: string | null; values: MemberSecretValues; version: number; landBekannt: boolean }
+  | { error: string }
+> {
   const { data: profile, error } = await admin
     .from("profiles")
-    .select('"Vorname", "Nachname"')
+    .select('"Vorname", "Nachname", user_id')
     .eq("id", profileId)
     .maybeSingle();
   if (error) {
@@ -162,9 +168,21 @@ async function loadCorrectionValues(
   if (!profile) return { error: "Mitglied nicht gefunden." };
   const p = profile as unknown as Record<string, unknown>;
   const name = [p.Vorname, p.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
+  const namen: NamenStand = {
+    vorname: typeof p.Vorname === "string" ? p.Vorname : null,
+    nachname: typeof p.Nachname === "string" ? p.Nachname : null,
+  };
+  const userId = typeof p.user_id === "string" ? p.user_id : null;
   try {
-    const values = (await readMemberSecrets(admin, profileId)) ?? emptySecretValues();
-    return { name, values };
+    const gelesen = await readMemberSecretsWithMeta(admin, profileId);
+    return {
+      name,
+      namen,
+      userId,
+      values: gelesen?.values ?? emptySecretValues(),
+      version: gelesen?.version ?? 0,
+      landBekannt: gelesen?.landBekannt ?? true,
+    };
   } catch (err) {
     console.error("loadCorrectionValues:", err instanceof Error ? err.message : "unbekannt");
     return { error: "Die verschlüsselten Daten dieses Mitglieds sind nicht lesbar. Bitte IT-Vorstand informieren." };
@@ -184,12 +202,16 @@ export async function getMemberCorrectionData(
   return {
     data: {
       name: loaded.name,
-      ...korrekturWerte(v),
+      ...korrekturWerte({ ...v, ...loaded.namen }),
       ibanMasked: v.iban ? maskIban(v.iban) : "",
       bicHinweis: bicHinweis(v.bic, v.iban),
+      version: loaded.version,
+      landUnbekannt: !loaded.landBekannt,
     },
   };
 }
+
+const GEAENDERT_MELDUNG = "Die Daten wurden inzwischen geändert. Bitte den Dialog schließen und neu öffnen.";
 
 /** Nur Zeichenketten aus dem Client übernehmen (feste Feldliste). */
 function korrekturText(obj: unknown, feld: string): string {
@@ -227,38 +249,54 @@ export async function correctMemberData(
     basis[feld] = korrekturText(base, feld);
   }
   eingabe.iban = korrekturText(input, "iban");
-  const baseIbanMasked = korrekturText(base, "ibanMasked");
+  const baseVersion = (base as { version?: unknown }).version;
+  if (typeof baseVersion !== "number" || !Number.isInteger(baseVersion) || baseVersion < 0) {
+    return { error: "Ungültige Auswahl." };
+  }
 
   const admin = createServiceClient();
   const loaded = await loadCorrectionValues(admin, profileId);
   if ("error" in loaded) return loaded;
   const current = loaded.values;
 
-  // Geänderte Felder dürfen sich seit dem Öffnen nicht verändert haben.
-  const geaendert = geaenderteKorrekturFelder(eingabe, basis);
-  const inzwischen = geaenderteKorrekturFelder(korrekturWerte(current), basis);
-  const neueIban = normalizeIban(eingabe.iban);
-  const stale =
-    [...geaendert].some((feld) => inzwischen.has(feld)) ||
-    (neueIban !== "" && (current.iban ? maskIban(current.iban) : "") !== baseIbanMasked);
-  if (stale) {
-    return { error: "Die Daten wurden inzwischen geändert. Bitte den Dialog schließen und neu öffnen." };
+  // Optimistische Sperre: Seit dem Öffnen darf sich nichts geändert haben (z. B. durch das Mitglied). Für die
+  // verschlüsselten Felder über die Version, für den Namen (Klartext ohne Version) über den Namen selbst.
+  if (loaded.version !== baseVersion) return { error: GEAENDERT_MELDUNG };
+  if (
+    basis.vorname !== (loaded.namen.vorname ?? "").trim() ||
+    basis.nachname !== (loaded.namen.nachname ?? "").trim()
+  ) {
+    return { error: GEAENDERT_MELDUNG };
   }
 
-  const pruefung = pruefeKorrektur(eingabe, basis, current);
+  const landUnbekannt = (base as { landUnbekannt?: unknown }).landUnbekannt === true || !loaded.landBekannt;
+  const pruefung = pruefeKorrektur(eingabe, basis, { ...current, ...loaded.namen }, undefined, landUnbekannt);
   if (!pruefung.gueltig) {
     return { error: pruefung.ersterFehler ?? "Bitte prüf die Angaben.", fehler: pruefung.fehler };
   }
-  if (Object.keys(pruefung.aenderungen).length === 0) return { error: "", unchanged: true };
+  const namenGeaendert = Object.keys(pruefung.namen).length > 0;
+  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert) return { error: "", unchanged: true };
 
-  try {
-    await saveMemberSecrets(admin, profileId, pruefung.aenderungen, { correctedBy: actorId });
-  } catch (err) {
-    if (err instanceof MemberSecretsConflictError) {
-      return { error: "Die Daten wurden gerade an anderer Stelle geändert. Bitte erneut öffnen." };
+  if (Object.keys(pruefung.aenderungen).length > 0) {
+    try {
+      await saveMemberSecrets(admin, profileId, pruefung.aenderungen, {
+        correctedBy: actorId,
+        erwarteteVersion: baseVersion,
+      });
+    } catch (err) {
+      if (err instanceof MemberSecretsConflictError) return { error: GEAENDERT_MELDUNG };
+      console.error("correctMemberData:", err instanceof Error ? err.message : "unbekannt");
+      return { error: "Korrektur konnte nicht gespeichert werden." };
     }
-    console.error("correctMemberData:", err instanceof Error ? err.message : "unbekannt");
-    return { error: "Korrektur konnte nicht gespeichert werden." };
+  }
+
+  if (namenGeaendert) {
+    // Protokoll (nur Feldnamen vorname/nachname) schreibt speichereNamen.
+    const ergebnis = await speichereNamen(admin, profileId, loaded.userId, loaded.namen, pruefung.namen, {
+      correctedBy: actorId,
+    });
+    if (ergebnis === "konflikt") return { error: GEAENDERT_MELDUNG };
+    if (ergebnis === "fehler") return { error: "Der Name konnte nicht gespeichert werden." };
   }
 
   revalidatePath("/admin/members");

@@ -300,7 +300,10 @@ gewollt (fail closed).
   erst beim nächsten Speichern durch Mitglied oder Vorstand.
 - `save_member_secrets` verlangt weiter die 8 älteren Felder. Fehlt der Schlüssel `land` in `p_secrets` (ältere
   App-Fassung, Skripte), bleibt der gespeicherte Wert stehen. Die App sendet `land` immer mit.
-- Deploy-Reihenfolge: Migration vor der App (die App liest die Spalte).
+- Release-Reihenfolge: **erst die Migration einspielen, dann nach `prod` mergen** (`supabase/README.md`,
+  „Produktion“). Läuft die neue App doch kurz gegen eine Datenbank ohne Spalte (Postgres-Fehler 42703), liest
+  und speichert sie ohne `land` (Land = DE, die alte `save_member_secrets` nimmt 8 Felder) und schreibt einmal
+  eine Warnung ins Server-Log; nach 5 Minuten versucht sie es wieder mit `land`.
 
 ## Aufräumen nach dem Abschluss (21.10.2026)
 

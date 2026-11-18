@@ -19,8 +19,18 @@ process.env.MEMBER_DATA_MASTER_KEY = MASTER;
 process.env.MEMBER_DATA_MASTER_KEY_ID = "test1";
 delete process.env.MEMBER_DATA_OLD_MASTER_KEYS;
 
-const { saveMemberSecrets, buildRegistrationSecrets, plainToSecretValues, emptySecretValues, PLAIN_COLUMNS, PLAIN_SECRET_FIELDS } =
-  await import("../lib/member-secrets-server.ts");
+const {
+  saveMemberSecrets,
+  buildRegistrationSecrets,
+  plainToSecretValues,
+  emptySecretValues,
+  readMemberSecrets,
+  readMemberSecretsMany,
+  MemberSecretsConflictError,
+  PLAIN_COLUMNS,
+  PLAIN_SECRET_FIELDS,
+  _resetLandSpalte,
+} = await import("../lib/member-secrets-server.ts");
 const { differingFields } = await import("../lib/member-secrets-backfill.ts");
 
 const ring = createKeyring("test1", { test1: MASTER });
@@ -35,22 +45,41 @@ function row(values, version = 3) {
   return out;
 }
 
-/** Nachgebauter Service-Role-Client: liefert `stored` und merkt sich den RPC-Aufruf. */
-function fakeAdmin(stored) {
+/**
+ * Nachgebauter Service-Role-Client: liefert `stored` und merkt sich RPC-Aufrufe und abgefragte Spalten.
+ * `ohneLandSpalte`: wie eine Datenbank vor der Migration (Abfrage mit `land` → Fehler 42703).
+ */
+function fakeAdmin(stored, { ohneLandSpalte = false } = {}) {
   const calls = [];
+  const selects = [];
   const query = (table) => {
+    let spalten = "";
+    const antwort = () => {
+      if (table === "member_crypto_keys") return { data: { kcv: keyCheckValue(ring), retired_at: null }, error: null };
+      selects.push(spalten);
+      if (ohneLandSpalte && /\bland\b/.test(spalten)) {
+        return { data: null, error: { code: "42703", message: "column member_secrets.land does not exist" } };
+      }
+      const zeile = stored && ohneLandSpalte ? Object.fromEntries(Object.entries(stored).filter(([k]) => k !== "land")) : stored;
+      return { data: zeile, error: null };
+    };
     const q = {
-      select: () => q,
+      select: (s) => {
+        spalten = s ?? "";
+        return q;
+      },
       eq: () => q,
-      maybeSingle: async () =>
-        table === "member_crypto_keys"
-          ? { data: { kcv: keyCheckValue(ring), retired_at: null }, error: null }
-          : { data: stored, error: null },
+      in: async () => {
+        const r = antwort();
+        return { data: r.data ? [r.data] : [], error: r.error };
+      },
+      maybeSingle: async () => antwort(),
     };
     return q;
   };
   return {
     calls,
+    selects,
     from: query,
     rpc: async (name, args) => {
       calls.push({ name, args });
@@ -135,4 +164,61 @@ test("Registrierung: land landet verschlüsselt in den Chiffraten", async () => 
   const plain = decryptSecrets(secrets.wrapped_dek, secrets.fields);
   assert.equal(plain.land, "DE");
   assert.equal(plain.iban, "DE89370400440532013000");
+});
+
+test("S3: erwartete Version passt → speichert mit genau dieser Version", async () => {
+  const admin = fakeAdmin(row({ ort: "Regensburg" }, 7));
+  await saveMemberSecrets(admin, ALICE, { ort: "Wien" }, { erwarteteVersion: 7 });
+  assert.equal(admin.calls[0].args.p_expected_version, 7);
+});
+
+test("S3: erwartete Version weicht ab → nichts gespeichert", async () => {
+  const admin = fakeAdmin(row({ ort: "Regensburg" }, 8));
+  await assert.rejects(saveMemberSecrets(admin, ALICE, { ort: "Wien" }, { erwarteteVersion: 7 }), MemberSecretsConflictError);
+  assert.equal(admin.calls.length, 0);
+  // Formular ohne Zeile (Version 0), inzwischen gibt es eine.
+  await assert.rejects(saveMemberSecrets(fakeAdmin(row({}, 1)), ALICE, { ort: "Wien" }, { erwarteteVersion: 0 }), MemberSecretsConflictError);
+  // Zeile fehlt und Formular erwartet 0 → legt an.
+  const neu = fakeAdmin(null);
+  await saveMemberSecrets(neu, ALICE, { ort: "Wien" }, { erwarteteVersion: 0 });
+  assert.equal(neu.calls[0].args.p_expected_version, null);
+});
+
+test("S1: ohne Spalte land lesen und speichern (Übergang vor der Migration)", async (t) => {
+  _resetLandSpalte();
+  t.after(() => _resetLandSpalte());
+  const warnungen = [];
+  t.mock.method(console, "warn", (...a) => warnungen.push(a.join(" ")));
+  const stored = row({ ort: "Regensburg", land: "AT", handynummer: "+491761234567" });
+  const admin = fakeAdmin(stored, { ohneLandSpalte: true });
+  const werte = await readMemberSecrets(admin, ALICE);
+  assert.equal(werte.ort, "Regensburg");
+  assert.equal(werte.land, null);
+  assert.equal(warnungen.length, 1);
+  assert.ok(!/Regensburg|1761234567/.test(warnungen[0]), "keine Werte im Log");
+  // Weitere Lesevorgänge gleich ohne land, ohne neue Warnung.
+  const viele = await readMemberSecretsMany(admin, [{ id: ALICE }]);
+  assert.equal(viele.get(ALICE).ort, "Regensburg");
+  assert.equal(warnungen.length, 1);
+  // Speichern ohne land (die alte Funktion nimmt 8 Felder).
+  await saveMemberSecrets(admin, ALICE, { ort: "Wien", land: "DE" });
+  const { args } = admin.calls[0];
+  assert.ok(!("land" in args.p_secrets));
+  assert.ok(!("land" in args.p_plain));
+  assert.deepEqual(Object.keys(args.p_secrets).sort(), [...PLAIN_SECRET_FIELDS].sort());
+});
+
+test("G1: ohne land gelesene Zeile → ohne land speichern, auch wenn der Rückfall-Merker schon abgelaufen ist", async () => {
+  _resetLandSpalte();
+  // Zeile kommt ohne Schlüssel land zurück (z. B. veralteter Schema-Cache), der Merker ist nicht gesetzt.
+  const stored = row({ ort: "Wien", land: "AT" });
+  delete stored.land;
+  const admin = fakeAdmin(stored);
+  await saveMemberSecrets(admin, ALICE, { ort: "Graz", land: "DE" });
+  const { args } = admin.calls[0];
+  assert.ok(!("land" in args.p_secrets), "kein land an eine Zeile, deren Land nicht gelesen wurde");
+  assert.ok(!("land" in args.p_plain));
+  const { readMemberSecretsWithMeta } = await import("../lib/member-secrets-server.ts");
+  assert.equal((await readMemberSecretsWithMeta(fakeAdmin(stored), ALICE)).landBekannt, false);
+  assert.equal((await readMemberSecretsWithMeta(fakeAdmin(row({ land: "AT" })), ALICE)).landBekannt, true);
 });

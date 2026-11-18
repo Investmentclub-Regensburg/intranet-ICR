@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import { ibanInViererbloecken } from "@/lib/member-rules-client";
-import { FeldFehler, IbanEingabe } from "@/components/member/MemberInputs";
+import { FeldFehler, FeldHinweis, IbanEingabe } from "@/components/member/MemberInputs";
+import { bicLandHinweis } from "@/lib/member-inputs";
 import { validateIbanAction } from "./validate-iban-action";
 
 type IbanBicFieldsProps = {
@@ -136,6 +137,7 @@ export function IbanBicFields({ initialIban = "", initialBic = "", serverErrors,
           aria-describedby={bicFehler ? "bic-fehler" : undefined}
         />
         <FeldFehler id="bic-fehler">{bicFehler}</FeldFehler>
+        {!bicFehler && <FeldHinweis>{bicLandHinweis(iban, bic)}</FeldHinweis>}
       </div>
     </div>
   );

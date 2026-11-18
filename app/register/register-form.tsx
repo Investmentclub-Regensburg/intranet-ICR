@@ -23,12 +23,14 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/kit/PasswordInput";
 import { Label } from "@/components/ui/label";
 import {
+  pruefeRegistrierungsSchritt,
   registerAction,
   type RegisterActionState,
   type RegisterSavedState,
 } from "./actions";
 import { DEFAULT_COUNTRY, dialCodeFor, findCountry } from "@/lib/country-codes";
 import { emailTippfehler } from "@/lib/member-rules-client";
+import { plzInputMode } from "@/lib/member-inputs";
 import { FeldFehler, FeldHinweis, HandyEingabe, LandAuswahl } from "@/components/member/MemberInputs";
 import { IbanBicFields } from "./iban-bic-fields";
 import { AuthFrame, StageHeading, flyDelay } from "@/components/auth/AuthFrame";
@@ -107,6 +109,23 @@ const FIELD_STEP: Record<string, StepKey> = {
   iban: "bank",
   bic: "bank",
 };
+
+/** Reihenfolge der Felder (erster Fehler bekommt den Fokus) und abweichende Element-IDs. */
+const FELD_REIHENFOLGE = [
+  "vorname",
+  "nachname",
+  "geburtsdatum",
+  "strasse",
+  "hausnummer",
+  "land",
+  "plz",
+  "ort",
+  "email",
+  "handynummer",
+  "iban",
+  "bic",
+] as const;
+const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag" };
 
 const HOCHSCHULEN = [
   { value: "Universität Regensburg", label: "Universität Regensburg" },
@@ -264,12 +283,63 @@ export function RegisterForm() {
   }, [state.fieldErrors]);
 
   /** Weiter: erst die Felder des Schritts prüfen (gleiche Regeln wie bisher beim Absenden). */
-  const handleNext = () => {
+  const [checking, setChecking] = useState(false);
+  const handleNext = async () => {
     // Fokus lösen, damit Prüfungen beim Verlassen eines Felds (IBAN/BIC) laufen.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     if (!reportStepValidity(formRef.current, step)) return;
+    // Felder des Schritts mit denselben Regeln wie beim Absenden prüfen (Server-Action, speichert nichts).
+    const felder = schrittFelder(step);
+    if (felder) {
+      if (checking) return;
+      setChecking(true);
+      try {
+        const antwort = await pruefeRegistrierungsSchritt(step, felder);
+        if (antwort.error) {
+          setStepError(antwort.error);
+          return;
+        }
+        setStepError("");
+        if (Object.keys(antwort.fehler).length > 0) {
+          setFieldErrors((alt) => ({ ...alt, ...antwort.fehler }));
+          // Fokus aufs erste fehlerhafte Feld erst nach dem Rendern der Fehler (Firefox, Gegenprüfung N2).
+          const erstes = FELD_REIHENFOLGE.find((k) => antwort.fehler[k as keyof typeof antwort.fehler]);
+          if (erstes) setFokusZiel({ id: FELD_ID[erstes] ?? erstes });
+          return;
+        }
+      } catch {
+        // Prüfung nicht erreichbar: weiter, beim Absenden prüft der Server ohnehin.
+      } finally {
+        setChecking(false);
+      }
+    }
     wizard.complete();
   };
+
+  /** Werte eines Schritts für die Prüfung (null = Schritt ohne Mitgliederdaten). */
+  const schrittFelder = (key: StepKey): Record<string, string> | null => {
+    const w = formValues;
+    switch (key) {
+      case "person":
+        return { vorname: w.vorname, nachname: w.nachname, geburtsdatum: w.geburtstag };
+      case "address":
+        return { strasse: w.strasse, hausnummer: w.hausnummer, plz: w.plz, ort: w.ort, land: w.land };
+      case "contact":
+        return { email: w.email, handyLand: w.landesvorwahl, handynummer: w.handynummer };
+      case "bank":
+        return { iban: bankPreview.iban, bic: bankPreview.bic };
+      default:
+        return null;
+    }
+  };
+  const [stepError, setStepError] = useState("");
+  /** Feld, das nach einem Prüffehler den Fokus bekommt (neues Objekt je Fehler, damit der Effekt erneut läuft). */
+  const [fokusZiel, setFokusZiel] = useState<{ id: string } | null>(null);
+  useEffect(() => {
+    if (!fokusZiel) return;
+    const id = window.setTimeout(() => document.getElementById(fokusZiel.id)?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [fokusZiel]);
 
   /** Absenden: Ist irgendwo noch etwas ungültig, dorthin springen statt zu senden. */
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -399,7 +469,7 @@ export function RegisterForm() {
           if (e.key !== "Enter" || step === "check") return;
           if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) {
             e.preventDefault();
-            handleNext();
+            void handleNext();
           }
         }}
         onChange={(e) => {
@@ -410,6 +480,11 @@ export function RegisterForm() {
         }}
         className="space-y-8"
       >
+        {stepError && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
+            {stepError}
+          </p>
+        )}
         {/* 1 Name */}
         <WizardStep {...stepProps("person")} title="Wie heißt du?">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -466,8 +541,8 @@ export function RegisterForm() {
             />
           </Field>
           <WizardNav>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -510,6 +585,19 @@ export function RegisterForm() {
               />
             </Field>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="land">Land</Label>
+            <LandAuswahl
+              id="land"
+              wert={v.land}
+              onChange={(land) => {
+                setField("land", land);
+                clearError("land", "plz", "hausnummer", "ort");
+              }}
+              fehler={fe.land}
+              className={cn(FIELD_CLASS, "sm:w-1/2")}
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
             <Field id="plz" label="PLZ" fehler={fe.plz}>
               <Input
@@ -518,6 +606,7 @@ export function RegisterForm() {
                 name="plz"
                 type="text"
                 placeholder="80331"
+                inputMode={plzInputMode(v.land)}
                 required={v.land === DEFAULT_COUNTRY}
                 autoComplete="postal-code"
                 className={FIELD_CLASS}
@@ -546,22 +635,9 @@ export function RegisterForm() {
               />
             </Field>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="land">Land</Label>
-            <LandAuswahl
-              id="land"
-              wert={v.land}
-              onChange={(land) => {
-                setField("land", land);
-                clearError("land", "plz", "hausnummer", "ort");
-              }}
-              fehler={fe.land}
-              className={cn(FIELD_CLASS, "sm:w-1/2")}
-            />
-          </div>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -603,8 +679,8 @@ export function RegisterForm() {
             />
           </div>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -654,8 +730,8 @@ export function RegisterForm() {
             )}
           </Field>
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -755,8 +831,8 @@ export function RegisterForm() {
             </div>
           )}
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>
@@ -787,8 +863,8 @@ export function RegisterForm() {
             onChange={(e) => setField("sepa", e.target.checked)}
           />
           <WizardNav onBack={wizard.back}>
-            <Button type="button" size="lg" onClick={handleNext}>
-              Weiter
+            <Button type="button" size="lg" onClick={handleNext} disabled={checking}>
+              {checking ? "Wird geprüft …" : "Weiter"}
               <ArrowRight aria-hidden />
             </Button>
           </WizardNav>

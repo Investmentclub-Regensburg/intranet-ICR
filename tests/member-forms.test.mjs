@@ -12,6 +12,8 @@ import {
   pruefeKorrektur,
   pruefeProfil,
   pruefeRegistrierung,
+  pruefeRegistrierungSchritt,
+  PLZ_DE_MELDUNG,
 } from "../lib/member-forms.ts";
 import { formatBvhPhone } from "../lib/bvh-phone.ts";
 
@@ -71,14 +73,23 @@ test("Handy aus dem Bestand für die Eingabe aufteilen", () => {
   assert.deepEqual(handyFuerEingabe("+436641234567"), { land: "AT", nummer: "664 1234567" });
   assert.deepEqual(handyFuerEingabe(""), { land: "DE", nummer: "" });
   assert.deepEqual(handyFuerEingabe(null), { land: "DE", nummer: "" });
-  // Altwerte bleiben roh (Mitglied/Vorstand korrigiert).
-  assert.deepEqual(handyFuerEingabe("+49 0176 1234567"), { land: "DE", nummer: "+49 0176 1234567" });
-  assert.deepEqual(handyFuerEingabe("176 1234567"), { land: "DE", nummer: "176 1234567" });
+  // Nachtrag Punkt 4: sicher bereinigbare Altwerte bereinigt, „vorschlag“/„offen“ roh.
+  assert.deepEqual(handyFuerEingabe("+49 0176 1234567"), { land: "DE", nummer: "176 1234567" });
+  assert.deepEqual(handyFuerEingabe("0176 1234567"), { land: "DE", nummer: "176 1234567" });
+  assert.deepEqual(handyFuerEingabe("0049 176 1234567"), { land: "DE", nummer: "176 1234567" });
+  assert.deepEqual(handyFuerEingabe("176 1234567"), { land: "DE", nummer: "176 1234567" }); // vorschlag: roh (gleich)
+  assert.deepEqual(handyFuerEingabe("1761234567"), { land: "DE", nummer: "1761234567" }); // vorschlag: roh
+  assert.deepEqual(handyFuerEingabe("0176 12"), { land: "DE", nummer: "0176 12" }); // offen: roh
+  assert.deepEqual(handyFuerEingabe("max@example.org"), { land: "DE", nummer: "max@example.org" });
 });
 
 test("Handy-Anzeige: E.164 international, Altwerte roh", () => {
   assert.equal(handyAnzeige("+491761234567"), "+49 176 1234567");
-  assert.equal(handyAnzeige("+49 0176 1234567"), "+49 0176 1234567");
+  // Sicher bereinigbar: wie im Formular (Nachtrag Gegenprüfung N1); sonst roh.
+  assert.equal(handyAnzeige("+49 0176 1234567"), "+49 176 1234567");
+  assert.equal(handyAnzeige("0176 1234567"), "+49 176 1234567");
+  assert.equal(handyAnzeige("1761234567"), "1761234567");
+  assert.equal(handyAnzeige("0176 12"), "0176 12");
   assert.equal(handyAnzeige(null), "");
 });
 
@@ -153,6 +164,7 @@ const persoenlich = (extra = {}) => ({
   land: "DE",
   handyLand: "DE",
   handynummer: "176 1234567",
+  geburtsdatum: "2001-04-12",
   ...extra,
 });
 
@@ -166,11 +178,18 @@ test("Profil: Pflichtfeld leeren → Fehler am Feld, nichts zu speichern", () =>
 });
 
 test("Profil: speichert normalisierte Werte und das Land", () => {
-  const r = pruefeProfil("personal", persoenlich({ handynummer: "0176 1234567", plz: "D-93047" }), bestand(), false, HEUTE);
+  const r = pruefeProfil(
+    "personal",
+    persoenlich({ handynummer: "0176 7654321", plz: "D-93053" }),
+    bestand(),
+    false,
+    HEUTE
+  );
   assert.equal(r.gueltig, true, r.ersterFehler ?? "");
-  assert.equal(r.aenderungen.handynummer, "+491761234567");
-  assert.equal(r.aenderungen.plz, "93047");
+  assert.equal(r.aenderungen.handynummer, "+491767654321");
+  assert.equal(r.aenderungen.plz, "93053");
   assert.equal(r.aenderungen.land, "DE");
+  assert.ok(!("ort" in r.aenderungen), "unveränderte Felder werden nicht geschrieben");
   assert.ok(!("iban" in r.aenderungen), "Bankfelder bleiben im Abschnitt Persönliches unberührt");
   assert.ok(!("geburtsdatum" in r.aenderungen), "gespeichertes Geburtsdatum wird nicht angefasst");
 });
@@ -201,19 +220,91 @@ test("Profil: Altfehler im anderen Abschnitt blockieren nicht", () => {
   assert.equal(pruefeProfil("bank", { iban: IBAN_DE, bic: "" }, alt, false, HEUTE).gueltig, true);
 });
 
-test("Profil: Geburtsdatum einmal nachtragen, danach ignoriert", () => {
+test("Profil: Geburtsdatum ändert das Mitglied selbst (Entscheidung 11), Pflicht, nicht leerbar", () => {
   const ohne = bestand({ geburtsdatum: null });
   const r = pruefeProfil("personal", persoenlich({ geburtsdatum: "2002-05-06" }), ohne, false, HEUTE);
   assert.equal(r.gueltig, true, r.ersterFehler ?? "");
   assert.equal(r.aenderungen.geburtsdatum, "2002-05-06");
-  // Fehlt es noch, ist es Pflicht.
-  assert.ok(pruefeProfil("personal", persoenlich(), ohne, false, HEUTE).fehler.geburtsdatum);
-  assert.ok(pruefeProfil("personal", persoenlich({ geburtsdatum: "2030-01-01" }), ohne, false, HEUTE).fehler.geburtsdatum);
-  // Gespeichert: Eingabe wird ignoriert, auch ein altes ungültiges Datum blockiert nicht.
-  const mit = bestand({ geburtsdatum: "1800-01-01" });
-  const r2 = pruefeProfil("personal", persoenlich({ geburtsdatum: "2002-05-06" }), mit, false, HEUTE);
-  assert.equal(r2.gueltig, true);
+  assert.ok(pruefeProfil("personal", persoenlich({ geburtsdatum: "" }), ohne, false, HEUTE).fehler.geburtsdatum);
+  // Gespeichertes Datum ändern: erlaubt, geprüft.
+  const mit = bestand();
+  assert.equal(pruefeProfil("personal", persoenlich({ geburtsdatum: "2002-05-06" }), mit, false, HEUTE).aenderungen.geburtsdatum, "2002-05-06");
+  assert.ok(pruefeProfil("personal", persoenlich({ geburtsdatum: "2030-01-01" }), mit, false, HEUTE).fehler.geburtsdatum);
+  assert.ok(pruefeProfil("personal", persoenlich({ geburtsdatum: "" }), mit, false, HEUTE).fehler.geburtsdatum);
+  // Unverändertes altes Datum (ungültig) blockiert nicht.
+  const alt = bestand({ geburtsdatum: "1800-01-01" });
+  const r2 = pruefeProfil("personal", persoenlich({ geburtsdatum: "1800-01-01", ort: "Neutraubling" }), alt, false, HEUTE);
+  assert.equal(r2.gueltig, true, r2.ersterFehler ?? "");
   assert.ok(!("geburtsdatum" in r2.aenderungen));
+});
+
+test("Profil: Name ändert das Mitglied selbst, Pflicht, Altname blockiert nicht", () => {
+  const b = { ...bestand(), vorname: "Erika", nachname: "Muster" };
+  const r = pruefeProfil("personal", persoenlich({ vorname: " Erika ", nachname: "Muster-Schmidt" }), b, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.deepEqual(r.namen, { nachname: "Muster-Schmidt" });
+  assert.deepEqual(r.aenderungen, {});
+  assert.ok(pruefeProfil("personal", persoenlich({ vorname: "", nachname: "Muster" }), b, false, HEUTE).fehler.vorname);
+  assert.ok(pruefeProfil("personal", persoenlich({ vorname: "Erika2", nachname: "Muster" }), b, false, HEUTE).fehler.vorname);
+  // Altname mit Ziffer, unverändert: kein Fehler.
+  const alt = { ...bestand(), vorname: "Erika 2", nachname: "Muster" };
+  const r2 = pruefeProfil("personal", persoenlich({ vorname: "Erika 2", nachname: "Muster", ort: "Neutraubling" }), alt, false, HEUTE);
+  assert.equal(r2.gueltig, true, r2.ersterFehler ?? "");
+  assert.deepEqual(r2.namen, {});
+  // Ohne Name im Bestand ist er Pflicht.
+  assert.ok(pruefeProfil("personal", persoenlich({ vorname: "", nachname: "" }), bestand(), false, HEUTE).fehler.nachname);
+});
+
+test("Profil: sicher bereinigbare Altnummer wird mitgespeichert, wenn ohnehin gespeichert wird", () => {
+  const alt = bestand({ handynummer: "+49 0176 1234567" });
+  const anzeige = handyFuerEingabe(alt.handynummer);
+  // Nur angezeigt, sonst nichts geändert: nichts speichern.
+  assert.deepEqual(pruefeProfil("personal", persoenlich({ handyLand: anzeige.land, handynummer: anzeige.nummer }), alt, false, HEUTE).aenderungen, {});
+  // Andere Änderung: bereinigte Nummer kommt geprüft mit.
+  const r = pruefeProfil("personal", persoenlich({ handyLand: anzeige.land, handynummer: anzeige.nummer, ort: "Neutraubling" }), alt, false, HEUTE);
+  assert.equal(r.aenderungen.handynummer, "+491761234567");
+  // „vorschlag“ (ohne Vorwahl) wird nie still ergänzt.
+  const vorschlag = bestand({ handynummer: "1761234567" });
+  const v = handyFuerEingabe(vorschlag.handynummer);
+  const r2 = pruefeProfil("personal", persoenlich({ handyLand: v.land, handynummer: v.nummer, ort: "Neutraubling" }), vorschlag, false, HEUTE);
+  assert.ok(!("handynummer" in r2.aenderungen));
+});
+
+test("Vorstand: Name korrigieren, nur geänderte Felder, nie leer", () => {
+  const b = { ...bestand(), vorname: "Erika", nachname: "Muster" };
+  const basis = korrekturWerte(b);
+  assert.equal(basis.vorname, "Erika");
+  const r = pruefeKorrektur({ ...basis, nachname: "Muster-Schmidt" }, basis, b, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.deepEqual(r.namen, { nachname: "Muster-Schmidt" });
+  assert.deepEqual(r.aenderungen, {});
+  assert.ok(pruefeKorrektur({ ...basis, vorname: "" }, basis, b, HEUTE).fehler.vorname);
+  // Altname mit Ziffer blockiert die Korrektur eines anderen Felds nicht.
+  const alt = { ...bestand(), vorname: "Erika 2", nachname: "Muster" };
+  const ba = korrekturWerte(alt);
+  assert.deepEqual(pruefeKorrektur({ ...ba, ort: "Neutraubling" }, ba, alt, HEUTE).namen, {});
+});
+
+test("Vorstand: bereinigte Anzeige einer Altnummer ist keine Änderung", () => {
+  const alt = bestand({ handynummer: "+49 0176 1234567" });
+  const basis = korrekturWerte(alt);
+  assert.equal(basis.handynummer, "176 1234567");
+  const r = pruefeKorrektur({ ...basis, ort: "Neutraubling" }, basis, alt, HEUTE);
+  assert.deepEqual(r.aenderungen, { ort: "Neutraubling" });
+});
+
+test("Registrierung je Schritt: nur Felder des Schritts, gleiche Regeln", () => {
+  assert.deepEqual(pruefeRegistrierungSchritt("person", { vorname: "Erika", nachname: "Muster", geburtsdatum: "2003-02-01" }, HEUTE), {});
+  assert.deepEqual(Object.keys(pruefeRegistrierungSchritt("person", { vorname: "Erika2", nachname: "", geburtsdatum: "2030-01-01" }, HEUTE)).sort(), ["geburtsdatum", "nachname", "vorname"]);
+  assert.equal(pruefeRegistrierungSchritt("address", { strasse: "Musterstraße", hausnummer: "1", plz: "9304", ort: "Regensburg", land: "DE" }, HEUTE).plz, PLZ_DE_MELDUNG);
+  assert.deepEqual(pruefeRegistrierungSchritt("address", { strasse: "Ring", hausnummer: "", plz: "1010", ort: "Wien", land: "AT" }, HEUTE), {});
+  assert.ok(pruefeRegistrierungSchritt("contact", { email: "a@b.de", handyLand: "DE", handynummer: "0941 123456" }, HEUTE).handynummer);
+  assert.deepEqual(pruefeRegistrierungSchritt("contact", { email: "a@b.de", handyLand: "DE", handynummer: "0176 1234567" }, HEUTE), {});
+  assert.ok(pruefeRegistrierungSchritt("bank", { iban: IBAN_DE_FALSCH, bic: "" }, HEUTE).iban);
+  // Hinweis bic_land blockiert nicht.
+  assert.deepEqual(pruefeRegistrierungSchritt("bank", { iban: "AT611904300234573201", bic: "COBADEFFXXX" }, HEUTE), {});
+  // Fremde Schlüssel werden ignoriert.
+  assert.deepEqual(pruefeRegistrierungSchritt("bank", { iban: IBAN_DE, bic: "", vorname: "" }, HEUTE), {});
 });
 
 test("Profil Alumni: alte ungültige IBAN blockiert nicht, Leeren erlaubt, neue IBAN wird geprüft", () => {
@@ -244,7 +335,7 @@ test("Profil: Datei oder Zahl statt Text ist ein Fehler, nicht leer", () => {
 test("Vorstand: Altdaten (+49 0176…, PLZ 9304) blockieren die Änderung eines anderen Felds nicht", () => {
   const alt = bestand({ handynummer: "+49 0176 1234567", plz: "9304", hausnummer: "Hinterhaus" });
   const basis = korrekturWerte(alt);
-  assert.equal(basis.handynummer, "+49 0176 1234567");
+  assert.equal(basis.handynummer, "176 1234567"); // Nachtrag Punkt 4: sicher bereinigt angezeigt
   const r = pruefeKorrektur({ ...basis, ort: "Neutraubling" }, basis, alt, HEUTE);
   assert.equal(r.gueltig, true, r.ersterFehler ?? "");
   assert.deepEqual(r.aenderungen, { ort: "Neutraubling" });
@@ -295,4 +386,62 @@ test("Vorstand: BIC leeren erlaubt, ungültige BIC nicht", () => {
   const basis = korrekturWerte(bestand());
   assert.deepEqual(pruefeKorrektur({ ...basis, bic: "" }, basis, bestand(), HEUTE).aenderungen, { bic: null });
   assert.ok(pruefeKorrektur({ ...basis, bic: "COBA" }, basis, bestand(), HEUTE).fehler.bic);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Fixrunde Reviews PR 2
+// ---------------------------------------------------------------------------------------------------
+
+test("U6: Speichern ohne Änderung schreibt nichts (auch kein Land bei Altdaten ohne Land)", () => {
+  const r = pruefeProfil("personal", persoenlich(), bestand({ land: null }), false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.deepEqual(r.aenderungen, {});
+  // Gewechseltes Land allein ist eine Änderung.
+  const at = pruefeProfil("personal", persoenlich({ land: "AT", plz: "1010", ort: "Wien" }), bestand({ land: null }), false, HEUTE);
+  assert.equal(at.aenderungen.land, "AT");
+  // Bank: gleiche IBAN in anderer Schreibweise = keine Änderung.
+  assert.deepEqual(pruefeProfil("bank", { iban: "de89 3704 0044 0532 0130 00", bic: "cobadeffxxx" }, bestand(), false, HEUTE).aenderungen, {});
+});
+
+test("U1: nur umformatierte Altnummer gilt als unverändert (Profil und Vorstand)", () => {
+  const alt = bestand({ handynummer: "0176 12" });
+  // Profil: das Feld hat „0176 12“ zu „176 12“ umformatiert, sonst nichts geändert.
+  const p = pruefeProfil("personal", persoenlich({ handyLand: "DE", handynummer: "176 12", ort: "Neutraubling" }), alt, false, HEUTE);
+  assert.equal(p.gueltig, true, p.ersterFehler ?? "");
+  // Land kommt bei Altdaten ohne Land mit, sobald sich etwas ändert (Teil A).
+  assert.deepEqual(p.aenderungen, { ort: "Neutraubling", land: "DE" });
+  // Vorstand: Ort ändern, Handy nur angetippt → speichert, Handy nicht im Protokoll.
+  const basis = korrekturWerte(alt);
+  const k = pruefeKorrektur({ ...basis, handynummer: "176 12", ort: "Neutraubling" }, basis, alt, HEUTE);
+  assert.equal(k.gueltig, true, k.ersterFehler ?? "");
+  assert.deepEqual(k.aenderungen, { ort: "Neutraubling" });
+  // Österreichische Nummer, nur angetippt.
+  const at = bestand({ handynummer: "+436641234567" });
+  const bAt = korrekturWerte(at);
+  assert.deepEqual([...geaenderteKorrekturFelder({ ...bAt, handynummer: "664 1234567" }, bAt)], []);
+  // Altnummer ohne Vorwahl, nur angetippt: bleibt unverändert (Hinweis vorwahl_ergaenzt bleibt dem Bestand).
+  const ohne = bestand({ handynummer: "176 1234567" });
+  const bOhne = korrekturWerte(ohne);
+  assert.deepEqual([...geaenderteKorrekturFelder({ ...bOhne }, bOhne)], []);
+});
+
+test("U2: PLZ-Fehler in Deutschland nennt das Land", () => {
+  const r = pruefeProfil("personal", persoenlich({ plz: "1010", ort: "Wien" }), bestand({ land: null }), false, HEUTE);
+  assert.equal(r.fehler.plz, PLZ_DE_MELDUNG);
+  assert.equal(pruefeRegistrierung(antrag({ plz: "9304" }), HEUTE).fehler.plz, PLZ_DE_MELDUNG);
+  const basis = korrekturWerte(bestand());
+  assert.equal(pruefeKorrektur({ ...basis, plz: "9304" }, basis, bestand(), HEUTE).fehler.plz, PLZ_DE_MELDUNG);
+  // Andere Länder: Meldung der Regeln.
+  assert.notEqual(pruefeProfil("personal", persoenlich({ land: "AT", plz: "93047", ort: "Wien" }), bestand(), false, HEUTE).fehler.plz, PLZ_DE_MELDUNG);
+});
+
+test("G1: im Rückfall geladenes Formular überschreibt kein Land", () => {
+  // Bestand ohne bekanntes Land (Wert null), Formular zeigt die Vorgabe DE.
+  const p = pruefeProfil("personal", persoenlich({ ort: "Neutraubling" }), bestand({ land: null }), false, HEUTE, true);
+  assert.equal(p.gueltig, true, p.ersterFehler ?? "");
+  assert.deepEqual(p.aenderungen, { ort: "Neutraubling" });
+  const basis = korrekturWerte(bestand({ land: null }));
+  const k = pruefeKorrektur({ ...basis, land: "AT", ort: "Wien" }, basis, bestand({ land: null }), HEUTE, true);
+  assert.equal(k.gueltig, true, k.ersterFehler ?? "");
+  assert.deepEqual(k.aenderungen, { ort: "Wien" });
 });

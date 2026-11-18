@@ -9,7 +9,8 @@ import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "r
 import { Check } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { countryCodes, DEFAULT_COUNTRY } from "@/lib/country-codes";
-import { formatiereHandyEingabe, handyPlatzhalter, ibanInViererbloecken } from "@/lib/member-rules-client";
+import { handyPlatzhalter, ibanInViererbloecken } from "@/lib/member-rules-client";
+import { handyBeimTippen, handyBeimVerlassen, ibanBeimTippen, type HandyWert } from "@/lib/member-inputs";
 import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
@@ -41,12 +42,19 @@ export function FeldHinweis({ id, children }: { id?: string; children?: ReactNod
   );
 }
 
-export type HandyWert = { land: string; nummer: string };
+export type { HandyWert };
+
+/** Wurde zuletzt gelöscht (Rücktaste/Entf)? Dann nicht formatieren, sonst kämen Leerzeichen sofort wieder. */
+function istLoeschen(e: ChangeEvent<HTMLInputElement>): boolean {
+  const typ = (e.nativeEvent as InputEvent | undefined)?.inputType ?? "";
+  return typ.startsWith("delete");
+}
 
 /**
- * Handy: Länderauswahl (ISO-Code, Standard DE, Tastatursuche der Auswahl) + Nummer. Beim Verlassen des Felds
- * und beim Einfügen wird formatiert; „+43 …“, „0043 …“ stellen die Auswahl um, die führende 0 fällt weg.
- * Nicht beim Tippen: Die Formatierung schreibt die ganze Eingabe neu, der Cursor spränge sonst ans Ende.
+ * Handy: Länderauswahl (ISO-Code, Standard DE, Tastatursuche der Auswahl) + Nummer. Formatiert wird beim
+ * Tippen, solange der Cursor am Ende steht (sonst beim Verlassen), und beim Einfügen; „+43 …“, „0043 …“
+ * stellen die Auswahl um, die führende 0 fällt weg. Nur wenn die Person Nummer oder Land selbst geändert
+ * hat: Ein bloßer Fokus lässt eine gespeicherte Altnummer unverändert (sie gilt dann als nicht geändert).
  */
 export function HandyEingabe({
   id,
@@ -70,10 +78,8 @@ export function HandyEingabe({
   autoComplete?: string;
 }) {
   const fehlerId = `${id}-fehler`;
-  const formatieren = (nummer: string, land: string) => {
-    const f = formatiereHandyEingabe(nummer, land);
-    onChange({ land: f.land, nummer: f.nummer });
-  };
+  // Hat die Person in dieser Bearbeitung Nummer oder Land geändert? Erst dann wird formatiert.
+  const bearbeitet = useRef(false);
   return (
     <div className={cn("space-y-1.5", className)}>
       <div className="flex gap-2">
@@ -81,7 +87,10 @@ export function HandyEingabe({
           id={`${id}-land`}
           name={landName}
           value={wert.land}
-          onChange={(e) => onChange({ ...wert, land: e.target.value })}
+          onChange={(e) => {
+            bearbeitet.current = true;
+            onChange({ ...wert, land: e.target.value });
+          }}
           className={cn(SELECT_CLASS, "w-[6.5rem] shrink-0")}
           aria-label="Ländervorwahl"
         >
@@ -100,12 +109,15 @@ export function HandyEingabe({
           required={required}
           placeholder={handyPlatzhalter(wert.land)}
           value={wert.nummer}
-          onChange={(e) => onChange({ ...wert, nummer: e.target.value })}
-          onBlur={(e) => formatieren(e.target.value, wert.land)}
-          onPaste={(e) => {
-            const input = e.currentTarget;
-            // Nach dem Einfügen (Wert steht dann im Feld) einmal formatieren.
-            window.setTimeout(() => formatieren(input.value, wert.land), 0);
+          onChange={(e) => {
+            bearbeitet.current = true;
+            const input = e.target;
+            const amEnde = (input.selectionStart ?? input.value.length) >= input.value.length;
+            onChange(handyBeimTippen(input.value, wert.land, amEnde, istLoeschen(e)));
+          }}
+          onBlur={(e) => {
+            const neu = handyBeimVerlassen({ land: wert.land, nummer: e.target.value }, bearbeitet.current);
+            if (neu.land !== wert.land || neu.nummer !== e.target.value) onChange(neu);
           }}
           aria-invalid={fehler ? true : undefined}
           aria-describedby={fehler ? fehlerId : undefined}
@@ -158,29 +170,19 @@ export function LandAuswahl({
 }
 
 /**
- * Wert mit Formatierung beim Tippen setzen und den Cursor hinter demselben Zeichen halten: gezählt werden
- * die Buchstaben/Ziffern vor dem Cursor, nicht die eingefügten Leerzeichen.
+ * IBAN beim Tippen: Viererblöcke, solange der Cursor am Ende steht; steht er mittendrin, bleibt die Eingabe
+ * roh (kein Cursor-Springen) und wird beim Verlassen formatiert. Löschen formatiert nicht.
  */
 export function viererblockAenderung(e: ChangeEvent<HTMLInputElement>, setze: (wert: string) => void) {
-  const input = e.target;
-  const roh = input.value;
-  const cursor = input.selectionStart ?? roh.length;
-  const zeichenVorCursor = roh.slice(0, cursor).replace(/[^A-Za-z0-9]/g, "").length;
-  const formatiert = ibanInViererbloecken(roh);
-  setze(formatiert);
-  window.requestAnimationFrame(() => {
-    if (document.activeElement !== input) return;
-    let pos = 0;
-    let gezaehlt = 0;
-    while (pos < formatiert.length && gezaehlt < zeichenVorCursor) {
-      if (/[A-Z0-9]/.test(formatiert[pos])) gezaehlt++;
-      pos++;
-    }
-    input.setSelectionRange(pos, pos);
-  });
+  const roh = e.target.value;
+  if (istLoeschen(e)) {
+    setze(roh);
+    return;
+  }
+  setze(ibanBeimTippen(roh, e.target.selectionStart ?? roh.length).wert);
 }
 
-/** IBAN-Feld in Viererblöcken (kontrolliert). */
+/** IBAN-Feld in Viererblöcken (kontrolliert); beim Verlassen immer in Viererblöcken. */
 export function IbanEingabe({
   id,
   name = "iban",
@@ -213,7 +215,11 @@ export function IbanEingabe({
         name={name}
         value={wert}
         onChange={(e) => viererblockAenderung(e, onChange)}
-        onBlur={onBlur}
+        onBlur={(e) => {
+          const formatiert = ibanInViererbloecken(e.target.value);
+          if (formatiert !== e.target.value) onChange(formatiert);
+          onBlur?.();
+        }}
         placeholder={placeholder}
         required={required}
         autoComplete="off"

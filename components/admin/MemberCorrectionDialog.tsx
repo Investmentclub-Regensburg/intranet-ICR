@@ -24,6 +24,7 @@ import {
   LandAuswahl,
   type HandyWert,
 } from "@/components/member/MemberInputs";
+import { plzInputMode } from "@/lib/member-inputs";
 import {
   correctMemberData,
   getMemberCorrectionData,
@@ -97,6 +98,8 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
       const result = await correctMemberData(
         profileId,
         {
+          vorname: value("vorname"),
+          nachname: value("nachname"),
           strasse: value("strasse"),
           hausnummer: value("hausnummer"),
           plz: value("plz"),
@@ -169,20 +172,20 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
             />
           ) : (
             <form onSubmit={handleSubmit} noValidate className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field id="mc-vorname" label="Vorname" fehler={fehler.vorname}>
+                  <Input id="mc-vorname" name="vorname" defaultValue={data.vorname} autoComplete="off" {...invalid("mc-vorname", fehler.vorname)} onInput={() => clear("vorname")} />
+                </Field>
+                <Field id="mc-nachname" label="Nachname" fehler={fehler.nachname}>
+                  <Input id="mc-nachname" name="nachname" defaultValue={data.nachname} autoComplete="off" {...invalid("mc-nachname", fehler.nachname)} onInput={() => clear("nachname")} />
+                </Field>
+              </div>
               <div className="grid grid-cols-[1fr_6.5rem] gap-3">
                 <Field id="mc-strasse" label="Straße" fehler={fehler.strasse}>
                   <Input id="mc-strasse" name="strasse" defaultValue={data.strasse} autoComplete="off" {...invalid("mc-strasse", fehler.strasse)} onInput={() => clear("strasse")} />
                 </Field>
                 <Field id="mc-hausnummer" label="Hausnr." fehler={fehler.hausnummer}>
                   <Input id="mc-hausnummer" name="hausnummer" defaultValue={data.hausnummer} autoComplete="off" {...invalid("mc-hausnummer", fehler.hausnummer)} onInput={() => clear("hausnummer")} />
-                </Field>
-              </div>
-              <div className="grid grid-cols-[6.5rem_1fr] gap-3">
-                <Field id="mc-plz" label="PLZ" fehler={fehler.plz}>
-                  <Input id="mc-plz" name="plz" defaultValue={data.plz} autoComplete="off" {...invalid("mc-plz", fehler.plz)} onInput={() => clear("plz")} />
-                </Field>
-                <Field id="mc-ort" label="Ort" fehler={fehler.ort}>
-                  <Input id="mc-ort" name="ort" defaultValue={data.ort} autoComplete="off" {...invalid("mc-ort", fehler.ort)} onInput={() => clear("ort")} />
                 </Field>
               </div>
               <div className="grid gap-1.5">
@@ -196,6 +199,14 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
                   }}
                   fehler={fehler.land}
                 />
+              </div>
+              <div className="grid grid-cols-[6.5rem_1fr] gap-3">
+                <Field id="mc-plz" label="PLZ" fehler={fehler.plz}>
+                  <Input id="mc-plz" name="plz" defaultValue={data.plz} inputMode={plzInputMode(land)} autoComplete="off" {...invalid("mc-plz", fehler.plz)} onInput={() => clear("plz")} />
+                </Field>
+                <Field id="mc-ort" label="Ort" fehler={fehler.ort}>
+                  <Input id="mc-ort" name="ort" defaultValue={data.ort} autoComplete="off" {...invalid("mc-ort", fehler.ort)} onInput={() => clear("ort")} />
+                </Field>
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="mc-handy">Handynummer</Label>

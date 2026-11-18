@@ -345,6 +345,7 @@ test("Name: Buchstaben inkl. Akzente, - ' . ; keine Ziffern", () => {
   for (const name of ["Anna2", "R2-D2", "@nna", "...", "Anna_B"]) {
     assert.ok(pruefeName(name, "vorname").code, name);
   }
+  assert.equal(pruefeName("Erika2", "vorname").fehler, "Bitte nur Buchstaben, Leerzeichen, - ' und .");
   assert.equal(pruefeName("", "nachname").code, "fehlt");
   assert.equal(pruefeName("a".repeat(101), "nachname").code, "zu_lang");
 });
