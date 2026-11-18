@@ -8,6 +8,7 @@ import {
   berlinTagesbeginn,
   istAbfrageFaellig,
   istBestaetigungOffen,
+  DATEN_CHECK_PFAD,
   layoutModus,
   leseDatenCheckEinstellungen,
   letzterStichtag,
@@ -347,7 +348,7 @@ test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .e
   const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
   assert.doesNotMatch(middleware, /member-data-check|member-crypto/);
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  assert.match(layout, /istAbfrageFaellig/);
+  assert.match(layout, /faelligerDatenCheck/);
   const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(env, /^DATA_CHECK_ENABLED=\r?$/m);
   assert.match(env, /^DATA_CHECK_START=\r?$/m);
@@ -357,19 +358,28 @@ test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .e
 // Fixrunde (Reviews A1–A4, B1–B3)
 // ---------------------------------------------------------------------------------------------------
 
-test("A1/B1: Layout-Modus – Mängel → nur Fenster, gültig → Fenster über der Seite, nicht fällig → Seite", () => {
+test("A1/B1: Layout-Modus – Mängel → Weiterleitung, gültig → Fenster über der Seite, nicht fällig → Seite", () => {
   assert.equal(layoutModus(null), "seite");
   assert.equal(layoutModus({ gueltig: true }), "fenster-ueber-seite");
-  assert.equal(layoutModus({ gueltig: false }), "nur-fenster");
+  assert.equal(layoutModus({ gueltig: false }), "umleiten");
+  assert.equal(DATEN_CHECK_PFAD, "/daten-bestaetigen");
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  // Seiteninhalt (children) steckt nur in `seite`; im Modus „nur-fenster“ bekommt das Fenster einen leeren Grund.
-  assert.equal(layout.match(/\{children\}/g).length, 1);
-  assert.match(layout, /modus === "fenster-ueber-seite" \? seite : <div className="min-h-screen bg-background" \/>/);
+  // Weiterleitung vor jeder Ausgabe (die Seite eines Segments käme sonst als eigener RSC-Eintrag mit).
+  assert.match(layout, /if \(modus === "umleiten"\) redirect\(DATEN_CHECK_PFAD\);/);
+  assert.ok(layout.indexOf('redirect(DATEN_CHECK_PFAD)') < layout.indexOf("return ("));
+  // Eigene Seite außerhalb des Intranet-Layouts, nur bei Mängeln, sonst zurück.
+  const seite = readFileSync(new URL("../app/daten-bestaetigen/page.tsx", import.meta.url), "utf8");
+  assert.match(seite, /if \(!datenCheck \|\| datenCheck\.gueltig\) redirect\("\/dashboard"\);/);
+  assert.match(seite, /if \(!user\) redirect\("\/login"\);/);
+  assert.doesNotMatch(seite, /\{children\}/);
+  const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
+  assert.match(middleware, /"\/daten-bestaetigen",/);
   const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  // Ohne Portal (steht im Server-HTML), Seite darunter inert, noscript mit Abmelden.
-  assert.doesNotMatch(fenster, /DialogPrimitive.Portal|<DialogPortal|<DialogContent/);
+  // Ohne Portal (steht im Server-HTML), Seite darunter inert, noscript mit Abmelden, JS-Knöpfe ohne JS aus.
+  assert.doesNotMatch(fenster, /DialogPrimitive\.Portal|<DialogPortal|<DialogContent/);
   assert.match(fenster, /inert=\{offen\}/);
   assert.match(fenster, /<noscript>[\s\S]*Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\.[\s\S]*action=\{logoutAction\}/);
+  assert.match(fenster, /\[data-nur-mit-js\]\{display:none!important\}/);
 });
 
 function fakeAdmin({ rpc, version = 0, rpcFehler = null } = {}) {

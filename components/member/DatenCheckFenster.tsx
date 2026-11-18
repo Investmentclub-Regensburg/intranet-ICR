@@ -35,12 +35,21 @@ type Schritt = "uebersicht" | "aendern" | "fertig";
 type Fehler = Partial<Record<string, string>>;
 
 /**
- * `children` = die Seite darunter (nur bei gültigen Daten; bei Mängeln rendert das Layout keine Seite). Solange das
+ * `children` = die Seite darunter (nur bei gültigen Daten; bei Mängeln steht das Fenster auf der eigenen Seite
+ * /daten-bestaetigen auf leerem Grund). `weiter`: wohin es nach dem Haken geht (sonst Neuladen). Solange das
  * Fenster offen ist, ist sie `inert` + `aria-hidden` – schon im Server-HTML, also auch vor der Hydration. Das Fenster
  * wird ohne Portal gerendert und steht damit ebenfalls im Server-HTML: kein Aufblitzen der Seite, und ohne
  * JavaScript sieht man das Fenster mit dem Hinweis und „Abmelden“ statt einer bedienbaren Seite (Review A1/B1).
  */
-export function DatenCheckFenster({ ansicht, children }: { ansicht: DatenCheckAnsicht; children?: ReactNode }) {
+export function DatenCheckFenster({
+  ansicht,
+  children,
+  weiter,
+}: {
+  ansicht: DatenCheckAnsicht;
+  children?: ReactNode;
+  weiter?: string;
+}) {
   const router = useRouter();
   const id = useId();
   const [offen, setOffen] = useState(true);
@@ -86,7 +95,8 @@ export function DatenCheckFenster({ ansicht, children }: { ansicht: DatenCheckAn
 
   function fertig() {
     setOffen(false);
-    router.refresh();
+    if (weiter) router.replace(weiter);
+    else router.refresh();
   }
 
   function clear(...felder: string[]) {
@@ -189,6 +199,8 @@ export function DatenCheckFenster({ ansicht, children }: { ansicht: DatenCheckAn
         <DialogTitle className="text-xl">Stimmen deine Daten noch?</DialogTitle>
         {/* Ohne JavaScript funktionieren die Knöpfe nicht: Hinweis und Abmelden (Server-Action als Formular). */}
         <noscript>
+          {/* Knöpfe, die nur mit JavaScript gehen, ausblenden. */}
+          <style>{"[data-nur-mit-js]{display:none!important}"}</style>
           <p className="mt-3 text-sm">Bitte aktiviere JavaScript, um deine Daten zu aktualisieren.</p>
           <form action={logoutAction} className="mt-2">
             <button type="submit" className="text-sm font-medium text-primary underline underline-offset-4">
@@ -204,7 +216,7 @@ export function DatenCheckFenster({ ansicht, children }: { ansicht: DatenCheckAn
               ))}
             </dl>
             <Meldung>{meldung}</Meldung>
-            <div className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap">
+            <div data-nur-mit-js className="flex flex-col gap-2 sm:flex-row-reverse sm:flex-wrap">
               {ansicht.gueltig ? (
                 <>
                   <Button type="button" onClick={stimmtAlles} disabled={pending} className="sm:flex-1">

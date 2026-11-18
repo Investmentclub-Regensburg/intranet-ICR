@@ -6,9 +6,8 @@ import { IntranetMotion } from "@/components/layout/IntranetMotion";
 import { IntranetPageTransition } from "@/components/layout/IntranetPageTransition";
 import { DatenCheckFenster } from "@/components/member/DatenCheckFenster";
 import { createServiceClient } from "@/utils/supabase/service";
-import { isActiveMemberProfile } from "@/lib/profile-status";
-import { istAbfrageFaellig, layoutModus, type DatenCheckAnsicht } from "@/lib/member-data-check";
-import { datenCheckEinstellungen, ladeDatenCheckAnsicht } from "@/lib/member-data-check-server";
+import { DATEN_CHECK_PFAD, layoutModus, type DatenCheckAnsicht } from "@/lib/member-data-check";
+import { faelligerDatenCheck } from "@/lib/member-data-check-server";
 
 export default async function IntranetLayout({
   children,
@@ -21,27 +20,19 @@ export default async function IntranetLayout({
     redirect("/login");
   }
 
-  // Abfrage „Stimmen deine Daten noch?“: Fälligkeit aus den Spalten von getCachedAuth (kein zusätzlicher
-  // Datenbankaufruf); entschlüsselt wird die eigene Zeile nur, wenn sie fällig ist.
-  const einstellungen = datenCheckEinstellungen();
-  let datenCheck: DatenCheckAnsicht | null = null;
-  if (
-    profile &&
-    datenCheckSpalten &&
-    istAbfrageFaellig({
-      eingeschaltet: einstellungen.eingeschaltet,
-      aktiv: isActiveMemberProfile(profile),
-      bestaetigtAm: profile["daten_bestaetigt_am"] as string | null,
-      erinnernAb: profile["daten_erinnern_ab"] as string | null,
-    })
-  ) {
-    datenCheck = await ladeDatenCheckAnsicht({
-      admin: createServiceClient(),
-      profil: profile,
-      email: user.email ?? ((profile["E-Mail"] as string | null) ?? ""),
-      einstellungen,
-    });
-  }
+  // Abfrage „Stimmen deine Daten noch?“ (nur wenn fällig wird die eigene Zeile entschlüsselt).
+  const datenCheck: DatenCheckAnsicht | null = await faelligerDatenCheck({
+    profil: profile,
+    email: user.email ?? ((profile?.["E-Mail"] as string | null) ?? ""),
+    spalten: datenCheckSpalten,
+    admin: createServiceClient,
+  });
+  const modus = layoutModus(datenCheck);
+  // Mängel: weiter zur eigenen Seite mit nur dem Fenster (Review A1/B1, Entscheidung 4). Die Weiterleitung passiert
+  // vor jeder Ausgabe; der Seiteninhalt landet so weder im HTML noch im RSC-Payload. Server-Actions und API-Routen
+  // anderer Seiten bleiben technisch aufrufbar – bewusst: Das Mitglied ist dafür ohnehin berechtigt, es geht um die
+  // Datenqualität, nicht um Vertraulichkeit.
+  if (modus === "umleiten") redirect(DATEN_CHECK_PFAD);
 
   const vorname = ((profile?.["Vorname"] as string) ?? "").trim();
   const nachname = ((profile?.["Nachname"] as string) ?? "").trim();
@@ -75,23 +66,18 @@ export default async function IntranetLayout({
     </div>
   );
 
-  // Fällig + gültig: Fenster über der Seite (inert, „Später“ möglich). Fällig + Mängel: KEIN Seiteninhalt, nur
-  // das Fenster auf leerem Grund (Review A1/B1, Entscheidung 4: man kommt nicht vorbei). Server-Actions und
-  // API-Routen anderer Seiten bleiben technisch aufrufbar – bewusst: Das Mitglied ist dafür ohnehin berechtigt,
-  // es geht um die Datenqualität, nicht um Vertraulichkeit.
-  const modus = layoutModus(datenCheck);
   return (
     <IntranetMotion>
-      {modus === "seite" || !datenCheck ? (
-        seite
-      ) : (
-        // Neuer Stand (Version/Name) → Fenster neu aufbauen (Formularwerte vom Server).
+      {modus === "fenster-ueber-seite" && datenCheck ? (
+        // Fällig + gültig: Seite unter dem Fenster, inert, solange es offen ist. Neuer Stand → Fenster neu aufbauen.
         <DatenCheckFenster
           key={`${datenCheck.formular.version}|${datenCheck.formular.vorname}|${datenCheck.formular.nachname}`}
           ansicht={datenCheck}
         >
-          {modus === "fenster-ueber-seite" ? seite : <div className="min-h-screen bg-background" />}
+          {seite}
         </DatenCheckFenster>
+      ) : (
+        seite
       )}
     </IntranetMotion>
   );

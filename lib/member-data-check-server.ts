@@ -24,9 +24,10 @@ import {
   type Namen,
 } from "./member-forms";
 import { emptySecretValues, readMemberSecretsWithMeta, type MemberSecretValues } from "./member-secrets-server";
-import { isAlumniProfile } from "./profile-status";
+import { isActiveMemberProfile, isAlumniProfile } from "./profile-status";
 import {
   BESTANDS_FELDER,
+  istAbfrageFaellig,
   leseDatenCheckEinstellungen,
   spaeterBis,
   type DatenCheckAnsicht,
@@ -449,4 +450,32 @@ export async function ladeDatenCheckAnsicht({
     console.error("Datenabfrage: lesen", err instanceof Error ? err.message : "unbekannt");
     return null;
   }
+}
+
+/**
+ * Fenster-Daten für das eigene Profil, falls die Abfrage fällig ist (sonst null). Fälligkeit aus den Spalten von
+ * getCachedAuth (kein zusätzlicher Datenbankaufruf); entschlüsselt wird nur, wenn fällig.
+ */
+export async function faelligerDatenCheck({
+  profil,
+  email,
+  spalten,
+  admin,
+}: {
+  profil: Record<string, unknown> | null;
+  email: string;
+  /** getCachedAuth hat die Spalten gelesen (Migration eingespielt). */
+  spalten: boolean;
+  admin: () => SupabaseClient;
+}): Promise<DatenCheckAnsicht | null> {
+  if (!profil || !spalten) return null;
+  const einstellungen = datenCheckEinstellungen();
+  const faellig = istAbfrageFaellig({
+    eingeschaltet: einstellungen.eingeschaltet,
+    aktiv: isActiveMemberProfile(profil),
+    bestaetigtAm: profil.daten_bestaetigt_am as string | null,
+    erinnernAb: profil.daten_erinnern_ab as string | null,
+  });
+  if (!faellig) return null;
+  return ladeDatenCheckAnsicht({ admin: admin(), profil, email, einstellungen });
 }
