@@ -17,8 +17,8 @@ import { isActiveMemberProfile, isAlumniProfile, isCancelledProfile } from "../.
 import { normalizeIban } from "../../lib/member-crypto.ts";
 
 /**
- * Verschlüsselte Felder, die das Skript aus member_secrets liest und prüft (= SECRET_FIELDS vor PR 2).
- * ▶ Nach dem Merge von PR 2 (neues Feld `land`) hier "land" ergänzen. Fehlt `land`, gilt beim Prüfen DE.
+ * Verschlüsselte Felder, die das Skript aus member_secrets liest und prüft (= SECRET_FIELDS, seit PR 2 mit
+ * `land`). `land` wird nur gelesen und an die Prüfung gegeben (leer = DE), nie geschrieben.
  */
 export const GESPEICHERTE_FELDER = Object.freeze([
   "iban",
@@ -29,6 +29,7 @@ export const GESPEICHERTE_FELDER = Object.freeze([
   "plz",
   "ort",
   "handynummer",
+  "land",
 ]);
 
 /**
@@ -334,7 +335,8 @@ export function listeTsv(eintraege) {
 
 /** Supabase-Projekte (Cloud) wie in scripts/verschluesselung.mjs; „lokal“ = lokaler Stack (nur mit --url). */
 export const PROJEKTE = Object.freeze({
-  prod: "vxcwtfktnefreboejgpw",
+  // Seit dem Umzug ist prod der eigene Server (nur mit --url); das alte Cloud-Projekt vxcw… ist kein Ziel mehr.
+  prod: null,
   test: "rkegvieoejmyutkowwwf",
   lokal: null,
 });
@@ -429,13 +431,19 @@ export function leseArgumente(argv, env = {}, repoWurzel = null) {
   if (!projekt || !Object.hasOwn(PROJEKTE, projekt)) {
     return { fehler: "--projekt prod, --projekt test oder --projekt lokal (mit --url) angeben." };
   }
-  // „lokal“ nur mit ausdrücklichem --url (Review P1): ein dauerhaft gesetztes ICR_SUPABASE_URL (Prod-Tunnel)
-  // darf nie still als „lokal“ gelten.
-  const roheUrl = projekt === "lokal" ? werte["--url"] : (werte["--url"] ?? env.ICR_SUPABASE_URL);
+  // „lokal“ und „prod“ nur mit ausdrücklichem --url: Ein dauerhaft gesetztes ICR_SUPABASE_URL darf nie still
+  // als Ziel gelten (Review P1), und „prod“ ist seit dem Umzug der eigene Server – das alte Cloud-Projekt ist nie
+  // ein stilles Ziel (Gegenprüfung G1).
+  // Wie scripts/verschluesselung.mjs: Ein gesetztes ICR_SUPABASE_URL darf „test“ nicht umlenken.
+  if (projekt === "test" && (werte["--url"] || env.ICR_SUPABASE_URL)) {
+    return { fehler: "--url bzw. ICR_SUPABASE_URL gibt es nur mit --projekt prod oder lokal." };
+  }
+  if (projekt === "prod" && !werte["--url"]) {
+    return { fehler: "--projekt prod braucht --url (eigener Server, z. B. über den Tunnel http://localhost:8100)." };
+  }
+  const roheUrl = werte["--url"];
   let url;
   if (roheUrl) {
-    // Wie scripts/verschluesselung.mjs: Ein dauerhaft gesetztes ICR_SUPABASE_URL darf „test“ nicht umlenken.
-    if (projekt === "test") return { fehler: "--url bzw. ICR_SUPABASE_URL gibt es nur mit --projekt prod oder lokal." };
     const n = normalisiereUrl(roheUrl);
     if (n.fehler) return { fehler: n.fehler };
     if (projekt === "lokal" && !LOOPBACK.has(n.host)) {

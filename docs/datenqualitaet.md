@@ -13,11 +13,17 @@ npm run datenqualitaet -- reparieren --probelauf --projekt <…>               [
 npm run datenqualitaet -- reparieren             --projekt <…> --vorstand <Profil-ID> [--url <adresse>]
 ```
 
-- `--projekt prod|test` ohne `--url`: Supabase Cloud. Eigener Server: `--projekt prod --url <adresse>` (oder
-  `ICR_SUPABASE_URL`). Lokaler Stack: `--projekt lokal --url http://127.0.0.1:<port>`: nur mit ausdrücklichem `--url` auf
-  localhost (nie aus `ICR_SUPABASE_URL`, nie Port 8100 = Tunnel zur Produktion), und nur, wenn die Datenbank
-  höchstens 200 Profile und ausschließlich Konten auf `@test.icr.local` hat (wie `seed.sql`).
+- Produktion = eigener Server: `--projekt prod --url <adresse>`, z. B. über den SSH-Tunnel
+  `http://localhost:8100`. `--url` ist Pflicht; das alte Cloud-Projekt und `ICR_SUPABASE_URL` sind nie ein stilles Ziel.
+- Test-Projekt (Supabase Cloud): `--projekt test`, ohne `--url`. Es hat keine Testziel-Prüfung wie „lokal“; das ist
+  nur unbedenklich, solange dort keine Kopie echter Mitgliederdaten liegt.
+- Lokaler Stack: `--projekt lokal --url http://127.0.0.1:<port>`: nur mit ausdrücklichem `--url` auf localhost
+  (nie aus `ICR_SUPABASE_URL`, nie Port 8100 = Tunnel zur Produktion), und nur, wenn die Datenbank höchstens
+  200 Profile und ausschließlich Konten auf `@test.icr.local` hat (wie `seed.sql`).
 - Reihenfolge: lokal bzw. Test-Projekt, dann Produktion.
+- Strg+C über `npm run` unter Windows (`npm.cmd`/`npm.ps1`) ist nicht real erprobt, nur simuliert: Beim ersten
+  schreibenden Lauf einmal beobachten, ob das Skript nach dem laufenden Profil sauber endet. Im Zweifel direkt
+  `node --import ./scripts/lib/ts-paths.mjs scripts/datenqualitaet.mjs …` starten.
 
 ## Was geprüft und geändert wird
 

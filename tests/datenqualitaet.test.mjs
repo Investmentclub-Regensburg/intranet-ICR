@@ -63,9 +63,28 @@ function daten(aenderung = {}) {
 const bewerte = (profil, werte, hatZeile = true) => bewerteProfil({ profil, werte, hatZeile, heute: HEUTE });
 
 test("Feldliste: gelesene Felder = SECRET_FIELDS, geschrieben werden nur die vier erlaubten", () => {
-  assert.deepEqual([...GESPEICHERTE_FELDER].sort(), [...SECRET_FIELDS].filter((f) => f !== "land").sort());
+  assert.deepEqual([...GESPEICHERTE_FELDER].sort(), [...SECRET_FIELDS].sort());
+  assert.ok(GESPEICHERTE_FELDER.includes("land"));
   assert.deepEqual([...SCHREIBBARE_FELDER].sort(), ["bic", "handynummer", "hausnummer", "strasse"]);
   assert.ok(AUSGABE_FELDER.includes("land"));
+});
+
+test("Land wird gelesen und geprüft, aber nie geschrieben", () => {
+  const at = bewerte(AKTIV, daten({ land: "AT", plz: "1010", ort: "Wien", strasse: "Ringstraße", hausnummer: "5" }));
+  assert.deepEqual(at.maengel, []);
+  assert.equal(at.status.land, "gueltig");
+  assert.ok(!("land" in at.aenderungen));
+  // AT-PLZ bei leerem Land (= DE) ist ein Mangel, mit gespeichertem Land nicht
+  assert.deepEqual(bewerte(AKTIV, daten({ plz: "1010" })).maengel, [{ feld: "plz", code: "format" }]);
+  assert.deepEqual(bewerte(AKTIV, daten({ land: "AT", plz: "1010" })).maengel, []);
+  for (const land of [null, "", "de", " DE ", "XX", "AT"]) {
+    const b = bewerte(AKTIV, daten({ land, handynummer: "0176 12345678", bic: "COBADE" }));
+    assert.ok(!("land" in b.aenderungen), String(land));
+    assert.ok(Object.keys(b.aenderungen).every((f) => SCHREIBBARE_FELDER.includes(f)), String(land));
+  }
+  const unbekannt = bewerte(AKTIV, daten({ land: "XX" }));
+  assert.deepEqual(unbekannt.maengel, [{ feld: "land", code: "land_unbekannt" }]);
+  assert.equal(unbekannt.status.land, "offen");
 });
 
 test("sauberer Datensatz: alles gültig, nichts zu ändern", () => {
@@ -406,8 +425,13 @@ test("Argumente: Ziel ausdrücklich, Cloud wie im Muster", () => {
   assert.equal(lokal.url, "http://127.0.0.1:56321");
   assert.equal(lokal.ziel, "http://127.0.0.1:56321");
   assert.equal(lokal.probelauf, true);
-  const prod = leseArgumente(["pruefen", "--projekt", "prod"], { ICR_SUPABASE_URL: "http://localhost:8100" }, REPO);
+  // G1: prod nur mit ausdrücklichem --url, nie still das alte Cloud-Projekt oder ICR_SUPABASE_URL
+  assert.match(leseArgumente(["pruefen", "--projekt", "prod"], {}, REPO).fehler, /--projekt prod braucht --url/);
+  assert.ok(leseArgumente(["pruefen", "--projekt", "prod"], { ICR_SUPABASE_URL: "http://localhost:8100" }, REPO).fehler);
+  const prod = leseArgumente(["pruefen", "--projekt", "prod", "--url", "http://localhost:8100"], {}, REPO);
   assert.equal(prod.url, "http://localhost:8100");
+  assert.equal(prod.ziel, "http://localhost:8100");
+  assert.ok(!JSON.stringify(prod).includes("vxcwtfktnefreboejgpw"));
 });
 
 function pick(a) {
