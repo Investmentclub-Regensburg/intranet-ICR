@@ -24,3 +24,23 @@ export function getSiteOrigin(requestOrigin: string | null | undefined): string 
   }
   return "http://localhost:3000";
 }
+
+/**
+ * Absolute Adresse für Weiterleitungen in Route Handlern und Middleware.
+ *
+ * Basis ist NEXT_PUBLIC_SITE_URL, nur ohne Konfiguration die Adresse der Anfrage. Grund: Im Docker-Container
+ * (output: "standalone") steht in request.url die interne Adresse des Servers (http://0.0.0.0:3000), nicht die,
+ * unter der die Seite aufgerufen wurde. Auf Vercel sind beide gleich.
+ * `path` muss ein interner Pfad sein (z. B. aus safeRedirectPath), keine fremde Adresse.
+ */
+export function siteRedirectUrl(path: string, requestUrl: string): URL {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (configured) {
+    try {
+      return new URL(path, new URL(configured).origin);
+    } catch {
+      // ungültige Konfiguration → Adresse der Anfrage
+    }
+  }
+  return new URL(path, requestUrl);
+}

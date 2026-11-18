@@ -13,6 +13,9 @@ import {
   MAX_PARTICIPANTS_LIMIT,
   capacityBelowRegistrationsMessage,
   eventEndTimestamp,
+  eventImageAppPath,
+  eventImageSrc,
+  eventImageStoragePath,
   eventStartTimestamp,
   isValidEmail,
   type AnnouncementTarget,
@@ -110,7 +113,8 @@ function toEventCore(e: Record<string, unknown>): EventCore {
     end_time: str(e.end_time),
     location: str(e.location),
     organizer: str(e.organizer),
-    image_url: str(e.image_url),
+    // Adresse fürs <img> und für Event-Mails: immer der App-Pfad, auch bei alten Storage-URLs in der DB.
+    image_url: eventImageSrc(str(e.image_url)),
     requires_registration: !!e.requires_registration,
   };
 }
@@ -178,7 +182,7 @@ const fetchEvents = unstable_cache(
       };
     });
   },
-  ["events-list-v5"],
+  ["events-list-v6"],
   { revalidate: 60, tags: [EVENTS_TAG] }
 );
 
@@ -332,7 +336,7 @@ export type EventFormInput = {
 };
 
 export type CreateEventInput = EventFormInput & {
-  /** Pfad im Bucket event-images, vom Client direkt hochgeladen (`<userId>/<uuid>.<ext>`). */
+  /** Pfad im Bucket event-images, vorher über POST /api/event-image hochgeladen (`<userId>/<uuid>.<ext>`). */
   image_path: string | null;
   announce: AnnouncementTarget | null;
 };
@@ -410,19 +414,40 @@ async function countRegistrations(eventId: string): Promise<number | null> {
   return count ?? 0;
 }
 
-/** Öffentliche URL zu einem frisch hochgeladenen Bild – nur aus dem eigenen Upload-Ordner, keine beliebigen URLs. */
-async function imageUrlFromPath(path: string, userId: string): Promise<string | null> {
+/**
+ * Gespeicherte Adresse zu einem frisch hochgeladenen Bild – nur aus dem eigenen Upload-Ordner, keine beliebigen
+ * URLs. Neues Format: App-Pfad `/bilder/event-images/<pfad>` (lib/events.ts), die App liefert das Bild selbst aus.
+ */
+function imageUrlFromPath(path: string, userId: string): string | null {
   if (!IMAGE_PATH_RE.test(path) || !path.startsWith(`${userId}/`)) return null;
-  const supabase = await getCachedSupabase();
-  return supabase.storage.from(EVENT_IMAGE_BUCKET).getPublicUrl(path).data.publicUrl;
+  return eventImageAppPath(path);
 }
 
+/** Bild eines Events aus dem Storage löschen; versteht das neue App-Format und alte Storage-URLs. */
 async function removeStoredImage(imageUrl: string | null) {
-  const marker = `/object/public/${EVENT_IMAGE_BUCKET}/`;
-  if (!imageUrl?.includes(marker)) return;
-  const path = decodeURIComponent(imageUrl.split(marker)[1] ?? "");
+  const path = eventImageStoragePath(imageUrl);
   if (!path) return;
   const supabase = await getCachedSupabase();
+  await supabase.storage.from(EVENT_IMAGE_BUCKET).remove([path]);
+}
+
+/**
+ * Frisch hochgeladenes Bild wieder entfernen, wenn das Speichern des Events danach scheitert
+ * (Event-Formular und Wizard). Nur eigene Uploads, die noch an keinem Event hängen.
+ */
+export async function removeUploadedEventImage(path: string): Promise<void> {
+  const auth = await requireAdmin();
+  if ("error" in auth) return;
+  if (typeof path !== "string" || !IMAGE_PATH_RE.test(path) || !path.startsWith(`${auth.userId}/`)) return;
+
+  const supabase = await getCachedSupabase();
+  // Beide Formate der image_url enden auf "/event-images/<pfad>"; der Pfad enthält nur [0-9a-f./-] und Endung.
+  const { data: inUse, error } = await supabase
+    .from("events")
+    .select("id")
+    .like("image_url", `%/${EVENT_IMAGE_BUCKET}/${path}`)
+    .limit(1);
+  if (error || inUse?.length) return;
   await supabase.storage.from(EVENT_IMAGE_BUCKET).remove([path]);
 }
 
@@ -438,7 +463,7 @@ export async function createEvent(input: CreateEventInput): Promise<CreateEventR
 
   let imageUrl: string | null = null;
   if (input.image_path) {
-    imageUrl = await imageUrlFromPath(input.image_path, auth.userId);
+    imageUrl = imageUrlFromPath(input.image_path, auth.userId);
     if (!imageUrl) return fail("Ungültiges Bild.");
   }
 
@@ -495,7 +520,7 @@ export async function updateEvent(eventId: string, input: UpdateEventInput): Pro
   if (input.image === "remove") {
     imageUrl = null;
   } else if (input.image !== "keep") {
-    imageUrl = await imageUrlFromPath(input.image.path, auth.userId);
+    imageUrl = imageUrlFromPath(input.image.path, auth.userId);
     if (!imageUrl) return { error: "Ungültiges Bild." };
   }
 

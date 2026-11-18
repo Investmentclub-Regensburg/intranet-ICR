@@ -1,5 +1,8 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { isCancelledProfile, isPendingProfile } from "@/lib/profile-status";
 import { safeRedirectPath } from "@/lib/safe-redirect";
@@ -78,4 +81,23 @@ export async function loginAction(
   }
 
   return { error: "", redirect: safeRedirectPath(formData.get("next")) };
+}
+
+/**
+ * Abmelden (Knopf in der Seitenleiste). Läuft serverseitig, damit der Browser nie mit Supabase spricht.
+ * Wie zuvor im Browser: Sitzung bei Supabase beenden (Standard-Scope), Session-Cookies entfernen, zum Login.
+ */
+export async function logoutAction(): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    // Supabase nicht erreichbar o. Ä.: Sitzung zumindest in diesem Browser beenden.
+    console.error("logoutAction:", error.code ?? error.status);
+    const cookieStore = await cookies();
+    for (const { name } of cookieStore.getAll()) {
+      if (name.startsWith("sb-")) cookieStore.delete(name);
+    }
+  }
+  revalidatePath("/", "layout");
+  redirect("/login");
 }

@@ -98,7 +98,7 @@ export default async function EventDetailPage({ params }: Props) {
         {event.image_url && (
           // Bild unbeschnitten (Flyer sind oft hochkant), groß, mit Rand wie die Website.
           <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-            {/* eslint-disable-next-line @next/next/no-img-element -- Supabase-Storage */}
+            {/* eslint-disable-next-line @next/next/no-img-element -- Event-Bild über die App (/bilder/event-images) */}
             <img
               src={event.image_url}
               alt=""

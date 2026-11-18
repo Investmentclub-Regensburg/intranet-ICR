@@ -62,7 +62,7 @@ export function EventTile({ event, status }: { event: TileEvent; status: Registr
     <article className={cn(GLOW_TILE, "flex h-full min-w-0 flex-col overflow-hidden")}>
       <div className="relative aspect-[16/9] overflow-hidden rounded-t-[calc(1rem-1px)] bg-muted">
         {event.image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element -- Supabase-Storage
+          // eslint-disable-next-line @next/next/no-img-element -- Event-Bild über die App (/bilder/event-images)
           <img src={event.image_url} alt="" className="size-full object-cover" loading="lazy" />
         ) : (
           <EventImageFallback />

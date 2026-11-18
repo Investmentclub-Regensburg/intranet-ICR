@@ -4,7 +4,7 @@ import { getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { requireRole, requireUser } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { getEvents } from "@/app/(intranet)/events/actions";
-import { EVENT_TIME_ZONE, formatEventDate, formatEventDateRange, formatEventTimes, isEventPast, isMultiDay, registrationPhase } from "@/lib/events";
+import { EVENT_TIME_ZONE, eventImageSrc, formatEventDate, formatEventDateRange, formatEventTimes, isEventPast, isMultiDay, registrationPhase } from "@/lib/events";
 import type { AdminCounts, DashboardEvent, DashboardNewsItem } from "@/components/dashboard/types";
 
 /*
@@ -172,7 +172,8 @@ export const getDashboardEvents = cache(async (): Promise<DashboardEvents | null
         .filter(Boolean)
         .join(" · "),
       location: str(row.location),
-      imageUrl: str(row.image_url),
+      // App-Pfad, auch bei alten Storage-URLs in der DB (lib/events.ts).
+      imageUrl: eventImageSrc(str(row.image_url)),
       relative: relativeLabel(days),
       soon: days <= 1,
       requiresRegistration: !!row.requires_registration,

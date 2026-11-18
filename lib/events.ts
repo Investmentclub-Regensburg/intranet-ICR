@@ -17,6 +17,82 @@ export const EVENT_IMAGE_TYPES: Record<string, string> = {
   "image/webp": "webp",
 };
 
+/**
+ * Event-Bilder liefert die App selbst aus (Route app/bilder/event-images/[...pfad]); der Browser spricht nie
+ * direkt mit Supabase. In der DB steht seit dem Umzug auf den eigenen Server `image_url = "/bilder/event-images/<pfad>"`,
+ * ältere Zeilen enthalten noch die absolute Storage-URL `https://<ref>.supabase.co/storage/v1/object/public/event-images/<pfad>`.
+ * Beide Formate verstehen die Helfer unten, damit der Umzug keine Datenänderung braucht.
+ */
+export const EVENT_IMAGE_ROUTE = `/bilder/${EVENT_IMAGE_BUCKET}/`;
+
+/**
+ * Erlaubte Pfade im Bucket: `<userId>/<uuid>.<ext>` (Upload über die App) und `<userId>-<ms>.<ext>`
+ * (frühe Uploads aus dem Sommer 2026, Endung aus dem Dateinamen, daher auch jpeg).
+ */
+export const EVENT_IMAGE_PATH_RE = /^[0-9a-f-]{36}(?:\/[0-9a-f-]{36}|-\d{10,16})\.(jpg|jpeg|png|gif|webp)$/;
+
+/** Content-Type zur Dateiendung eines Event-Bilds. */
+export const EVENT_IMAGE_CONTENT_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+};
+
+const LEGACY_IMAGE_MARKER = `/storage/v1/object/public/${EVENT_IMAGE_BUCKET}/`;
+
+/**
+ * Pfad im Bucket event-images aus einer gespeicherten image_url (neues App-Format oder alte Storage-URL).
+ * null = kein (gültiges) Event-Bild.
+ */
+export function eventImageStoragePath(imageUrl: string | null | undefined): string | null {
+  const value = imageUrl?.trim();
+  if (!value) return null;
+  let raw: string;
+  if (value.startsWith(EVENT_IMAGE_ROUTE)) {
+    raw = value.slice(EVENT_IMAGE_ROUTE.length);
+  } else if (/^https?:\/\//i.test(value) && value.includes(LEGACY_IMAGE_MARKER)) {
+    raw = value.slice(value.indexOf(LEGACY_IMAGE_MARKER) + LEGACY_IMAGE_MARKER.length);
+  } else {
+    return null;
+  }
+  let path: string;
+  try {
+    path = decodeURIComponent(raw.split(/[?#]/)[0] ?? "");
+  } catch {
+    return null;
+  }
+  return EVENT_IMAGE_PATH_RE.test(path) ? path : null;
+}
+
+/** App-Pfad, unter dem ein Bild aus dem Bucket ausgeliefert wird (so wird image_url neu gespeichert). */
+export function eventImageAppPath(storagePath: string): string {
+  return `${EVENT_IMAGE_ROUTE}${storagePath}`;
+}
+
+/** Adresse fürs <img> aus einer gespeicherten image_url (beide Formate); null = kein Bild. */
+export function eventImageSrc(imageUrl: string | null | undefined): string | null {
+  const path = eventImageStoragePath(imageUrl);
+  return path ? eventImageAppPath(path) : null;
+}
+
+/**
+ * Bildtyp am Dateiinhalt (Magic Bytes) erkennen, nicht nur an der Angabe des Browsers.
+ * Liefert den Content-Type aus EVENT_IMAGE_TYPES oder null.
+ */
+export function detectEventImageType(bytes: Uint8Array): string | null {
+  const starts = (sig: number[], offset = 0) =>
+    bytes.length >= offset + sig.length && sig.every((b, i) => bytes[offset + i] === b);
+  if (starts([0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
+  // "GIF87a" bzw. "GIF89a"
+  if (starts([0x47, 0x49, 0x46, 0x38]) && (starts([0x37, 0x61], 4) || starts([0x39, 0x61], 4))) return "image/gif";
+  // "RIFF" <Länge> "WEBP"
+  if (starts([0x52, 0x49, 0x46, 0x46]) && starts([0x57, 0x45, 0x42, 0x50], 8)) return "image/webp";
+  return null;
+}
+
 /** Mehrtägige Events enden höchstens so viele Tage nach dem Start (wie Check events_end_date_range in der DB). */
 export const MAX_EVENT_DAYS = 31;
 
