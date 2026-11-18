@@ -1,12 +1,13 @@
 // Gemeinsame Logik für Event-Formular (Bearbeiten) und Event-Wizard (Anlegen):
-// dieselbe Prüfung, derselbe Bild-Upload (direkt in den Bucket event-images,
-// Pfad `<userId>/<uuid>.<ext>`), dieselben Felder für createEvent/updateEvent.
-// Nur im Browser verwenden (Supabase-Browser-Client).
+// dieselbe Prüfung, derselbe Bild-Upload (über die App, POST /api/event-image, Pfad im Bucket
+// event-images `<userId>/<uuid>.<ext>`), dieselben Felder für createEvent/updateEvent.
+// Nur im Browser verwenden. Der Browser spricht nie direkt mit Supabase.
 
-import { createClient } from "@/utils/supabase/client";
-import type { EventFormInput } from "@/app/(intranet)/events/actions";
 import {
-  EVENT_IMAGE_BUCKET,
+  removeUploadedEventImage as removeUploadedEventImageAction,
+  type EventFormInput,
+} from "@/app/(intranet)/events/actions";
+import {
   EVENT_IMAGE_MAX_BYTES,
   EVENT_IMAGE_TYPES,
   MAX_EVENT_DAYS,
@@ -143,21 +144,23 @@ export const EVENT_IMAGE_ACCEPT = Object.keys(EVENT_IMAGE_TYPES).join(",");
 
 /** Bild in den eigenen Upload-Ordner laden. path = null und error gesetzt bei Fehler. */
 export async function uploadEventImage(file: File): Promise<{ path: string | null; error: string }> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { path: null, error: "Sitzung abgelaufen. Bitte neu anmelden." };
-
-  const path = `${user.id}/${crypto.randomUUID()}.${EVENT_IMAGE_TYPES[file.type]}`;
-  const { error } = await supabase.storage
-    .from(EVENT_IMAGE_BUCKET)
-    .upload(path, file, { contentType: file.type, cacheControl: "31536000", upsert: false });
-  if (error) return { path: null, error: "Bild konnte nicht hochgeladen werden." };
-  return { path, error: "" };
+  const body = new FormData();
+  body.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch("/api/event-image", { method: "POST", body });
+  } catch {
+    return { path: null, error: "Bild konnte nicht hochgeladen werden." };
+  }
+  const data = (await res.json().catch(() => null)) as { path?: unknown; error?: unknown } | null;
+  if (res.ok && typeof data?.path === "string") return { path: data.path, error: "" };
+  if (typeof data?.error === "string" && data.error) return { path: null, error: data.error };
+  // Ohne JSON-Antwort, z. B. wenn die Plattform die Anfrage wegen ihrer Größe vorher abweist.
+  if (res.status === 413) return { path: null, error: "Bild ist zu groß. Bitte ein kleineres Bild wählen." };
+  return { path: null, error: "Bild konnte nicht hochgeladen werden." };
 }
 
 /** Hochgeladenes Bild wieder entfernen (wenn das Speichern danach scheitert). */
 export async function removeUploadedEventImage(path: string): Promise<void> {
-  await createClient().storage.from(EVENT_IMAGE_BUCKET).remove([path]);
+  await removeUploadedEventImageAction(path);
 }

@@ -57,7 +57,7 @@ function EventTile({ event }: { event: DashboardEvent }) {
       {/* Titelbild wie in der Event-Liste, etwas flacher. */}
       <div className="relative aspect-[2/1] overflow-hidden rounded-t-[calc(1rem-1px)] bg-muted">
         {event.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- Supabase-Storage
+          // eslint-disable-next-line @next/next/no-img-element -- Event-Bild über die App (/bilder/event-images)
           <img src={event.imageUrl} alt="" className="size-full object-cover" loading="lazy" />
         ) : (
           <EventImageFallback />
