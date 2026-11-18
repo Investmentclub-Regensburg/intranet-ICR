@@ -73,3 +73,17 @@ export function passtDatenFilter(
   if (filter === "unvollstaendig") return (m.datenMaengel?.length ?? 0) > 0;
   return true;
 }
+
+/**
+ * Lesbarkeit der verschlüsselten Daten für den Filter „Unvollständig“ (nur Vorstand): Zahl der nicht lesbaren
+ * aktiven Mitglieder (fehlen im Filter) und ob die Prüfung überhaupt möglich ist (nicht alles unlesbar).
+ */
+export function datenLesbarkeit(members: ReadonlyArray<{ secretsUnreadable: boolean; status: string }>): {
+  nichtLesbar: number;
+  pruefungMoeglich: boolean;
+} {
+  return {
+    nichtLesbar: members.filter((m) => m.secretsUnreadable && statusGroup(m) === "active").length,
+    pruefungMoeglich: members.length === 0 || members.some((m) => !m.secretsUnreadable),
+  };
+}

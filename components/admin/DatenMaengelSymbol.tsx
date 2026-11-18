@@ -15,8 +15,7 @@ export function DatenMaengelSymbol({ felder, name }: { felder?: readonly string[
       <PopoverTrigger
         type="button"
         aria-label={`Daten von ${name} unvollständig: ${liste}`}
-        title={`Unvollständig: ${liste}`}
-        className="-my-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full text-destructive outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        className="-mx-3 -my-3 inline-flex size-11 shrink-0 items-center justify-center rounded-full text-destructive outline-none hover:text-destructive/75 focus-visible:ring-[3px] focus-visible:ring-ring/40"
       >
         <CircleAlert className="size-4" aria-hidden />
       </PopoverTrigger>

@@ -6,9 +6,9 @@
 // für admin fehlt die Eigenschaft `datenMaengel` ganz.
 import "server-only";
 import { pruefeBestand, type Feld, type Mangel } from "./member-rules";
-import { SECRET_FIELDS } from "./member-crypto";
 import { isActiveMemberProfile, isAlumniProfile } from "./profile-status";
-import { istBestaetigungOffen } from "./member-data-check";
+import { BESTANDS_FELDER, alsZeitpunkt, berlinTagesbeginn, letzterStichtag } from "./member-data-check";
+import { berlinToday } from "./berlin-date";
 import type { MemberSecretsResult } from "./member-secrets-server";
 
 export type AdminMemberRow = {
@@ -53,7 +53,7 @@ export const FELD_NAMEN: Readonly<Record<Feld, string>> = Object.freeze({
 const FELD_REIHENFOLGE = Object.keys(FELD_NAMEN) as Feld[];
 
 /**
- * Felder mit Mangel im gespeicherten Bestand (verschlüsselte Felder wie im Skript datenqualitaet.mjs),
+ * Felder mit Mangel im gespeicherten Bestand (BESTANDS_FELDER, gleiche Liste wie Abfrage-Fenster und Skript),
  * geprüft mit `pruefeBestand` OHNE `handyLand` (regeln-fuer-aufrufer.md 1); Alumni ohne Bankmängel (3).
  * `land_unbekannt` zählt nur am Feld `land` (Punkt 4). Hinweise (`vorwahl_ergaenzt`, `bic_land`) bleiben
  * bewusst weg: Sie blockieren nie, und das Mitglied bestätigt sie selbst im Abfrage-Fenster.
@@ -64,7 +64,7 @@ export function maengelFelder(
   heute?: string
 ): Feld[] {
   const daten: Record<string, string | null> = {};
-  for (const feld of SECRET_FIELDS) daten[feld] = werte[feld] ?? null;
+  for (const feld of BESTANDS_FELDER) daten[feld] = werte[feld] ?? null;
   const alumni = isAlumniProfile(profil);
   const kontext = heute ? { alumni, wer: "mitglied" as const, heute } : { alumni, wer: "mitglied" as const };
   const maengel: Mangel[] = pruefeBestand(daten, kontext).maengel;
@@ -97,6 +97,14 @@ export function adminMitgliederZeilen(
     heute,
   }: { vorstand: boolean; bestaetigtBekannt?: boolean; jetzt?: Date; heute?: string }
 ): AdminMemberRow[] {
+  // Einmal je Aufruf (Review V1): Stichtag als Zeitpunkt (00:00 Berlin) und das Berliner Datum für die Regeln.
+  // „Bestätigung vor dem Stichtag (Berliner Datum)“ ⇔ Zeitpunkt vor 00:00 Berlin am Stichtag.
+  const stichtagBeginn = berlinTagesbeginn(letzterStichtag(jetzt)).getTime();
+  const heuteBerlin = heute ?? berlinToday(jetzt);
+  const offen = (bestaetigtAm: unknown) => {
+    const zeitpunkt = alsZeitpunkt(bestaetigtAm);
+    return !zeitpunkt || zeitpunkt.getTime() < stichtagBeginn;
+  };
   return profiles.map((raw) => {
     const id = text(raw.id);
     const v = text(raw.Vorname ?? raw.vorname);
@@ -116,10 +124,10 @@ export function adminMitgliederZeilen(
       status: String(raw.Status ?? raw.status ?? "active").trim().toLowerCase(),
       bestaetigungOffen: !bestaetigtBekannt
         ? null
-        : aktiv && istBestaetigungOffen({ bestaetigtAm: raw.daten_bestaetigt_am as string | null, jetzt }),
+        : aktiv && offen(raw.daten_bestaetigt_am),
     };
     if (vorstand && aktiv && werte) {
-      row.datenMaengel = maengelFelder(werte, raw, heute).map((f) => FELD_NAMEN[f]);
+      row.datenMaengel = maengelFelder(werte, raw, heuteBerlin).map((f) => FELD_NAMEN[f]);
     }
     return row;
   });

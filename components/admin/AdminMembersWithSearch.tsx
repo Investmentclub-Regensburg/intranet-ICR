@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { AdminMembersTable } from "./AdminMembersTable";
 import { FilterChips } from "./bits";
-import { passtDatenFilter, statusGroup, type DatenFilter } from "./format";
+import { datenLesbarkeit, passtDatenFilter, statusGroup, type DatenFilter } from "./format";
 import type { AdminMemberRow } from "@/app/(intranet)/admin/members/actions";
 
 type RoleKey = "all" | "member" | "admin" | "board" | "alumni";
@@ -60,23 +60,29 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
     [members],
   );
 
-  // Filter „Daten“: „Nicht bestätigt“ nur, wenn der Stand bekannt ist (Spalte vorhanden), „Daten
-  // unvollständig“ nur für den Vorstand.
+  // Nur Vorstand: Nicht lesbare (aktive) Mitglieder können nicht geprüft werden und fehlen in „Unvollständig“;
+  // sie werden als Zahl genannt. Ist gar nichts lesbar (member_secrets nicht lesbar), statt „0“ ein Hinweis.
+  const lesbarkeit = useMemo(() => datenLesbarkeit(members), [members]);
+  const nichtLesbar = showDataIssues ? lesbarkeit.nichtLesbar : 0;
+  const pruefungMoeglich = !showDataIssues || lesbarkeit.pruefungMoeglich;
+
+  // Filter „Daten“: „Nicht bestätigt“ nur, wenn der Stand bekannt ist (Spalte vorhanden), „Unvollständig“ nur
+  // für den Vorstand und nur, wenn die Prüfung möglich ist.
   const datenOptions = useMemo(() => {
     const keys: DatenFilter[] = ["all"];
     if (members.some((m) => m.bestaetigungOffen !== null)) keys.push("unbestaetigt");
-    if (showDataIssues) keys.push("unvollstaendig");
+    if (showDataIssues && pruefungMoeglich) keys.push("unvollstaendig");
     const labels: Record<DatenFilter, string> = {
       all: "Alle",
       unbestaetigt: "Nicht bestätigt",
-      unvollstaendig: "Daten unvollständig",
+      unvollstaendig: "Unvollständig",
     };
     return keys.map((key) => ({
       key,
       label: labels[key],
       count: members.filter((m) => passtDatenFilter(m, key)).length,
     }));
-  }, [members, showDataIssues]);
+  }, [members, showDataIssues, pruefungMoeglich]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -111,8 +117,17 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
         <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-8">
           <FilterChips label="Rolle" options={roleOptions} value={role} onChange={setRole} />
           <FilterChips label="Status" options={statusOptions} value={status} onChange={setStatus} />
-          {datenOptions.length > 1 && (
-            <FilterChips label="Daten" options={datenOptions} value={daten} onChange={setDaten} />
+          {(datenOptions.length > 1 || !pruefungMoeglich) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <FilterChips label="Daten" options={datenOptions} value={daten} onChange={setDaten} />
+              {!pruefungMoeglich ? (
+                <span className="text-xs text-muted-foreground">Prüfung gerade nicht möglich (Daten nicht lesbar)</span>
+              ) : (
+                nichtLesbar > 0 && (
+                  <span className="text-xs text-muted-foreground tabular-nums">{nichtLesbar} nicht lesbar</span>
+                )
+              )}
+            </div>
           )}
         </div>
       </div>

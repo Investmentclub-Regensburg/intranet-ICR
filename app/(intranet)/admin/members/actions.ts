@@ -28,6 +28,8 @@ import { adminMitgliederZeilen, type AdminMemberRow } from "@/lib/member-overvie
 
 export type { AdminMemberRow } from "@/lib/member-overview";
 
+let bestaetigtSpalteGemeldet = false;
+
 /** PostgREST-/Postgres-Fehler „Spalte daten_bestaetigt_am fehlt“ (Migration 20261118140000 noch nicht da). */
 function fehltBestaetigtSpalte(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
@@ -57,8 +59,12 @@ export async function getAdminMembers(): Promise<AdminMemberRow[]> {
   let bestaetigtBekannt = true;
   let { data, error } = await lesen(true);
   if (error && fehltBestaetigtSpalte(error)) {
-    // Übergang: App vor der Migration. Liste ohne Filter „Nicht bestätigt“ statt leerer Seite.
-    console.warn("getAdminMembers: Spalte daten_bestaetigt_am fehlt (Migration 20261118140000), Liste ohne Bestätigungsstand");
+    // Übergang: App vor der Migration. Liste ohne Filter „Nicht bestätigt“ statt leerer Seite. Warnung nur
+    // einmal je Prozess (wie bei der Spalte land, Review V5).
+    if (!bestaetigtSpalteGemeldet) {
+      bestaetigtSpalteGemeldet = true;
+      console.warn("getAdminMembers: Spalte daten_bestaetigt_am fehlt (Migration 20261118140000), Liste ohne Bestätigungsstand");
+    }
     bestaetigtBekannt = false;
     ({ data, error } = await lesen(false));
   }

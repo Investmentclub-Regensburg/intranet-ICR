@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FELD_NAMEN, adminMitgliederZeilen, maengelFelder } from "../lib/member-overview.ts";
-import { passtDatenFilter } from "../components/admin/format.ts";
+import { datenLesbarkeit, passtDatenFilter } from "../components/admin/format.ts";
 
 const JETZT = new Date("2026-11-18T12:00:00Z"); // letzter Stichtag 15.9.2026
 const HEUTE = "2026-11-18";
@@ -186,4 +186,34 @@ test("Bestehende Felder der Liste unverändert (Name, Rolle, Status)", () => {
   assert.equal(rows[0].rolle, "board");
   assert.equal(rows[0].status, "");
   assert.equal(rows[0].secretsUnreadable, false);
+});
+
+test("Nicht bestätigt (einmal berechneter Stichtag) = istBestaetigungOffen, auch an Stichtag- und Zeitumstellungsgrenzen", async () => {
+  const { istBestaetigungOffen } = await import("../lib/member-data-check.ts");
+  const jetzte = ["2026-11-18T12:00:00Z", "2027-03-01T00:30:00Z", "2027-02-28T22:59:59Z", "2026-09-15T05:00:00Z", "2026-03-29T03:00:00Z"];
+  const zeitpunkte = [];
+  for (const basis of ["2026-09-14T21:59:59Z", "2026-09-14T22:00:00Z", "2026-02-28T22:59:59Z", "2026-02-28T23:00:00Z", "2027-02-28T23:00:00Z"]) {
+    const t = new Date(basis).getTime();
+    for (const d of [-3600e3, -1000, 0, 1000, 3600e3, 86400e3 * 30]) zeitpunkte.push(new Date(t + d).toISOString());
+  }
+  zeitpunkte.push(null, "", "kein Datum");
+  for (const j of jetzte) {
+    const jetzt = new Date(j);
+    const rows = adminMitgliederZeilen(
+      zeitpunkte.map((z, i) => profil(`z${i}`, { daten_bestaetigt_am: z })),
+      new Map(),
+      { vorstand: false, jetzt }
+    );
+    rows.forEach((row, i) => {
+      assert.equal(row.bestaetigungOffen, istBestaetigungOffen({ bestaetigtAm: zeitpunkte[i], jetzt }), `${j} ${zeitpunkte[i]}`);
+    });
+  }
+});
+
+test("Nicht lesbar: Zahl nur aktiver, Prüfung unmöglich nur, wenn nichts lesbar ist", () => {
+  assert.deepEqual(datenLesbarkeit(zeilen(true)), { nichtLesbar: 1, pruefungMoeglich: true });
+  const nichts = adminMitgliederZeilen(profiles, null, { vorstand: true, jetzt: JETZT, heute: HEUTE });
+  // 8 aktive (gekündigt und Antrag zählen nicht), Prüfung nicht möglich → kein „0“ beim Filter
+  assert.deepEqual(datenLesbarkeit(nichts), { nichtLesbar: 8, pruefungMoeglich: false });
+  assert.deepEqual(datenLesbarkeit([]), { nichtLesbar: 0, pruefungMoeglich: true });
 });
