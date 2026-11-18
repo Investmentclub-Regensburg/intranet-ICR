@@ -27,7 +27,7 @@ import {
   type RegisterActionState,
   type RegisterSavedState,
 } from "./actions";
-import { countryCodes } from "@/lib/country-codes";
+import { DEFAULT_COUNTRY, countryCodes, dialCodeFor } from "@/lib/country-codes";
 import { IbanBicFields } from "./iban-bic-fields";
 import { AuthFrame, StageHeading, flyDelay } from "@/components/auth/AuthFrame";
 import {
@@ -65,7 +65,7 @@ const DEFAULT_FORM: RegisterSavedState = {
   hausnummer: "",
   ort: "",
   plz: "",
-  landesvorwahl: "+49",
+  landesvorwahl: DEFAULT_COUNTRY,
   handynummer: "",
   student: "",
   studiengang: "",
@@ -252,7 +252,7 @@ export function RegisterForm() {
       key: "contact",
       label: "Kontakt",
       Icon: Mail,
-      value: `${v.email} · ${v.landesvorwahl} ${v.handynummer}`,
+      value: `${v.email} · ${dialCodeFor(v.landesvorwahl) ?? ""} ${v.handynummer}`,
     });
   }
   if (done("password")) {
@@ -487,7 +487,7 @@ export function RegisterForm() {
                 aria-label="Ländervorwahl"
               >
                 {countryCodes.map(({ code, dialCode }) => (
-                  <option key={code} value={dialCode}>
+                  <option key={code} value={code}>
                     {dialCode} {code}
                   </option>
                 ))}

@@ -1,6 +1,8 @@
 /**
- * Ländervorwahlen für Telefonnummern (ITU E.164).
+ * Länderliste nach ISO-3166-Code (eindeutiger Wert, z. B. für Kanada und USA, die beide „+1“ haben).
+ * Dient der Ländervorwahl beim Handy und dem Land-Feld der Anschrift.
  * Deutschland als erstes für Default-Auswahl.
+ * `dialCode` ist die Vorwahl zur Anzeige (ITU E.164); maßgeblich für die Prüfung ist der ISO-Code.
  */
 export const countryCodes = [
   { code: "DE", dialCode: "+49", name: "Deutschland" },
@@ -202,3 +204,36 @@ export const countryCodes = [
   { code: "ZM", dialCode: "+260", name: "Sambia" },
   { code: "ZW", dialCode: "+263", name: "Simbabwe" },
 ] as const;
+
+export type Country = (typeof countryCodes)[number];
+export type CountryCode = Country["code"];
+
+/** Standardland für Handy und Anschrift. */
+export const DEFAULT_COUNTRY: CountryCode = "DE";
+
+const BY_CODE: ReadonlyMap<string, Country> = new Map(countryCodes.map((c) => [c.code, c]));
+
+export function isCountryCode(value: unknown): value is CountryCode {
+  return typeof value === "string" && BY_CODE.has(value);
+}
+
+/** Land zum ISO-Code (Groß-/Kleinschreibung egal), sonst null. */
+export function findCountry(code: string | null | undefined): Country | null {
+  return BY_CODE.get(String(code ?? "").trim().toUpperCase()) ?? null;
+}
+
+/** Vorwahl zum ISO-Code, z. B. "DE" → "+49"; null bei unbekanntem Code. */
+export function dialCodeFor(code: string | null | undefined): string | null {
+  return findCountry(code)?.dialCode ?? null;
+}
+
+/**
+ * Wert einer Länderauswahl → ISO-Code. Nimmt auch den alten Wert (Vorwahl wie "+49") an, damit ein
+ * noch offenes altes Formular weiter funktioniert; bei "+1" o. ä. gewinnt der erste Eintrag der Liste.
+ */
+export function countryFromSelectValue(value: string | null | undefined): CountryCode | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("+")) return countryCodes.find((c) => c.dialCode === raw)?.code ?? null;
+  return findCountry(raw)?.code ?? null;
+}
