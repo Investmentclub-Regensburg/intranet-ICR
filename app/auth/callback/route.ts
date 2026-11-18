@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { NextResponse } from "next/server";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import { siteRedirectUrl } from "@/lib/site-url";
 
 /**
  * Auth-Callback für E-Mail-Links (z. B. Passwort-Reset).
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
   const next = safeRedirectPath(searchParams.get("next"), "/reset-password");
 
   if (!code) {
-    return NextResponse.redirect(new URL("/login?error=missing_code", request.url));
+    return NextResponse.redirect(siteRedirectUrl("/login?error=missing_code", request.url));
   }
 
   const supabase = await createClient();
@@ -21,8 +22,8 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error("Auth callback exchangeCodeForSession:", error.message);
-    return NextResponse.redirect(new URL("/login?error=auth_callback_failed", request.url));
+    return NextResponse.redirect(siteRedirectUrl("/login?error=auth_callback_failed", request.url));
   }
 
-  return NextResponse.redirect(new URL(next, request.url));
+  return NextResponse.redirect(siteRedirectUrl(next, request.url));
 }

@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { type EmailOtpType } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import { siteRedirectUrl } from "@/lib/site-url";
 
 /**
  * Session-Cookies müssen auf die Redirect-Response geschrieben werden,
@@ -15,14 +16,14 @@ export async function GET(request: NextRequest) {
 
   if (!token_hash || !type) {
     return NextResponse.redirect(
-      new URL("/login?error=Invalid_or_expired_token", request.url)
+      siteRedirectUrl("/login?error=Invalid_or_expired_token", request.url)
     );
   }
 
   const redirectTo =
     type === "recovery"
-      ? new URL("/reset-password", request.url)
-      : new URL(safeRedirectPath(nextParam), request.url);
+      ? siteRedirectUrl("/reset-password", request.url)
+      : siteRedirectUrl(safeRedirectPath(nextParam), request.url);
   let response = NextResponse.redirect(redirectTo);
 
   const supabase = createServerClient(
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL("/login?error=Invalid_or_expired_token", request.url)
+      siteRedirectUrl("/login?error=Invalid_or_expired_token", request.url)
     );
   }
 
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
       const { data: current } = await supabase.auth.getUser();
       path = current.user ? "/profile?tab=daten&email=ausstehend" : "/login?email=ausstehend";
     }
-    const target = NextResponse.redirect(new URL(path, request.url));
+    const target = NextResponse.redirect(siteRedirectUrl(path, request.url));
     for (const cookie of response.cookies.getAll()) target.cookies.set(cookie);
     response = target;
   }
