@@ -945,7 +945,7 @@ test("R4: Nicht-Strings sind immer `format`, nie „leer“", () => {
 });
 
 test("R5: unsichtbare Zeichen → `zeichen`; NFC, außen getrimmt", () => {
-  const unsichtbar = ["\u200B", "\u200C", "\u200D", "\u2060", "\uFEFF", "\u202A", "\u202E", "\u2066", "\u2069"];
+  const unsichtbar = ["\u200C", "\u200D", "\u202A", "\u202E", "\u2066", "\u2069"];
   for (const z of unsichtbar) {
     const name = z.codePointAt(0).toString(16);
     assert.equal(pruefeStrasse(`Haupt${z}straße`, "1", MITGLIED).code, "zeichen", name);
@@ -956,8 +956,8 @@ test("R5: unsichtbare Zeichen → `zeichen`; NFC, außen getrimmt", () => {
     assert.equal(pruefePlz(`930${z}47`, "US", MITGLIED).code, "zeichen", name);
   }
   assert.equal(pruefeStrasse("\u202EeßartstpuaH", "1", MITGLIED).code, "zeichen");
-  assert.equal(pruefeHausnummer("\u200B", "AT", MITGLIED).code, "zeichen");
-  assert.equal(pruefeStrasse("Hauptstraße 12\u200B", "", MITGLIED).code, "zeichen");
+  assert.equal(pruefeHausnummer("\u200B", "AT", MITGLIED).code, null); // H1: still entfernt, im Ausland optional
+  assert.equal(pruefeStrasse("Hauptstraße 12\u200B", "", MITGLIED).code, "hausnummer_in_strasse"); // H1
   // NFC: „u + Trema“ wird zu „ü“.
   assert.equal(pruefeOrt("Mu\u0308nchen", "DE", MITGLIED).wert, "München");
   // Außen: Leerraum (inkl. NBSP, BOM) weg.
@@ -1010,28 +1010,33 @@ test("Altlast: Vatikanstadt hat die Vorwahl +39", () => {
 // Fixrunde 2: Gegenprüfung 37f2a44 (N1–N4, G1–G4)
 // ---------------------------------------------------------------------------------------------------
 
-test("G1/N1: Land mit Regex-Zeichen wirft nicht, ist land_unbekannt, kein ReDoS, kein Platzhalter", () => {
-  for (const land of ["(", "[", ".*", ".", "(A+)+B", "\\", "D|A", "__proto__", "constructor"]) {
-    const plz = pruefePlz("12345", land, MITGLIED);
-    assert.equal(plz.code, "land_unbekannt", land);
-    assert.equal(plz.wert, "12345", land);
+test("G1/N1, H2/M2: Land mit Regex-Zeichen wirft nicht, nur `land` ist land_unbekannt, kein ReDoS", () => {
+  for (const land of ["(", "[", ".*", ".", "(A+)+B", "\\", "D|A", "__proto__", "constructor", "XX"]) {
+    // H2/M2: PLZ wird bei unbekanntem Land nicht bewertet (kein Mangel, auch nicht `fehlt`).
+    for (const kontext of [MITGLIED, REGISTRIERUNG, VORSTAND]) {
+      const plz = pruefePlz("12345", land, kontext);
+      assert.equal(plz.code, null, land);
+      assert.equal(plz.wert, "12345", land);
+      assert.equal(pruefePlz("", land, kontext).code, null, land);
+    }
     assert.equal(pruefePlz("XYZ-93047", land, MITGLIED).wert, "XYZ-93047", land);
-    assert.equal(pruefePlz("", land, MITGLIED).code, "land_unbekannt", land);
+    assert.deepEqual(pruefeMitgliederdaten({ ...GUT, land, plz: "" }, MITGLIED), [{ feld: "land", code: "land_unbekannt" }], land);
     assert.doesNotThrow(() => pruefeFormular({ ...GUT, land, plz: "1" }, MITGLIED), land);
     assert.doesNotThrow(() => pruefeVorstandskorrektur({ plz: "1234" }, { land }, HEUTE), land);
     assert.doesNotThrow(() => pruefeHandy("0176 12345678", land, MITGLIED), land);
   }
   const r = pruefeFormular({ ...GUT, land: "(", plz: "1" }, MITGLIED);
-  assert.deepEqual(r.maengel, [
-    { feld: "plz", code: "land_unbekannt" },
+  assert.deepEqual(r.maengel, [{ feld: "land", code: "land_unbekannt" }]);
+  assert.deepEqual(pruefeVorstandskorrektur({ land: "XX", plz: "1" }, GUT, HEUTE).maengel, [
     { feld: "land", code: "land_unbekannt" },
   ]);
-  // ReDoS-Muster: schnell, Länge greift vor allem anderen.
+  // ReDoS-Muster: schnell.
   const start = Date.now();
   for (let n = 20; n <= 28; n++) pruefePlz("A".repeat(n), "(A+)+B", MITGLIED);
   pruefePlz("A".repeat(24), "(A+)+B", VORSTAND);
   assert.ok(Date.now() - start < 50, `${Date.now() - start} ms`);
-  assert.equal(pruefePlz("A".repeat(24), "(A+)+B", MITGLIED).code, "zu_lang");
+  // Bekanntes Land: Länge wird weiter geprüft.
+  assert.equal(pruefePlz("A".repeat(24), "DE", MITGLIED).code, "zu_lang");
   // Bekannte Länder: Präfix weiter entfernt, nur das eigene.
   assert.equal(pruefePlz("D-93047", "DE", MITGLIED).wert, "93047");
   assert.equal(pruefePlz("CH-8001", "CH", MITGLIED).wert, "8001");
@@ -1061,7 +1066,8 @@ test("G2/N2: vorwahl_ergaenzt nie im Formular (Land gewählt), nur im Bestand", 
 });
 
 test("G3: alle Format-Zeichen (Cf) werden abgelehnt; Quelltext ohne unsichtbare Zeichen", () => {
-  const cf = [0x00ad, 0x061c, 0x180e, 0x200b, 0x200d, 0x200e, 0x200f, 0x2061, 0x2064, 0x206a, 0x206f, 0xfeff, 0xe0001];
+  // Ohne die harmlosen, still entfernten Zeichen (H1, eigener Test).
+  const cf = [0x061c, 0x180e, 0x200c, 0x200d, 0x202a, 0x202e, 0x2061, 0x2064, 0x2066, 0x2069, 0x206a, 0x206f, 0xe0001];
   for (const cp of cf) {
     const z = String.fromCodePoint(cp);
     const name = cp.toString(16);
@@ -1077,6 +1083,43 @@ test("G3: alle Format-Zeichen (Cf) werden abgelehnt; Quelltext ohne unsichtbare 
   for (const datei of ["../lib/member-rules.ts", "../lib/member-rules-client.ts", "./member-rules.test.mjs"]) {
     const quelle = readFileSync(new URL(datei, import.meta.url), "utf8");
     assert.doesNotMatch(quelle, /[\p{Cf}\p{Zl}\p{Zp}]/u, datei);
+  }
+});
+
+test("H1: harmlose Format-Zeichen still entfernt, Bidi weiter gemeldet", () => {
+  const harmlos = [0x00ad, 0x200b, 0x200e, 0x200f, 0x2060, 0xfeff].map((c) => String.fromCodePoint(c));
+  for (const z of harmlos) {
+    const name = z.codePointAt(0).toString(16);
+    assert.deepEqual(pruefeStrasse(`Haupt${z}straße`, "1", MITGLIED), { wert: "Hauptstraße", fehler: null, code: null }, name);
+    assert.equal(pruefeOrt(`Regens${z}burg`, "DE", MITGLIED).wert, "Regensburg", name);
+    assert.equal(pruefeName(`Ma${z}x`, "vorname").wert, "Max", name);
+    assert.equal(pruefeEmail(`max${z}@gmail.com`, MITGLIED).wert, "max@gmail.com", name);
+    assert.equal(pruefeHausnummer(`12${z}a`, "DE", MITGLIED).wert, "12a", name);
+    assert.equal(pruefePlz(`930${z}47`, "DE", MITGLIED).wert, "93047", name);
+    // R5-Fall: nach dem Entfernen greift die Hausnummer-Regel wieder.
+    const r = pruefeStrasse(`Hauptstraße 12${z}`, "", MITGLIED);
+    assert.equal(r.code, "hausnummer_in_strasse", name);
+    assert.equal(r.fehler, "Hausnummer bitte ins eigene Feld.", name);
+    // Nur aus harmlosen Zeichen = leer.
+    assert.equal(pruefeOrt(z, "DE", MITGLIED).code, "fehlt", name);
+  }
+  // Gespeichert wird der bereinigte Wert (Gesamtprüfung).
+  const weich = String.fromCodePoint(0x00ad);
+  assert.equal(pruefeFormular({ ...GUT, ort: `Re${weich}gens${weich}burg` }, MITGLIED).werte.ort, "Regensburg");
+  // Bidi-Embedding/Override/Isolates bleiben `zeichen`.
+  for (const cp of [0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069]) {
+    assert.equal(pruefeStrasse(`Haupt${String.fromCodePoint(cp)}straße`, "1", MITGLIED).code, "zeichen", cp.toString(16));
+  }
+});
+
+test("M4: Bindestrich U+2010/U+2011 wird zu „-“ (Name, Straße, Ort)", () => {
+  for (const cp of [0x2010, 0x2011]) {
+    const s = String.fromCodePoint(cp);
+    const name = pruefeName(`Müller${s}Lüdenscheidt`, "nachname");
+    assert.ok(ok(name), cp.toString(16));
+    assert.equal(name.wert, "Müller-Lüdenscheidt");
+    assert.equal(pruefeStrasse(`Albertus${s}Magnus${s}Str.`, "6", MITGLIED).wert, "Albertus-Magnus-Str.");
+    assert.equal(pruefeOrt(`Garmisch${s}Partenkirchen`, "DE", MITGLIED).wert, "Garmisch-Partenkirchen");
   }
 });
 
@@ -1126,4 +1169,76 @@ test("N4: Haus, Gebäude, Block, Aufgang, Hinterhaus vor der Nummer → offen", 
   // Wörter, die nur so anfangen, sind kein Zusatz.
   assert.deepEqual(repariereStrasse("Am Hausberg 5", ""), { status: "sicher", strasse: "Am Hausberg", hausnummer: "5" });
   assert.deepEqual(repariereStrasse("Blockstraße 7", ""), { status: "sicher", strasse: "Blockstraße", hausnummer: "7" });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Kurzprüfung d35347b (K1–K3)
+// ---------------------------------------------------------------------------------------------------
+
+test("K1: PLZ-Länge, Steuerzeichen und Formelanfang auch bei unbekanntem Land", () => {
+  for (const land of ["ZZ", "(", ""]) {
+    for (const kontext of [MITGLIED, VORSTAND]) {
+      assert.equal(pruefePlz("=1+1", land, kontext).code, "zeichen", land);
+      assert.equal(pruefePlz("=HYPERLINK(1)", land, kontext).code, "zu_lang", land);
+      assert.equal(pruefePlz("@1", land, kontext).code, "zeichen", land);
+      assert.equal(pruefePlz("A".repeat(500), land, kontext).code, "zu_lang", land);
+      assert.equal(pruefePlz(`1${String.fromCodePoint(0x202e)}2`, land, kontext).code, "zeichen", land);
+    }
+  }
+  // Vorstand ändert nur die PLZ, gespeichertes Land ungültig: Formel wird nicht gespeichert.
+  const r = pruefeVorstandskorrektur({ plz: "=1+1" }, { ...GUT, land: "ZZ" }, HEUTE);
+  assert.equal(r.gueltig, false);
+  assert.deepEqual(r.maengel, [{ feld: "plz", code: "zeichen" }]);
+  // Harmlose PLZ bei unbekanntem Land bleibt unbewertet (H2).
+  assert.deepEqual(pruefePlz("ABC 123", "ZZ", MITGLIED), { wert: "ABC 123", fehler: null, code: null });
+});
+
+test("K2: Reparatur meldet „sicher“ mit bereinigtem Wert, wenn sich der Rohwert ändert", () => {
+  const weich = String.fromCodePoint(0x00ad);
+  const zwsp = String.fromCodePoint(0x200b);
+  assert.deepEqual(repariereStrasse(`Haupt${weich}straße`, "12"), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12" });
+  assert.deepEqual(repariereStrasse(`Mu${String.fromCodePoint(0x308)}hlweg`, "3"), { status: "sicher", strasse: "Mühlweg", hausnummer: "3" });
+  assert.deepEqual(repariereStrasse(" Hauptstraße  ", " 12 "), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12" });
+  assert.deepEqual(repariereStrasse("Hauptstraße", `1${zwsp}2`), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12" });
+  assert.deepEqual(repariereStrasse("Hauptstraße", "12–14"), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12-14" });
+  // Schon bereinigt → gueltig; zweite Anwendung ist idempotent.
+  assert.deepEqual(repariereStrasse("Hauptstraße", "12"), { status: "gueltig", strasse: "Hauptstraße", hausnummer: "12" });
+  const einmal = repariereStrasse(`Haupt${weich}straße`, "12");
+  assert.equal(repariereStrasse(einmal.strasse, einmal.hausnummer).status, "gueltig");
+  // Datensatz: bereinigte Straße landet in `sicher`.
+  assert.deepEqual(repariereMitgliederdaten({ ...GUT, strasse: `Haupt${weich}straße` }).sicher, {
+    strasse: "Hauptstraße",
+    hausnummer: GUT.hausnummer,
+  });
+  // Übrige Helfer vergleichen mit dem Rohwert.
+  assert.equal(repariereIban(` ${IBAN_DE}`).status, "sicher");
+  assert.equal(repariereBic("COBADEFF ", IBAN_DE).status, "sicher");
+  assert.equal(repariereHandy(`+4917612345678${zwsp}`).status, "sicher");
+});
+
+test("K3: harmlose Format-Zeichen auch bei BIC, Handy und Geburtsdatum still entfernt", () => {
+  for (const cp of [0x00ad, 0x200b, 0x200e, 0x200f, 0x2060, 0xfeff]) {
+    const z = String.fromCodePoint(cp);
+    const name = cp.toString(16);
+    const bic = pruefeBic(`COBADEFF${z}XXX`, IBAN_DE, MITGLIED);
+    assert.ok(ok(bic), name);
+    assert.equal(bic.wert, "COBADEFFXXX", name);
+    assert.deepEqual(repariereBic(`COBADEFF${z}XXX`, IBAN_DE), { status: "sicher", wert: "COBADEFFXXX", code: null }, name);
+    const handy = pruefeHandy(`0176${z} 12345678`, "DE", MITGLIED);
+    assert.ok(ok(handy), name);
+    assert.equal(handy.wert, "+4917612345678", name);
+    assert.equal(repariereHandy(`0176${z} 12345678`).status, "sicher", name);
+    const geb = pruefeGeburtsdatum(`2001-05${z}-17`, MITGLIED);
+    assert.ok(ok(geb), name);
+    assert.equal(geb.wert, "2001-05-17", name);
+    // Nur harmlose Zeichen = leer.
+    assert.equal(pruefeHandy(z, "DE", MITGLIED).code, "fehlt", name);
+    assert.equal(pruefeGeburtsdatum(z, MITGLIED).code, "fehlt", name);
+    assert.ok(ok(pruefeBic(z, IBAN_DE, MITGLIED)), name);
+  }
+  // Bidi bleibt ein Fehler (BIC/Handy/Datum: Format).
+  const rlo = String.fromCodePoint(0x202e);
+  assert.equal(pruefeBic(`COBADEFF${rlo}XXX`, IBAN_DE, MITGLIED).code, "format");
+  assert.equal(pruefeHandy(`0176${rlo}12345678`, "DE", MITGLIED).code, "format");
+  assert.equal(pruefeGeburtsdatum(`2001-05-17${rlo}`, MITGLIED).code, "format");
 });
