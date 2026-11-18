@@ -19,31 +19,49 @@ export const getCachedUser = cache(async () => {
   return user;
 });
 
+/** Spalten der Abfrage „Stimmen deine Daten noch?“ (Paket „Mitgliederdaten“, PR 4). */
+const DATEN_CHECK_SPALTEN = "daten_bestaetigt_am, daten_erinnern_ab";
+
+/** Postgres/PostgREST „Spalte fehlt“ (42703) für eine der Spalten der Abfrage. */
+function istFehlendeDatenCheckSpalte(error: { code?: string; message?: string }): boolean {
+  const message = String(error.message ?? "");
+  return /daten_(bestaetigt_am|erinnern_ab)/.test(message) && (error.code === "42703" || /does not exist/i.test(message));
+}
+
 /**
  * User + Profil (nur Layout-relevante Felder), einmal pro Request gecacht.
  */
 export const getCachedAuth = cache(async () => {
   const user = await getCachedUser();
-  if (!user) return { user: null, profile: null };
+  if (!user) return { user: null, profile: null, datenCheckSpalten: false };
 
   const supabase = await getCachedSupabase();
-  const { data: profile, error } = await supabase
+  // Nur, was Layout, Rollenprüfung, Statusprüfung und die Abfrage „Stimmen deine Daten noch?“ brauchen – keine
+  // sensiblen Felder.
+  const spalten = 'id, user_id, "Vorname", "Nachname", "E-Mail", "Rolle", "Status", letzter_news_aufruf';
+  let { data: profile, error } = await supabase
     .from("profiles")
-    // Nur, was Layout, Rollenprüfung und Statusprüfung brauchen – keine sensiblen Felder.
-    .select('id, user_id, "Vorname", "Nachname", "E-Mail", "Rolle", "Status", letzter_news_aufruf')
+    .select(`${spalten}, ${DATEN_CHECK_SPALTEN}`)
     .eq("user_id", user.id)
     .maybeSingle();
+  // Übergang (Migration 20261118140000 noch nicht eingespielt): ohne die Spalten weiter, die Abfrage ist dann
+  // nie fällig. Sonst wäre jede Anmeldung gesperrt (fail-closed unten).
+  let datenCheckSpalten = true;
+  if (error && istFehlendeDatenCheckSpalte(error)) {
+    datenCheckSpalten = false;
+    ({ data: profile, error } = await supabase.from("profiles").select(spalten).eq("user_id", user.id).maybeSingle());
+  }
 
   const p = (profile ?? null) as Record<string, unknown> | null;
   // Ohne Profil oder bei einem Datenbankfehler kein Zugriff (fail-closed).
-  if (error) return { user: null, profile: null };
+  if (error) return { user: null, profile: null, datenCheckSpalten: false };
   if (!p || isCancelledProfile(p) || isPendingProfile(p)) {
     // Zusätzliche Schutzebene: Zugriff auf Intranet sofort entziehen
     // (gekündigt oder Mitgliedsantrag noch nicht vom Vorstand freigegeben).
     // In Middleware wird die Session zusätzlich mit Cookie-Write invalidiert.
     await supabase.auth.signOut();
-    return { user: null, profile: null };
+    return { user: null, profile: null, datenCheckSpalten: false };
   }
 
-  return { user, profile };
+  return { user, profile, datenCheckSpalten };
 });

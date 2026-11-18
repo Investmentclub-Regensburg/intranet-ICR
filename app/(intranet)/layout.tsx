@@ -4,16 +4,43 @@ import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { IntranetMotion } from "@/components/layout/IntranetMotion";
 import { IntranetPageTransition } from "@/components/layout/IntranetPageTransition";
+import { DatenCheckFenster } from "@/components/member/DatenCheckFenster";
+import { createServiceClient } from "@/utils/supabase/service";
+import { isActiveMemberProfile } from "@/lib/profile-status";
+import { istAbfrageFaellig, type DatenCheckAnsicht } from "@/lib/member-data-check";
+import { datenCheckEinstellungen, ladeDatenCheckAnsicht } from "@/lib/member-data-check-server";
 
 export default async function IntranetLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const { user, profile } = await getCachedAuth();
+  const { user, profile, datenCheckSpalten } = await getCachedAuth();
 
   if (!user) {
     redirect("/login");
+  }
+
+  // Abfrage „Stimmen deine Daten noch?“: Fälligkeit aus den Spalten von getCachedAuth (kein zusätzlicher
+  // Datenbankaufruf); entschlüsselt wird die eigene Zeile nur, wenn sie fällig ist.
+  const einstellungen = datenCheckEinstellungen();
+  let datenCheck: DatenCheckAnsicht | null = null;
+  if (
+    profile &&
+    datenCheckSpalten &&
+    istAbfrageFaellig({
+      eingeschaltet: einstellungen.eingeschaltet,
+      aktiv: isActiveMemberProfile(profile),
+      bestaetigtAm: profile["daten_bestaetigt_am"] as string | null,
+      erinnernAb: profile["daten_erinnern_ab"] as string | null,
+    })
+  ) {
+    datenCheck = await ladeDatenCheckAnsicht({
+      admin: createServiceClient(),
+      profil: profile,
+      email: user.email ?? ((profile["E-Mail"] as string | null) ?? ""),
+      einstellungen,
+    });
   }
 
   const vorname = ((profile?.["Vorname"] as string) ?? "").trim();
@@ -47,6 +74,13 @@ export default async function IntranetLayout({
           </div>
         </main>
       </div>
+      {datenCheck && (
+        // Neuer Stand (Version/Name) → Fenster neu aufbauen (Formularwerte vom Server).
+        <DatenCheckFenster
+          key={`${datenCheck.formular.version}|${datenCheck.formular.vorname}|${datenCheck.formular.nachname}`}
+          ansicht={datenCheck}
+        />
+      )}
     </IntranetMotion>
   );
 }

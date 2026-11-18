@@ -76,3 +76,151 @@ export function istBestaetigungOffen({
   if (!zeitpunkt) return true;
   return berlinToday(zeitpunkt) < letzterStichtag(jetzt);
 }
+
+/**
+ * Felder, deren Mängel (`pruefeBestand`, ohne handyLand, Alumni ohne Bankmangel) die Daten „ungültig“ machen:
+ * genau die 9 verschlüsselten Felder. Name und E-Mail zählen nicht als Bestandsmangel (gleiche Liste in
+ * Abfrage-Fenster, Vorstandsübersicht und Skript-Zählung).
+ */
+export const BESTANDS_FELDER = [
+  "iban",
+  "bic",
+  "geburtsdatum",
+  "strasse",
+  "hausnummer",
+  "plz",
+  "ort",
+  "handynummer",
+  "land",
+] as const;
+
+// ---------------------------------------------------------------------------------------------------
+// Fälligkeit und „Später“ (Teil B)
+// ---------------------------------------------------------------------------------------------------
+
+/** „Später“ verschiebt die Abfrage um so viele Tage … */
+export const SPAETER_TAGE = 7;
+/** … höchstens bis so viele Tage nach dem letzten Stichtag bzw. nach dem Einschalten (DATA_CHECK_START). */
+export const SPAETER_GRENZE_TAGE = 28;
+
+const TAG_MS = 24 * 60 * 60 * 1000;
+
+/** Kalendertage zu einem Datum YYYY-MM-DD addieren. */
+export function plusTage(ymd: string, tage: number): string {
+  const [j, m, t] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(j, m - 1, t + tage)).toISOString().slice(0, 10);
+}
+
+/** Gültiges Kalenderdatum YYYY-MM-DD, sonst null (z. B. für DATA_CHECK_START). */
+export function alsDatum(wert: unknown): string | null {
+  if (typeof wert !== "string") return null;
+  const s = wert.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return plusTage(s, 0) === s ? s : null;
+}
+
+export type DatenCheckEinstellungen = {
+  /** DATA_CHECK_ENABLED = "true" (sonst ist die Abfrage nie fällig). */
+  eingeschaltet: boolean;
+  /** DATA_CHECK_START (YYYY-MM-DD, Berliner Datum des Einschaltens) oder null. */
+  start: string | null;
+};
+
+/** Schalter aus den Umgebungsvariablen (nur genau „true“ schaltet ein). */
+export function leseDatenCheckEinstellungen(env: Record<string, string | undefined>): DatenCheckEinstellungen {
+  return {
+    eingeschaltet: String(env.DATA_CHECK_ENABLED ?? "").trim().toLowerCase() === "true",
+    start: alsDatum(env.DATA_CHECK_START),
+  };
+}
+
+/**
+ * Ist die Abfrage für dieses Profil jetzt fällig? Nur bei eingeschaltetem Schalter, aktivem Profil (inkl.
+ * Vorstand und Alumni; `aktiv` = isActiveMemberProfile), offener Bestätigung und ohne laufendes „Später“.
+ */
+export function istAbfrageFaellig({
+  eingeschaltet,
+  aktiv,
+  bestaetigtAm,
+  erinnernAb,
+  jetzt = new Date(),
+}: {
+  eingeschaltet: boolean;
+  aktiv: boolean;
+  bestaetigtAm: Date | string | null | undefined;
+  erinnernAb: Date | string | null | undefined;
+  jetzt?: Date;
+}): boolean {
+  if (!eingeschaltet || !aktiv) return false;
+  if (!istBestaetigungOffen({ bestaetigtAm, jetzt })) return false;
+  const erinnern = alsZeitpunkt(erinnernAb);
+  return !erinnern || erinnern.getTime() <= jetzt.getTime();
+}
+
+/**
+ * Bis wann „Später“ höchstens verschieben darf: 4 Wochen nach dem letzten Stichtag bzw. nach dem Einschalten
+ * (`start`), je nachdem, was später liegt (Beginn des Tages, Berliner Zeit).
+ */
+export function spaeterGrenze({ jetzt = new Date(), start }: { jetzt?: Date; start: string | null }): Date {
+  const stichtag = letzterStichtag(jetzt);
+  const basis = start && start > stichtag ? start : stichtag;
+  return berlinTagesbeginn(plusTage(basis, SPAETER_GRENZE_TAGE));
+}
+
+/**
+ * Neuer Wert für daten_erinnern_ab nach „Später“: jetzt + 7 Tage, höchstens bis zur Grenze. null = „Später“ geht
+ * nicht mehr (Grenze erreicht). Ob die Daten gültig sind, prüft der Aufrufer (bei Mängeln nie „Später“).
+ */
+export function spaeterBis({ jetzt = new Date(), start }: { jetzt?: Date; start: string | null }): Date | null {
+  const grenze = spaeterGrenze({ jetzt, start });
+  if (grenze.getTime() <= jetzt.getTime()) return null;
+  return new Date(Math.min(jetzt.getTime() + SPAETER_TAGE * TAG_MS, grenze.getTime()));
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Anzeige im Fenster (vom Server berechnet, an die Client-Komponente gegeben)
+// ---------------------------------------------------------------------------------------------------
+
+export type DatenCheckZeilenSchluessel = "name" | "anschrift" | "handy" | "email" | "iban" | "bic" | "geburtsdatum";
+
+export type DatenCheckZeile = {
+  key: DatenCheckZeilenSchluessel;
+  label: string;
+  /** Anzeige in Zeilen (z. B. Anschrift: Straße, Ort, Land); leer = nichts gespeichert. */
+  wert: string[];
+  /** Mangel: eine Zeile Hinweis (blockiert). */
+  fehler?: string;
+  /** Hinweis (blockiert nicht), z. B. ergänzte Vorwahl. */
+  hinweis?: string;
+};
+
+/** Ausgangswerte des Formulars „Ändern“ (eigene Daten, wie im Profil). */
+export type DatenCheckFormular = {
+  vorname: string;
+  nachname: string;
+  strasse: string;
+  hausnummer: string;
+  plz: string;
+  ort: string;
+  land: string;
+  handyLand: string;
+  handyNummer: string;
+  geburtsdatum: string;
+  iban: string;
+  bic: string;
+  alumni: boolean;
+  /** Version der verschlüsselten Zeile (0 = keine): Sperre beim Speichern. */
+  version: number;
+  /** Ohne Spalte land gelesen (Übergang): Land wird nicht gespeichert. */
+  landUnbekannt: boolean;
+};
+
+export type DatenCheckAnsicht = {
+  zeilen: DatenCheckZeile[];
+  /** Keine Mängel: „Stimmt alles“ (und ggf. „Später“) möglich. */
+  gueltig: boolean;
+  spaeterErlaubt: boolean;
+  formular: DatenCheckFormular;
+  /** Mängel je Formularfeld (beim Wechsel zu „Ändern“ gleich am Feld). */
+  formularFehler: Partial<Record<string, string>>;
+};
