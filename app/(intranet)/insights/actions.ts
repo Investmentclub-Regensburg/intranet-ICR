@@ -29,7 +29,7 @@ const getInsightsDataCached = unstable_cache(
     const [profilesRes, overridesRes] = await Promise.all([
       admin
         .from("profiles")
-        .select('id, "Status", "Rolle", "Datum_Antrag", "Datum_Kündigung", "Studiengang / Fach", "Uni/OTH", "Abschluss"')
+        .select('id, "Status", "Rolle", "Datum_Antrag", "Datum_Kündigung", "Studiengang / Fach", "Hochschulart", "Abschluss"')
         .range(0, 9999),
       admin.from("finance_export_overrides").select("profile_id, action, semester, year").eq("year", nextYear),
     ]);
@@ -64,7 +64,7 @@ const getInsightsDataCached = unstable_cache(
         datumAntrag: text(r["Datum_Antrag"]) || null,
         datumKuendigung: text(r["Datum_Kündigung"]) || null,
         fach: text(r["Studiengang / Fach"]) || null,
-        hochschule: text(r["Uni/OTH"]) || null,
+        hochschule: text(r["Hochschulart"]) || null,
         abschluss: text(r["Abschluss"]) || null,
         altersgruppe: s && s !== "unreadable" ? altersgruppe(s.geburtsdatum, today) : null,
       };
@@ -84,7 +84,7 @@ const getInsightsDataCached = unstable_cache(
 
     return computeInsights(profiles, today, overrides);
   },
-  ["insights-data-v3"],
+  ["insights-data-v4"],
   { revalidate: 60 }
 );
 

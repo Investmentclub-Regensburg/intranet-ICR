@@ -58,7 +58,7 @@ export function Balken({ rows }: { rows: BarRow[] }) {
         <li
           key={r.label}
           title={`${r.label}: ${r.n} (${anteil(r.n, summe)} %)`}
-          className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)_2.75rem] items-center gap-3 py-[5px] text-[13px] sm:grid-cols-[minmax(0,170px)_minmax(0,1fr)_2.75rem]"
+          className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_2rem] items-center gap-3 py-[5px] text-[13px] sm:grid-cols-[minmax(0,170px)_minmax(0,1fr)_2.75rem]"
         >
           <span className={cn("truncate", r.grau && "text-muted-foreground")}>{r.label}</span>
           <span className="h-2.5 overflow-hidden rounded-[4px] bg-muted" aria-hidden>

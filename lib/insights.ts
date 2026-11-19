@@ -31,7 +31,7 @@ export type InsightsProfile = {
   datumAntrag: string | null;
   datumKuendigung: string | null;
   fach: string | null;
-  /** Rohwert der Spalte „Uni/OTH“. */
+  /** Rohwert der Spalte „Hochschulart“. */
   hochschule: string | null;
   /** Rohwert der Spalte „Abschluss“. */
   abschluss: string | null;
@@ -188,6 +188,7 @@ const FACH_ALIASES: Record<string, string> = {
   dbm: "Digital Business",
   jura: "Jura",
   rechtswissenschaften: "Jura",
+  rechtswissenschaft: "Jura",
   sonstiges: "Sonstiges",
   sonstige: "Sonstiges",
   "kein student": "Sonstiges",

@@ -49,6 +49,7 @@ test("Studiengang vereinheitlichen", () => {
   assert.equal(normalizeFach(" bwl "), "BWL");
   assert.equal(normalizeFach("Betriebswirtschaftslehre"), "BWL");
   assert.equal(normalizeFach("DBM"), "Digital Business");
+  assert.equal(normalizeFach("Rechtswissenschaft"), "Jura");
   assert.equal(normalizeFach("Mathematik"), "Mathematik");
   assert.equal(normalizeFach("-"), null);
 });
