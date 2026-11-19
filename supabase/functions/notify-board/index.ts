@@ -513,7 +513,7 @@ function buildMail(
       const r = renderRows(rows);
       return {
         subject: title,
-        html: wrapHtml(title, intro, r.html, adminLink("/profile", "Mein Profil öffnen")),
+        html: wrapHtml(title, intro, r.html, adminLink("/profile?tab=mitgliedschaft", "Mein Profil öffnen")),
         text: `${title}\n\n${intro}\n\n${r.text}`,
         to: recipient ? [recipient] : [],
         replyTo: TO_EMAILS[0],
