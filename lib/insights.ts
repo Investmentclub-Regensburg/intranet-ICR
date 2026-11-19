@@ -51,7 +51,7 @@ export type SemesterSaeule = { key: string; label: string; kurz: string; n: numb
 
 export type InsightsData = {
   period: Period & { label: string };
-  /** Status aktiv, ohne Alumni. */
+  /** Mitglieder ohne Alumni (mitgliedsart „studierend“). */
   studierende: number;
   alumni: number;
   /** Studierende + Alumni (ohne Gekündigte und offene Anträge). */
@@ -135,17 +135,49 @@ export function overrideKey(p: Period): string {
 }
 
 /**
- * Budget des nächsten Kalenderjahres bei heutigem Stand: SoSe und WiSe dieses Jahres, je zahlende Mitglieder
- * × Beitrag. Zahlend wie im Finanzexport (zahltBeitrag) mit den Anpassungen des jeweiligen Semesters. Für
- * die Vorschau zählen offene Anträge und Gekündigte ohne Kündigungsdatum nicht (keine Mitglieder mehr bzw.
- * noch nicht), außer per Anpassung „aufnehmen“.
+ * Art eines Profils, eine Regel für alle Kennzahlen (Kacheln, Verteilungen, Budget, Startseite):
+ * gekündigt geht vor allem anderen, dann offener Antrag, dann Alumni (Rolle oder Altstatus „alumni“).
+ * Alles andere, auch leerer oder unbekannter Altstatus, zählt als studierendes Mitglied
+ * (wie lib/profile-status.ts isActiveMemberProfile und admin/format.ts statusGroup).
+ */
+export type Mitgliedsart = "ausgetreten" | "antrag" | "alumni" | "studierend";
+
+export function mitgliedsart(p: { status: string; rolle: string }): Mitgliedsart {
+  const status = p.status.trim().toLowerCase();
+  const rolle = p.rolle.trim().toLowerCase();
+  if (status === "cancelled") return "ausgetreten";
+  if (status === "applicant") return "antrag";
+  if (rolle === "alumni" || status === "alumni") return "alumni";
+  return "studierend";
+}
+
+/** Mitglied = Studierende oder Alumni (nicht ausgetreten, kein offener Antrag). */
+export function istMitglied(p: { status: string; rolle: string }): boolean {
+  const art = mitgliedsart(p);
+  return art === "studierend" || art === "alumni";
+}
+
+/**
+ * Jahr der Budget-Kachel (Entscheidung Koordinator, 19.11.2026): ab dem 01.10. das kommende Kalenderjahr,
+ * vom 01.01. bis 30.09. das laufende. Im November 2026 also „Budget 2027“, im Januar 2027 ebenfalls 2027.
+ */
+export function budgetJahr(today: string): number {
+  const year = Number(today.slice(0, 4));
+  return today.slice(5) >= "10-01" ? year + 1 : year;
+}
+
+/**
+ * Budget eines Kalenderjahres (budgetJahr) bei heutigem Stand: SoSe und WiSe dieses Jahres, je zahlende
+ * Mitglieder × Beitrag. Zahlend wie im Finanzexport (zahltBeitrag) mit den Anpassungen des jeweiligen
+ * Semesters. Nur Mitglieder (istMitglied) zählen: Ausgetretene und offene Anträge nicht, außer per Anpassung
+ * „aufnehmen“. Wer heute im Freisemester ist, zahlt in späteren Semestern.
  */
 export function budgetNaechstesJahr(
   profiles: InsightsProfile[],
   today: string,
   overrides: Map<string, Map<string, FeeOverride>> = new Map(),
 ): InsightsData["budget"] {
-  const year = Number(today.slice(0, 4)) + 1;
+  const year = budgetJahr(today);
   const semester: Period[] = [
     { semester: "SoSe", year },
     { semester: "WiSe", year },
@@ -156,13 +188,27 @@ export function budgetNaechstesJahr(
     let zahlend = 0;
     for (const p of profiles) {
       const override = anpassungen.get(p.id) ?? null;
-      const status = p.status.trim().toLowerCase();
-      if (override !== "include" && (status === "applicant" || status === "cancelled")) continue;
+      if (override !== "include" && !istMitglied(p)) continue;
       if (zahltBeitrag(p, start, override)) zahlend++;
     }
     return { label: periodLabel(s), zahlend };
   });
   return { year, total: zeilen.reduce((s, z) => s + z.zahlend * FEE_PER_SEMESTER, 0), semester: zeilen };
+}
+
+/**
+ * Eintritte im laufenden Semester nach Antragsdatum, wie die Säulen in Insights: offene Anträge nicht, wer
+ * inzwischen ausgetreten ist schon (er ist in diesem Semester eingetreten). Auch für die Startseite.
+ */
+export function eintritteImSemester(profiles: { status: string; rolle: string; datumAntrag: string | null }[], today: string): number {
+  const start = periodStart(periodOf(today));
+  let n = 0;
+  for (const p of profiles) {
+    if (mitgliedsart(p) === "antrag") continue;
+    const joinedAt = day(p.datumAntrag);
+    if (joinedAt && joinedAt >= start && joinedAt <= today) n++;
+  }
+  return n;
 }
 
 /** Herleitung des Budgets für den Tooltip. */
@@ -314,17 +360,16 @@ export function computeInsights(
   const dauer: number[] = [];
 
   for (const p of profiles) {
-    const status = p.status.trim().toLowerCase();
-    const rolle = p.rolle.trim().toLowerCase();
+    const art = mitgliedsart(p);
     // Offene Anträge sind noch keine Mitglieder und zählen nirgends.
-    if (status === "applicant") continue;
+    if (art === "antrag") continue;
 
     const joinedAt = day(p.datumAntrag);
     const cancelledAt = day(p.datumKuendigung);
-    // Eintritte nach Antragsdatum, auch wer später ausgetreten ist.
+    // Eintritte nach Antragsdatum, auch wer später ausgetreten ist (wie eintritteImSemester).
     if (joinedAt && joinedAt <= today) eintrittTage.push(joinedAt);
 
-    if (status === "cancelled") {
+    if (art === "ausgetreten") {
       if (cancelledAt && cancelledAt <= today) {
         austrittTage.push(cancelledAt);
         if (joinedAt) {
@@ -335,13 +380,9 @@ export function computeInsights(
       continue;
     }
 
-    if (rolle === "alumni" || status === "alumni") {
-      alumni++;
-      mitglieder.push(p);
-    } else if (status === "active") {
-      studierende++;
-      mitglieder.push(p);
-    }
+    if (art === "alumni") alumni++;
+    else studierende++;
+    mitglieder.push(p);
   }
 
   const eintritte = semesterSaeulen(perioden, eintrittTage, period);

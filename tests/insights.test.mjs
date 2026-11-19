@@ -5,7 +5,11 @@ import { MEMBERSHIP_FEE_PER_SEMESTER } from "../lib/membership-fee.ts";
 import {
   FEE_PER_SEMESTER,
   budgetHerleitung,
+  budgetJahr,
   budgetNaechstesJahr,
+  eintritteImSemester,
+  istMitglied,
+  mitgliedsart,
   computeInsights,
   festeBalken,
   freieBalken,
@@ -191,6 +195,61 @@ test("Kennzahlen aus den Profilen", () => {
   assert.deepEqual(d.alter[1], { label: "20 bis 22", n: 1 });
   assert.deepEqual(d.alter[5], { label: "ohne Angabe", n: 2, grau: true });
   assert.equal(d.budget.total, 2 * 2 * FEE_PER_SEMESTER); // a, b
+});
+
+test("Budgetjahr: ab 01.10. das kommende, sonst das laufende Kalenderjahr", () => {
+  assert.equal(budgetJahr("2026-09-30"), 2026);
+  assert.equal(budgetJahr("2026-10-01"), 2027);
+  assert.equal(budgetJahr("2026-11-19"), 2027);
+  assert.equal(budgetJahr("2026-12-31"), 2027);
+  assert.equal(budgetJahr("2027-01-01"), 2027);
+  assert.equal(budgetJahr("2027-03-15"), 2027);
+  const p = [{ ...base, id: "a", status: "active", datumAntrag: "2025-01-10" }];
+  assert.equal(budgetNaechstesJahr(p, "2027-01-20").year, 2027);
+  assert.deepEqual(
+    budgetNaechstesJahr(p, "2027-01-20").semester.map((s) => s.label),
+    ["SoSe 2027", "WiSe 2027/28"],
+  );
+});
+
+test("Mitgliedsart: eine Regel für Kacheln, Verteilungen und Budget", () => {
+  assert.equal(mitgliedsart({ status: "cancelled", rolle: "alumni" }), "ausgetreten");
+  assert.equal(mitgliedsart({ status: " Applicant ", rolle: "member" }), "antrag");
+  assert.equal(mitgliedsart({ status: "active", rolle: "Alumni" }), "alumni");
+  assert.equal(mitgliedsart({ status: "alumni", rolle: "member" }), "alumni");
+  assert.equal(mitgliedsart({ status: "active", rolle: "board" }), "studierend");
+  assert.equal(mitgliedsart({ status: "", rolle: "member" }), "studierend"); // leerer Altstatus
+  assert.equal(mitgliedsart({ status: "pending", rolle: "member" }), "studierend"); // unbekannter Altstatus
+  assert.equal(istMitglied({ status: "", rolle: "" }), true);
+  assert.equal(istMitglied({ status: "cancelled", rolle: "" }), false);
+
+  // Unbekannter Status zählt in der Kachel UND im Budget, damit der Tooltip zur Kachel passt.
+  const profiles = [
+    { ...base, id: "a", status: "active", datumAntrag: "2025-01-10" },
+    { ...base, id: "b", status: "", datumAntrag: "2025-01-10" },
+  ];
+  const d = computeInsights(profiles, "2026-11-19");
+  assert.equal(d.studierende, 2);
+  assert.deepEqual(
+    d.budget.semester.map((s) => s.zahlend),
+    [2, 2],
+  );
+});
+
+test("Eintritte im Semester (auch Startseite): ohne offene Anträge, Ausgetretene zählen", () => {
+  const profiles = [
+    { status: "active", rolle: "member", datumAntrag: "2026-10-05" },
+    { status: "cancelled", rolle: "member", datumAntrag: "2026-10-02" },
+    { status: "applicant", rolle: "member", datumAntrag: "2026-10-10" },
+    { status: "active", rolle: "member", datumAntrag: "2026-09-30" }, // Vorsemester
+    { status: "active", rolle: "member", datumAntrag: null },
+  ];
+  assert.equal(eintritteImSemester(profiles, "2026-11-19"), 2);
+  // SoSe beginnt am 15.03. (nicht 01.04.)
+  assert.equal(eintritteImSemester([{ status: "active", rolle: "", datumAntrag: "2026-03-20" }], "2026-03-25"), 1);
+  // Gleich wie die Säule des laufenden Semesters in Insights.
+  const ins = computeInsights(profiles.map((p, i) => ({ ...base, ...p, id: String(i) })), "2026-11-19");
+  assert.equal(ins.eintritteAktuell, 2);
 });
 
 test("Beitrag gleich wie im Finanzexport", () => {
