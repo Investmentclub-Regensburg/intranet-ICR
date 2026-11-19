@@ -199,8 +199,9 @@ gewollt (fail closed).
     streng: Eine solche Zeile bedeutet falscher Key oder Manipulation. Die Mitgliedertabelle zeigt
     „nicht lesbar“.
 - **Korrektur durch den Vorstand:** Verwaltung → Mitglieder → Stift-Symbol (nur Rolle `board`).
-  - Straße, Hausnummer, PLZ, Ort, Handynummer, Geburtsdatum, BIC; die IBAN wird nur gekürzt angezeigt und
-    durch Neueingabe ersetzt.
+  - Straße, Hausnummer, PLZ, Ort, Handynummer, Geburtsdatum; die IBAN wird nur gekürzt angezeigt und
+    durch Neueingabe ersetzt. Die BIC fragt seit 20.11.2026 kein Formular mehr ab; eine neue IBAN leert eine
+    gespeicherte BIC mit (sie gehört zum alten Konto).
   - Gleiche Prüfregeln wie Profil und Registrierung, aber nur für geänderte Felder. Gespeichert werden nur
     Felder, die gegenüber dem Stand beim Öffnen geändert wurden; hat sich ein solches Feld inzwischen in der
     Datenbank geändert (z. B. durch das Mitglied), bricht die Korrektur ab. Das Geburtsdatum lässt sich nicht
