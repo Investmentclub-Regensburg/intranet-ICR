@@ -4,8 +4,10 @@ import { getInsightsData } from "./actions";
 import { KeyMetricsCards } from "@/components/board/KeyMetricsCards";
 import { BarList } from "@/components/board/BarList";
 import { EmptyState } from "@/components/kit/PageHeader";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function InsightsPage() {
+  await sperreBeiDatenmaengeln();
   const { user, profile } = await getCachedAuth();
 
   if (!user) redirect("/login");

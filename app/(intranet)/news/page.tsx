@@ -4,6 +4,7 @@ import { getNews, markNewsAsRead } from "./actions";
 import { EmptyState, PageHeader } from "@/components/kit/PageHeader";
 import { AdminShortcut } from "@/components/area/AdminShortcut";
 import { NewsList, type NewsListItem } from "@/components/news/NewsList";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 function formatNewsDate(iso: string): string {
   const date = new Date(iso);
@@ -17,6 +18,7 @@ function formatNewsDate(iso: string): string {
 }
 
 export default async function NewsPage() {
+  await sperreBeiDatenmaengeln();
   const { user, profile } = await getCachedAuth();
   // Stand vor diesem Besuch (für „Neu“), bevor die Seite alles als gelesen markiert.
   const lastReadAt = (profile?.["letzter_news_aufruf"] as string | null | undefined) ?? null;

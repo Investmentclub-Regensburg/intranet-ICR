@@ -348,7 +348,7 @@ test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .e
   const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
   assert.doesNotMatch(middleware, /member-data-check|member-crypto/);
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  assert.match(layout, /faelligerDatenCheck/);
+  assert.match(layout, /eigenerDatenCheck/);
   const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(env, /^DATA_CHECK_ENABLED=\r?$/m);
   assert.match(env, /^DATA_CHECK_START=\r?$/m);

@@ -7,6 +7,7 @@ import { AreaHeader } from "@/components/area/AreaHeader";
 import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { isActiveMemberProfile } from "@/lib/profile-status";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 /**
  * Einladungslink nur aus der Server-Umgebung (WHATSAPP_INVITE_URL, ohne NEXT_PUBLIC_):
@@ -25,6 +26,7 @@ function getInviteUrl(): string | null {
 }
 
 export default async function WhatsAppPage() {
+  await sperreBeiDatenmaengeln();
   const { user, profile } = await getCachedAuth();
   if (!user) redirect("/login?next=/whatsapp");
 

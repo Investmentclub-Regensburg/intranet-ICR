@@ -5,12 +5,14 @@ import { RevealHeading } from "@/components/kit/Reveal";
 import { EventForm } from "@/components/admin/EventForm";
 import { getEvent } from "@/app/(intranet)/events/actions";
 import { formatEventDateRange } from "@/lib/events";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 type Props = {
   params: Promise<{ eventId: string }>;
 };
 
 export default async function AdminEventEditPage({ params }: Props) {
+  await sperreBeiDatenmaengeln();
   const { eventId } = await params;
   const event = await getEvent(eventId);
   if (!event) notFound();
