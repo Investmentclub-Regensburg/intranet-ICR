@@ -1,21 +1,10 @@
 import type { ReactNode } from "react";
-import { getCachedAuth } from "@/utils/supabase/cached-auth";
-import { VerwaltungHeader } from "@/components/admin/VerwaltungHeader";
 import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
-// Insights gehört zum Bereich „Verwaltung“ (gleicher Kopf wie /admin/**). Die Rollen-
-// prüfung (nur board) bleibt auf der Seite selbst.
+// Insights gehört zum Bereich „Verwaltung“. Den Kopf (Eyebrow „Verwaltung · Semester“, Titel, Reiter)
+// zeichnet die Seite selbst, weil die Reiter rechts daneben stehen. Die Rollenprüfung (nur board) bleibt
+// auf der Seite.
 export default async function InsightsLayout({ children }: { children: ReactNode }) {
   await sperreBeiDatenmaengeln();
-  const { profile } = await getCachedAuth();
-  const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
-
-  if (role !== "board") return <>{children}</>;
-
-  return (
-    <div className="space-y-8">
-      <VerwaltungHeader role={role} />
-      <div>{children}</div>
-    </div>
-  );
+  return <>{children}</>;
 }
