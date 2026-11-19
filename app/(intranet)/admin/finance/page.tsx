@@ -1,8 +1,10 @@
 import { Lock } from "lucide-react";
 import { FinanceExport } from "@/components/admin/FinanceExport";
 import { EXPORT_ROLES, requireUser } from "@/utils/supabase/guards";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function AdminFinancePage() {
+  await sperreBeiDatenmaengeln();
   // Exporte mit Bankdaten nur für EXPORT_ROLES (Vorstand). Die Server Action prüft das
   // weiterhin selbst; hier nur, damit Admins einen Hinweis statt eines Fehlers sehen.
   const auth = await requireUser();

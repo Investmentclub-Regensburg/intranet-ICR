@@ -10,6 +10,7 @@ import { EVENT_SECTIONS } from "@/components/layout/nav-sections";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { CalendarNav, monthName } from "@/components/calendar/CalendarNav";
 import { eventDateParts, todayInBerlin } from "@/components/events/event-display";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 const WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const MAX_CHIPS = 3;
@@ -46,6 +47,7 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  await sperreBeiDatenmaengeln();
   const params = await searchParams;
   // „Heute“ in Berlin, unabhängig von der Zeitzone des Servers.
   const todayKey = todayInBerlin();

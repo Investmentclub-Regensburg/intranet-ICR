@@ -4,6 +4,7 @@ import { AreaHeader } from "@/components/area/AreaHeader";
 import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
 import { Reveal } from "@/components/kit/Reveal";
 import { Button } from "@/components/ui/button";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export const metadata: Metadata = { title: "Satzung · Verein · ICR" };
 
@@ -15,7 +16,8 @@ const SATZUNG_PDF = "/dokumente/vereinssatzung.pdf";
  * Tab „Satzung“ im Bereich Verein. Route unter /members/, damit die bestehende
  * Middleware (Präfix /members) und das Intranet-Layout den Login verlangen.
  */
-export default function SatzungPage() {
+export default async function SatzungPage() {
+  await sperreBeiDatenmaengeln();
   return (
     <div className="space-y-8">
       <AreaHeader area="Verein" sections={VEREIN_SECTIONS} />

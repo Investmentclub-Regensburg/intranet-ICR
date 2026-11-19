@@ -237,24 +237,50 @@ export function IbanEingabe({
 /**
  * Nach dem Speichern: Haken zeichnet sich, Leiste füllt sich, danach `onFertig` (Formular/Fenster schließen).
  * Bei „Bewegung reduzieren“ ohne Animation, kurz stehen lassen.
+ *
+ * Abläufe hängen an den echten Animationen, nicht an festen Zeiten (Rundgang R1, 19.11.: mit Zeitgebern schloss das
+ * Fenster, bevor der eingeflogene Inhalt überhaupt sichtbar war): Haken und Leiste starten, wenn die eigene
+ * Einflug-Animation (z. B. `.wizard-step > *`) vorbei ist, und `onFertig` kommt kurz nachdem die Leiste voll ist.
+ * Ein Sicherheits-Zeitgeber schließt trotzdem, falls ein Ereignis ausbleibt.
  */
 export function GespeichertHaken({ text = "Gespeichert", onFertig }: { text?: string; onFertig: () => void }) {
   const reduziert = useReducedMotionSafe();
   const [voll, setVoll] = useState(false);
+  const wurzel = useRef<HTMLDivElement>(null);
   const fertig = useRef(onFertig);
+  const gemeldet = useRef(false);
+  const halten = useRef(0);
   useEffect(() => {
     fertig.current = onFertig;
   }, [onFertig]);
+  const melde = () => {
+    if (gemeldet.current) return;
+    gemeldet.current = true;
+    fertig.current();
+  };
   useEffect(() => {
-    const start = window.requestAnimationFrame(() => setVoll(true));
-    const ende = window.setTimeout(() => fertig.current(), reduziert ? 700 : 1100);
-    return () => {
-      window.cancelAnimationFrame(start);
-      window.clearTimeout(ende);
+    if (reduziert) {
+      const ende = window.setTimeout(melde, 700);
+      return () => window.clearTimeout(ende);
+    }
+    let aktiv = true;
+    let bild = 0;
+    const starte = () => {
+      if (aktiv) bild = window.requestAnimationFrame(() => setVoll(true));
     };
-  }, [reduziert]);
+    const einflug = wurzel.current?.getAnimations?.().filter((a) => a.playState !== "finished") ?? [];
+    if (einflug.length > 0) Promise.all(einflug.map((a) => a.finished)).then(starte, starte);
+    else starte();
+    const notfall = window.setTimeout(melde, 4000);
+    return () => {
+      aktiv = false;
+      window.cancelAnimationFrame(bild);
+      window.clearTimeout(notfall);
+      window.clearTimeout(halten.current);
+    };
+  }, [reduziert]); // melde liest nur Refs
   return (
-    <div role="status" className="flex flex-col items-center gap-3 py-6 text-center">
+    <div ref={wurzel} role="status" className="flex flex-col items-center gap-3 py-6 text-center">
       <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint text-primary">
         {reduziert ? (
           <Check className="size-6" aria-hidden />
@@ -279,6 +305,10 @@ export function GespeichertHaken({ text = "Gespeichert", onFertig }: { text?: st
           style={{
             width: voll || reduziert ? "100%" : "0%",
             transition: reduziert ? undefined : "width 900ms ease-in-out",
+          }}
+          onTransitionEnd={(e) => {
+            // Leiste voll: noch kurz stehen lassen, dann schließen.
+            if (e.propertyName === "width" && voll) halten.current = window.setTimeout(melde, 350);
           }}
         />
       </span>

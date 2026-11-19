@@ -18,6 +18,8 @@ const INTRANET_PREFIXES = [
   "/magazines",
   "/contact",
   "/whatsapp",
+  // Abfrage „Stimmen deine Daten noch?“ bei Mängeln (eigene Seite außerhalb des Intranet-Layouts).
+  "/daten-bestaetigen",
 ];
 
 export async function middleware(request: NextRequest) {

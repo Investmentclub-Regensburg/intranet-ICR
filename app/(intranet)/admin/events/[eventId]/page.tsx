@@ -25,6 +25,7 @@ import {
   isEventPast,
   isRegistrationOpen,
 } from "@/lib/events";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 type Props = {
   params: Promise<{ eventId: string }>;
@@ -33,6 +34,7 @@ type Props = {
 const MANAGE_HREF = "/admin/events?ansicht=verwalten";
 
 export default async function AdminEventDetailPage({ params }: Props) {
+  await sperreBeiDatenmaengeln();
   const { eventId } = await params;
   const [data, memberCount, auth] = await Promise.all([
     getEventWithParticipants(eventId),

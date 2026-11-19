@@ -9,8 +9,10 @@ import { TileGrid } from "@/components/kit/Tile";
 import { EventTile, PastEventTile } from "@/components/events/EventTile";
 import { ShowMoreGrid } from "@/components/events/ShowMoreGrid";
 import { splitUpcomingPast } from "@/lib/events";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function EventsPage() {
+  await sperreBeiDatenmaengeln();
   const { user, profile } = await getCachedAuth();
   const events = await getEvents();
   const { upcoming, past } = splitUpcomingPast(events);

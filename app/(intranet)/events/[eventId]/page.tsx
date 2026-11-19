@@ -23,12 +23,14 @@ import {
   type RegistrationStatus,
 } from "@/lib/events";
 import { cn } from "@/lib/utils";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 type Props = {
   params: Promise<{ eventId: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  await sperreBeiDatenmaengeln();
   const { eventId } = await params;
   const event = await getEvent(eventId);
   return { title: event ? `${event.title} · Veranstaltungen · ICR` : "Veranstaltung · ICR" };
@@ -49,6 +51,7 @@ function Fact({ Icon, label, children }: { Icon: LucideIcon; label: string; chil
 }
 
 export default async function EventDetailPage({ params }: Props) {
+  await sperreBeiDatenmaengeln();
   const { eventId } = await params;
   const [{ user, profile }, event] = await Promise.all([getCachedAuth(), getEvent(eventId)]);
   if (!event) notFound();

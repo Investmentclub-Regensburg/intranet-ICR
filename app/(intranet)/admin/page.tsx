@@ -6,8 +6,10 @@ import { CounterTile } from "@/components/admin/CounterTile";
 import { TileGrid } from "@/components/kit/Tile";
 import { TaskBoard } from "@/components/admin/TaskBoard";
 import { getBoardData } from "./tasks/actions";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function AdminTasksPage() {
+  await sperreBeiDatenmaengeln();
   const [alumni, bvh, events, board] = await Promise.all([
     getAlumniRequests(),
     getBvhLoginRequests(),

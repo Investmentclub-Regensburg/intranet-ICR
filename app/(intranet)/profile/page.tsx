@@ -20,8 +20,10 @@ import { emptySecretValues, readMemberSecretsWithMeta, type MemberSecretValues }
 import { bicHinweis, handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-forms";
 import { findCountry } from "@/lib/country-codes";
 import { isAlumniProfile } from "@/lib/profile-status";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
+  await sperreBeiDatenmaengeln();
   const emailNotice = (await searchParams).email;
   const { user } = await getCachedAuth();
 

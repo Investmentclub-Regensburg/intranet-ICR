@@ -69,7 +69,12 @@ nach dem Merge nach `prod` von Hand eingespielt, ohne neuen Automatismus:
    ```
    `db push` trägt die Versionen in `supabase_migrations.schema_migrations` ein (Verlauf aus der Cloud wurde beim
    Umzug übernommen). Die CLI nie per `supabase link` mit der Produktion verknüpfen.
-5. Edge Function `notify-board` geändert? Auf dem eigenen Stack liegt sie unter `/opt/icr-supabase/functions`
+5. Abfrage „Stimmen deine Daten noch?“ (`20261118140000_member_data_confirmation.sql`,
+   `20261118150000_member_data_confirm.sql`): erst beide Migrationen, dann die App. Eingeschaltet wird sie in
+   der App-Umgebung (Coolify) mit **beiden** Werten: `DATA_CHECK_ENABLED=true` und `DATA_CHECK_START=<Datum des
+   Einschaltens, YYYY-MM-DD>`. Ohne gültiges Start-Datum zählt für „Später“ nur der letzte Stichtag (liegt er über
+   4 Wochen zurück, gibt es für niemanden „Später“); die App warnt dann einmal im Server-Log.
+6. Edge Function `notify-board` geändert? Auf dem eigenen Stack liegt sie unter `/opt/icr-supabase/functions`
    (Ablage siehe Stack-Doku bei setup); nach dem Kopieren `docker compose restart functions`.
 
 **Test-Projekt neu aufbauen:** `supabase db reset --linked` (nur mit Link auf das Test-Projekt). Danach

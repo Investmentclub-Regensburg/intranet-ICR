@@ -3,8 +3,10 @@ import { VEREIN_SECTIONS } from "@/components/layout/nav-sections";
 import { staggerProps } from "@/components/kit/Reveal";
 import { PersonCard } from "@/components/board/PersonCard";
 import { VORSTAND, VORSTAND_AMTSZEIT } from "@/components/board/vorstand";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
-export default function BoardMembersPage() {
+export default async function BoardMembersPage() {
+  await sperreBeiDatenmaengeln();
   return (
     <div className="space-y-8">
       <AreaHeader area="Verein" sections={VEREIN_SECTIONS} />
