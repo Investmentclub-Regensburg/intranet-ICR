@@ -2,13 +2,14 @@
  * Eingabehilfen für Mitgliederdaten im Browser (Formatierung beim Tippen, Platzhalter, Tippfehler-Hinweis).
  * Diese Datei ENTSCHEIDET NICHTS: Gültig ist nur, was lib/member-rules.ts auf dem Server sagt.
  *
- * Bundle-Grenze: Hier nur `libphonenumber-js/min` (kleine Metadaten, ohne Nummerntyp) und die
- * Mobil-Beispielnummern. NIE `libphonenumber-js/max` oder lib/member-rules.ts importieren (die Typprüfung
+ * Bundle-Grenze: Hier nur `libphonenumber-js/min` (kleine Metadaten, ohne Nummerntyp), die
+ * Mobil-Beispielnummern und lib/member-fields.ts (rein, ohne Importe). NIE `libphonenumber-js/max` oder lib/member-rules.ts importieren (die Typprüfung
  * „Mobil“ braucht `max` und läuft nur auf dem Server), NIE lib/member-crypto* (node:crypto).
  * Ein Test in tests/member-rules.test.mjs prüft die Importe dieser Datei.
  */
 import { AsYouType, getCountryCallingCode, getExampleNumber, isSupportedCountry, type CountryCode } from "libphonenumber-js/min";
 import mobileExamples from "libphonenumber-js/mobile/examples";
+import { ohneHochkommaAmAnfang } from "./member-fields";
 
 const STANDARD_LAND = "DE";
 
@@ -30,11 +31,12 @@ export type HandyEingabe = { land: string; nummer: string };
  *   „+43 664…“ / „0043 664…“ → Land AT, Nummer „664 …“
  *   „0176…“ bei DE          → führende 0 (nationale Vorwahl) fällt weg: „176 …“
  * In Ländern, in denen die 0 zur Nummer gehört (z. B. Italien), bleibt sie stehen.
- * Unvollständige oder unbekannte Eingaben kommen unverändert zurück.
+ * Unvollständige oder unbekannte Eingaben kommen unverändert zurück. Ein führendes Hochkomma aus Excel
+ * (`'0176…`) fällt weg wie auf dem Server (`ohneHochkommaAmAnfang`).
  */
 export function formatiereHandyEingabe(eingabe: string, land: string | null | undefined): HandyEingabe {
   const auswahl = telefonLand(land);
-  const roh = eingabe.trim();
+  const roh = ohneHochkommaAmAnfang(eingabe.trim()).trim();
   if (!roh) return { land: auswahl, nummer: "" };
   if (/[^0-9+()\-/.\s]/.test(roh)) return { land: auswahl, nummer: eingabe };
 

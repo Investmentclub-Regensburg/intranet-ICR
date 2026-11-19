@@ -797,7 +797,7 @@ test("Bundle-Grenze: Client lädt nur libphonenumber-js/min, nie max oder Server
   assert.ok(importe.length > 0);
   for (const pfad of importe) {
     assert.ok(
-      ["libphonenumber-js/min", "libphonenumber-js/mobile/examples"].includes(pfad),
+      ["libphonenumber-js/min", "libphonenumber-js/mobile/examples", "./member-fields"].includes(pfad),
       `unerlaubter Import im Client-Teil: ${pfad}`
     );
   }
@@ -1330,4 +1330,36 @@ test("K3: harmlose Format-Zeichen auch bei Handy und Geburtsdatum still entfernt
   const rlo = String.fromCodePoint(0x202e);
   assert.equal(pruefeHandy(`0176${rlo}12345678`, "DE", MITGLIED).code, "format");
   assert.equal(pruefeGeburtsdatum(`2001-05-17${rlo}`, MITGLIED).code, "format");
+});
+
+test("Handy: führendes Hochkomma aus Excel ist harmlos (Klickrunde 20.11.2026)", () => {
+  // Reparatur (Skript): Hochkomma weg, Rest normal bewertet → „sicher“, wenn der Rest es wäre.
+  const sicher = [
+    ["'+49 176 12345678", "+4917612345678"],
+    ["'+4917612345678", "+4917612345678"],
+    ["'0176 12345678", "+4917612345678"],
+    ["’0176 12345678", "+4917612345678"],
+    ["‘+49 176 12345678", "+4917612345678"],
+    ["´017612345678", "+4917612345678"],
+    ["`017612345678", "+4917612345678"],
+    ["  '17612345678", "+4917612345678"],
+  ];
+  for (const [eingabe, wert] of sicher) {
+    assert.deepEqual(repariereHandy(eingabe), { status: "sicher", wert, code: null }, eingabe);
+  }
+  // Was ohne Hochkomma nicht „sicher“ wäre, wird es auch mit Hochkomma nicht.
+  assert.equal(repariereHandy("'+43 664 1234567").status, "vorschlag");
+  assert.equal(repariereHandy("'0941 123456").status, "offen");
+  assert.equal(repariereHandy("'0941 123456").code, "kein_mobil");
+  // Nur am Anfang: mitten in der Nummer bleibt es ein Formatfehler.
+  assert.equal(repariereHandy("0176 '12345678").code, "format");
+  assert.equal(pruefeHandy("0176 '12345678", "DE", MITGLIED).code, "format");
+  // Formular und Bestand prüfen genauso.
+  assert.deepEqual(pruefeHandy("'0176 12345678", "DE", MITGLIED), { wert: "+4917612345678", fehler: null, code: null, land: "DE" });
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, handynummer: "'+49 176 12345678" }, MITGLIED), []);
+  assert.equal(pruefeBestand({ ...GUT, handynummer: "'+49 176 12345678" }, MITGLIED).werte.handynummer, "+4917612345678");
+  // Nur ein Hochkomma ist leer (freiwillig, kein Mangel).
+  assert.equal(pruefeHandy("'", "DE", MITGLIED).code, null);
+  // Eingabehilfe im Browser formatiert wie ohne Hochkomma.
+  assert.deepEqual(formatiereHandyEingabe("'017612345678", "DE"), { land: "DE", nummer: "176 12345678" });
 });

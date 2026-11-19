@@ -579,3 +579,9 @@ test("N4: Vorstand – Anschrift leeren leert das Land, nur Land ohne Anschrift 
   const b3 = korrekturWerte(alt);
   assert.deepEqual(pruefeKorrektur({ ...b3, geburtsdatum: "2002-05-06" }, b3, alt, HEUTE).aenderungen, { geburtsdatum: "2002-05-06" });
 });
+
+test("Handy mit führendem Hochkomma (Excel): Anzeige und Eingabe bereinigt (Klickrunde 20.11.2026)", () => {
+  assert.deepEqual(handyFuerEingabe("'+49 176 1234567"), { land: "DE", nummer: "176 1234567" });
+  assert.deepEqual(handyFuerEingabe("'0176 1234567"), { land: "DE", nummer: "176 1234567" });
+  assert.equal(handyAnzeige("'+49 176 1234567"), "+49 176 1234567");
+});

@@ -22,7 +22,7 @@ import "server-only";
 import { parsePhoneNumberFromString, isSupportedCountry, type CountryCode as PhoneCountry } from "libphonenumber-js/max";
 import { normalizeIban } from "./member-crypto";
 import { NICHT_EWR_SEPA_LAENDER, SEPA_IBAN_LENGTHS, checkSepaIban } from "./iban";
-import { FIELD_LIMITS, checkText } from "./member-fields";
+import { FIELD_LIMITS, checkText, ohneHochkommaAmAnfang } from "./member-fields";
 import { isValidEmail } from "./events";
 import { berlinToday } from "./berlin-date";
 import { DEFAULT_COUNTRY, findCountry } from "./country-codes";
@@ -328,6 +328,15 @@ function vorwahlNurAngenommen(roh: string, e164: string): boolean {
 }
 
 /**
+ * Handy-Eingabe vor der Prüfung: harmlose Format-Zeichen (Kurzprüfung K3) und ein führendes Hochkomma aus Excel
+ * (`'+49 176 …`, auch ’ ‘ ´ `, Klickrunde 20.11.2026) weg, außen getrimmt. Eine Stelle für Formular, Bestand,
+ * Anzeige und Skript (`pruefeHandy`, `repariereHandy`).
+ */
+function handyRoh(text: string): string {
+  return ohneHochkommaAmAnfang(ohneHarmloseZeichen(text).trim()).trim();
+}
+
+/**
  * Handynummer: Land (ISO, Standard DE) + Nummer → E.164 (`+491761234567`).
  * DE: nur Mobilnummern. Andere Länder: gültig nach Metadaten, Typ Mobil, Mobil-oder-Festnetz oder unbekannt.
  * Freiwillig (seit 20.11.2026): leer ist gültig, eine angegebene Nummer wird voll geprüft. Liefert keinen Hinweis (`vorwahl_ergaenzt` setzt nur `pruefeBestand`).
@@ -335,7 +344,7 @@ function vorwahlNurAngenommen(roh: string, e164: string): boolean {
 export function pruefeHandy(eingabe: unknown, land: unknown, kontext: Kontext): HandyErgebnis {
   const text = alsText(eingabe);
   if (text === null) return { ...KEIN_TEXT(), land: null };
-  const roh = ohneHarmloseZeichen(text).trim(); // Kurzprüfung K3
+  const roh = handyRoh(text);
   if (!roh) return { ...leer("handynummer", kontext), land: null };
   const fehlerFormat = (): HandyErgebnis => ({
     ...MANGEL(roh, "format", "Die Nummer stimmt so nicht. Vertippt?"),
@@ -858,6 +867,8 @@ function gueltigOderSicher(roh: string, wert: string): Reparatur {
  *   anderes Land als das Standardland (`+43 664…`, Tippfehler `0015…` → USA)
  *   `+49` mit anderer Vorwahl als 15/16/17
  * Schon E.164 → gueltig. Alles andere (Mailadresse, Festnetz, zu kurz) → offen.
+ * Ein führendes Hochkomma aus Excel (`'0176…`, `'+49 176…`) ist harmlos: Es fällt weg, der Rest wird wie oben
+ * bewertet (Klickrunde 20.11.2026), also z. B. `'+49 176 1234567` → „sicher“.
  */
 export function repariereHandy(
   eingabeHandy: unknown,
@@ -867,7 +878,7 @@ export function repariereHandy(
   const text = alsText(eingabeHandy);
   if (text === null) return { status: "offen", wert: "", code: "format" };
   const roh = text;
-  const t = ohneHarmloseZeichen(roh).trim();
+  const t = handyRoh(roh);
   if (!t) {
     const r = pruefeHandy("", land, kontext);
     return r.code ? { status: "offen", wert: roh, code: r.code } : { status: "gueltig", wert: "", code: null };
@@ -892,7 +903,7 @@ export function repariereHandy(
   const r = pruefeHandy(t, land, kontext);
   if (r.code) return { status: "offen", wert: roh, code: r.code };
   if (r.wert === roh) return { status: "gueltig", wert: roh, code: null };
-  if (r.wert === t) return { status: "sicher", wert: r.wert, code: null }; // nur Leerraum/harmlose Zeichen
+  if (r.wert === t) return { status: "sicher", wert: r.wert, code: null }; // nur Leerraum/harmlose Zeichen/Hochkomma
   const deBeleg = /^0[1-9]/.test(kompakt) || /^0049/.test(kompakt) || /^\+490/.test(kompakt);
   if (deBeleg && r.land === "DE" && standardLand === "DE") return { status: "sicher", wert: r.wert, code: null };
   // `+49 151…` ohne 0: Mobilvorwahl 15/16/17 → „sicher“ (Entscheidung Hannes 19.11.2026).
