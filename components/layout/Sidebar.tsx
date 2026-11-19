@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -273,6 +273,21 @@ function ProfileSubNav({
   );
 }
 
+/**
+ * Zurück/Vor innerhalb von /profile ändert nur ?tab, nicht den Pfad: Dann die Nutzerzeile wieder öffnen
+ * (sonst bliebe sie nach dem Zuklappen zu). Eigene Komponente, weil useSearchParams Suspense braucht.
+ */
+function ProfileTabSync({ onChange }: { onChange: () => void }) {
+  const tab = useSearchParams().get("tab");
+  const prev = useRef(tab);
+  useEffect(() => {
+    if (prev.current === tab) return;
+    prev.current = tab;
+    onChange();
+  }, [tab, onChange]);
+  return null;
+}
+
 export function Sidebar({ profile }: { profile: Profile }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -390,6 +405,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
   }
   const toggle = (key: string) => setOpenSection((current) => toggleSection(current, key));
   const profileOpen = openSection === PROFILE_SECTION;
+  const openProfile = useCallback(() => setOpenSection(PROFILE_SECTION), []);
 
   // Laufende Nummer je Eintrag über alle Gruppen (Staffelung im mobilen Menü).
   const groupOffsets = groups.map((_, gi) =>
@@ -582,6 +598,11 @@ export function Sidebar({ profile }: { profile: Profile }) {
 
   return (
     <>
+      {profileActive && (
+        <Suspense fallback={null}>
+          <ProfileTabSync onChange={openProfile} />
+        </Suspense>
+      )}
       {/* Desktop-Sidebar: weiß wie der Website-Header, Bildmarke oben. */}
       <aside className="hidden h-screen w-[17rem] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:sticky md:top-0 md:flex">
         <Link
