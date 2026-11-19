@@ -152,8 +152,12 @@ function day(value: unknown): string | null {
  *   1. Manuelle Anpassung „entfernen“ / „Freisemester“ gewinnt immer.
  *   2. Ohne Anpassung „aufnehmen“: Alumni, gekündigt vor dem Stichtag, Eintritt ab dem
  *      Stichtag (Freisemester) fallen heraus.
- *   3. Ohne IBAN bzw. mit ungültiger IBAN/BIC: nicht im Export (auch bei „aufnehmen“).
+ *   3. Ohne IBAN bzw. mit ungültiger IBAN: nicht im Export (auch bei „aufnehmen“).
  *   4. Sonst Lastschrift über FEE_PER_SEMESTER.
+ * BIC: wird seit 20.11.2026 nicht mehr abgefragt (Entscheidung Hannes; im EWR genügt die IBAN). Eine
+ * gespeicherte BIC im gültigen Format geht weiter in CSV und XML (DbtrAgt/BIC), sonst „NOTPROVIDED“. Eine BIC
+ * mit falschem Format wird ignoriert, statt das Mitglied als „ungültig“ aus dem Einzug zu nehmen: Mitglieder
+ * können sie nicht mehr selbst korrigieren, und das Bereinigungsskript leert sie nicht mehr.
  */
 export async function getFinanceExportData(
   semester: Semester,
@@ -260,7 +264,8 @@ export async function getFinanceExportData(
     const bank = secrets.get(id);
     const bankValues = bank && bank !== "unreadable" ? bank : null;
     const ibanClean = text(bankValues?.iban).replace(/\s/g, "").toUpperCase();
-    const bicClean = text(bankValues?.bic).replace(/\s/g, "").toUpperCase();
+    const bicRoh = text(bankValues?.bic).replace(/\s/g, "").toUpperCase();
+    const bicClean = bicRoh && validateBICFormat(bicRoh) ? bicRoh : "";
     const joinedAt = day(profile["Datum_Antrag"]);
     const cancelledAt = day(profile["Datum_Kündigung"]);
     const ibanChangedAt = typeof profile["iban_changed_at"] === "string" ? profile["iban_changed_at"] : null;
@@ -280,7 +285,7 @@ export async function getFinanceExportData(
       category = "free_semester";
     } else if (!ibanClean) {
       category = "no_iban";
-    } else if (!validateIBAN(ibanClean) || (bicClean && !validateBICFormat(bicClean))) {
+    } else if (!validateIBAN(ibanClean)) {
       category = "invalid";
     } else {
       category = "debit";

@@ -43,7 +43,7 @@ const CATEGORIES: Record<FinanceCategory, CategoryMeta> = {
     Icon: CalendarOff,
   },
   no_iban: { label: "Ohne IBAN", hint: "Keine Bankverbindung hinterlegt.", Icon: MinusCircle },
-  invalid: { label: "Bankdaten ungültig", hint: "IBAN oder BIC fehlerhaft, bitte nachfragen.", Icon: AlertTriangle },
+  invalid: { label: "Bankdaten ungültig", hint: "IBAN fehlerhaft, bitte nachfragen.", Icon: AlertTriangle },
   removed: { label: "Entfernt", hint: "Manuell aus diesem Einzug genommen.", Icon: X },
 };
 
