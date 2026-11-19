@@ -333,7 +333,7 @@ function EmailEditField({ id, currentEmail, email }: { id: string; currentEmail:
             id={email.linkId}
             type="button"
             onClick={email.show}
-            className="-my-2.5 rounded-sm py-2.5 text-[0.8125rem] font-semibold text-primary outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="-my-3 rounded-sm py-3 text-[0.8125rem] font-semibold text-primary outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/40"
           >
             E-Mail ändern
           </button>
