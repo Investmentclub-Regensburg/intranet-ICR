@@ -32,6 +32,8 @@ import { DEFAULT_COUNTRY, dialCodeFor, findCountry } from "@/lib/country-codes";
 import { emailTippfehler } from "@/lib/member-rules-client";
 import { plzInputMode } from "@/lib/member-inputs";
 import { FeldFehler, FeldHinweis, HandyEingabe, LandAuswahl } from "@/components/member/MemberInputs";
+import { StudiengangAuswahl } from "@/components/member/StudiengangAuswahl";
+import { SONSTIGES } from "@/lib/studiengaenge";
 import { IbanBicFields } from "./iban-bic-fields";
 import { AuthFrame, StageHeading, flyDelay } from "@/components/auth/AuthFrame";
 import {
@@ -74,6 +76,7 @@ const DEFAULT_FORM: RegisterSavedState = {
   handynummer: "",
   student: "",
   studiengang: "",
+  studiengangSonstiges: "",
   abschluss: "",
   semester: "",
   iban: "",
@@ -106,6 +109,8 @@ const FIELD_STEP: Record<string, StepKey> = {
   land: "address",
   email: "contact",
   handynummer: "contact",
+  studiengang: "study",
+  studiengangSonstiges: "study",
   iban: "bank",
   bic: "bank",
 };
@@ -122,10 +127,12 @@ const FELD_REIHENFOLGE = [
   "ort",
   "email",
   "handynummer",
+  "studiengang",
+  "studiengangSonstiges",
   "iban",
   "bic",
 ] as const;
-const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag" };
+const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag", studiengangSonstiges: "studiengang-sonstiges" };
 
 const HOCHSCHULEN = [
   { value: "Universität Regensburg", label: "Universität Regensburg" },
@@ -232,6 +239,14 @@ export function RegisterForm() {
     });
   const fe = fieldErrors;
 
+  /** Feld, das nach einem Prüffehler den Fokus bekommt (neues Objekt je Fehler, damit der Effekt erneut läuft). */
+  const [fokusZiel, setFokusZiel] = useState<{ id: string } | null>(null);
+  useEffect(() => {
+    if (!fokusZiel) return;
+    const id = window.setTimeout(() => document.getElementById(fokusZiel.id)?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [fokusZiel]);
+
   const [password, setPassword] = useState("");
   const [passwordRepeat, setPasswordRepeat] = useState("");
   const [passwordMismatch, setPasswordMismatch] = useState(false);
@@ -278,6 +293,9 @@ export function RegisterForm() {
       setFieldErrors(errors);
       const first = STEPS.find((s) => Object.keys(errors).some((k) => FIELD_STEP[k] === s.key));
       if (first) goToRef.current(first.key);
+      // Fokus aufs erste Feld mit Fehler (z. B. leerer Studiengang), nicht nur auf den Schritt.
+      const erstes = FELD_REIHENFOLGE.find((k) => errors[k as keyof typeof errors]);
+      if (erstes) setFokusZiel({ id: FELD_ID[erstes] ?? erstes });
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [state.fieldErrors]);
@@ -333,13 +351,6 @@ export function RegisterForm() {
     }
   };
   const [stepError, setStepError] = useState("");
-  /** Feld, das nach einem Prüffehler den Fokus bekommt (neues Objekt je Fehler, damit der Effekt erneut läuft). */
-  const [fokusZiel, setFokusZiel] = useState<{ id: string } | null>(null);
-  useEffect(() => {
-    if (!fokusZiel) return;
-    const id = window.setTimeout(() => document.getElementById(fokusZiel.id)?.focus(), 0);
-    return () => window.clearTimeout(id);
-  }, [fokusZiel]);
 
   /** Absenden: Ist irgendwo noch etwas ungültig, dorthin springen statt zu senden. */
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -401,7 +412,7 @@ export function RegisterForm() {
       Icon: GraduationCap,
       value:
         v.student === "Ja"
-          ? `${v.studiengang} (${v.abschluss}), ${v.semester}. Semester, ${hochschule}`
+          ? `${v.studiengang === SONSTIGES ? v.studiengangSonstiges : v.studiengang} (${v.abschluss}), ${v.semester}. Semester, ${hochschule}`
           : "Kein Studium",
     });
   }
@@ -761,6 +772,7 @@ export function RegisterForm() {
                   ...f,
                   student: "Nein",
                   studiengang: "",
+                  studiengangSonstiges: "",
                   abschluss: "",
                   semester: "",
                   hochschultyp: "",
@@ -772,18 +784,21 @@ export function RegisterForm() {
           </div>
           {v.student === "Ja" && (
             <div className="space-y-4">
-              <Field id="studiengang" label="Studiengang / Fach">
-                <Input
+              <div className="space-y-2">
+                <Label htmlFor="studiengang">Studiengang / Fach</Label>
+                <StudiengangAuswahl
                   id="studiengang"
-                  name="studiengang"
-                  type="text"
-                  placeholder="z.B. Informatik"
+                  wert={{ auswahl: v.studiengang, freitext: v.studiengangSonstiges }}
+                  onChange={(w) => {
+                    setFormValues((f) => ({ ...f, studiengang: w.auswahl, studiengangSonstiges: w.freitext }));
+                    clearError("studiengang", "studiengangSonstiges");
+                  }}
+                  fehler={fe.studiengang}
+                  fehlerFreitext={fe.studiengangSonstiges}
                   required
-                  className={FIELD_CLASS}
-                  value={v.studiengang}
-                  onChange={(e) => setField("studiengang", e.target.value)}
+                  ohneKeinStudium
                 />
-              </Field>
+              </div>
               <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
                 <Field id="abschluss" label="Angestrebter Abschluss">
                   <Input

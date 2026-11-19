@@ -29,9 +29,35 @@ test("sechs Monate zurück, auch am Monatsende", () => {
 test("Studiengang vereinheitlichen", () => {
   assert.equal(normalizeFach(" bwl "), "BWL");
   assert.equal(normalizeFach("Betriebswirtschaftslehre"), "BWL");
-  assert.equal(normalizeFach("DBM"), "Digital Business");
+  // Gleiche Gruppen wie Auswahl und Bereinigung (lib/studiengaenge.ts): Digital Business Management ist eigener
+  // Studiengang (Entscheidung Hannes 1), Vorschläge zählen beim Listennamen.
+  assert.equal(normalizeFach("DBM"), "Digital Business Management");
+  assert.equal(normalizeFach("Digital Buisness"), "Digital Business");
+  assert.equal(normalizeFach("BW"), "BWL");
+  assert.equal(normalizeFach("Kein Student"), "Kein Studium");
   assert.equal(normalizeFach("Mathematik"), "Mathematik");
+  assert.equal(normalizeFach("Diplom-Finanzwirt (FH)"), "Diplom-Finanzwirt (FH)");
   assert.equal(normalizeFach("-"), null);
+  assert.equal(normalizeFach(null), null);
+});
+
+test("Insights: Studiengänge in sinnvollen Gruppen", () => {
+  const fach = ["BWL", "Bwl", "Betriebswirtschaftslehre", "BW", "BWL/Finance", "Business Managment", "Business Management",
+    "Digital Business", "DBM", "Kein Student", "Kein Studium", "Sonstige", "Sonstiges", "Diplom-Finanzwirt (FH)", "", "-", null];
+  const profiles = fach.map((f, i) => ({
+    id: `p${i}`, status: "active", rolle: "member", datumAntrag: "2025-01-10", datumKuendigung: null, fach: f,
+  }));
+  const d = computeInsights(profiles, "2026-10-13");
+  assert.deepEqual(d.fach.items, [
+    { name: "BWL", value: 5 },
+    { name: "Business Management", value: 2 },
+    { name: "Kein Studium", value: 2 },
+    { name: "Sonstiges", value: 2 },
+    { name: "Digital Business", value: 1 },
+    { name: "Digital Business Management", value: 1 },
+    { name: "Diplom-Finanzwirt (FH)", value: 1 },
+  ]);
+  assert.equal(d.fach.missing, 3);
 });
 
 const base = { rolle: "member", datumKuendigung: null, fach: null };

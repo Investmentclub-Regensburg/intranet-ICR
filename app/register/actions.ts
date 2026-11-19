@@ -4,6 +4,7 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { assertKeyRegistered, buildRegistrationSecrets, type MemberSecretValues } from "@/lib/member-secrets-server";
 import { DEFAULT_COUNTRY, countryFromSelectValue } from "@/lib/country-codes";
 import { FIELD_LIMITS, checkText } from "@/lib/member-fields";
+import { KEIN_STUDIUM, pruefeStudiengang } from "@/lib/studiengaenge";
 import {
   REGISTRIERUNG_SCHRITTE,
   istRegistrierungSchritt,
@@ -31,7 +32,10 @@ export type RegisterSavedState = {
   landesvorwahl: string;
   handynummer: string;
   student: string;
+  /** Name aus der Studiengangsliste (lib/studiengaenge.ts) oder „Sonstiges“. */
   studiengang: string;
+  /** Freitext, nur bei „Sonstiges“. */
+  studiengangSonstiges: string;
   abschluss: string;
   semester: string;
   iban: string;
@@ -42,8 +46,8 @@ export type RegisterSavedState = {
 
 export type RegisterActionState = {
   error: string;
-  /** Meldungen je Feld (lib/member-rules.ts), Schlüssel = Feldname der Regeln. */
-  fieldErrors?: FeldFehler;
+  /** Meldungen je Feld (lib/member-rules.ts), Schlüssel = Feldname der Regeln; dazu Auswahl und Freitext Studiengang. */
+  fieldErrors?: FeldFehler & { studiengang?: string; studiengangSonstiges?: string };
   redirect?: string;
   saved?: RegisterSavedState;
   confirmationMessage?: string;
@@ -73,6 +77,7 @@ export async function registerAction(
   const handynummerRaw = text("handynummer").trim();
   const student = text("student");
   const studiengang = text("studiengang").trim();
+  const studiengangSonstiges = text("studiengangSonstiges");
   const abschluss = text("abschluss").trim();
   const semester = text("semester").trim();
   const iban = text("iban").trim();
@@ -95,6 +100,7 @@ export async function registerAction(
     handynummer: handynummerRaw,
     student,
     studiengang,
+    studiengangSonstiges,
     abschluss,
     semester,
     iban,
@@ -127,9 +133,8 @@ export async function registerAction(
 
   // Übrige Pflichtangaben (Passwort, Studium)
   const required: Record<string, unknown> = { password, passwordRepeat, student };
-  // Studiendaten sind nur Pflicht, wenn "Student = Ja"
+  // Studiendaten sind nur Pflicht, wenn "Student = Ja". Den Studiengang prüft pruefeStudiengang (mit Feldfehler).
   if (student === "Ja") {
-    required.studiengang = studiengang;
     required.abschluss = abschluss;
     required.semester = semester;
     required.hochschultyp = hochschultyp;
@@ -142,8 +147,19 @@ export async function registerAction(
     return { error: "Die SEPA-Bestätigung ist erforderlich.", saved };
   }
 
+  // Studiengang nur aus der Liste oder als „Sonstiges“ mit Freitext (Längengrenze wie bisher). Gespeichert wird der
+  // geprüfte Text; ohne Studium „Kein Studium“ (Entscheidung Hannes 4).
+  let fach: string = KEIN_STUDIUM;
+  if (student === "Ja") {
+    const studium = pruefeStudiengang(studiengang, studiengangSonstiges, { ohneKeinStudium: true });
+    if (!studium.ok) {
+      const feld = studium.feld === "freitext" ? "studiengangSonstiges" : "studiengang";
+      return { error: studium.fehler, fieldErrors: { [feld]: studium.fehler }, saved };
+    }
+    fach = studium.wert;
+  }
+
   const fieldError =
-    checkText(studiengang, "Studiengang", FIELD_LIMITS.studium) ??
     checkText(abschluss, "Abschluss", FIELD_LIMITS.studium) ??
     checkText(hochschultyp, "Hochschulart", FIELD_LIMITS.studium);
   if (fieldError) {
@@ -192,7 +208,7 @@ export async function registerAction(
   const registration = {
     Vorname: pruefung.werte.vorname,
     Nachname: pruefung.werte.nachname,
-    Fach: studiengang || null,
+    Fach: fach,
     Abschluss: abschluss || null,
     Semester: student === "Ja" ? String(semesterNumber) : "",
     "Uni/OTH": hochschultyp || null,
