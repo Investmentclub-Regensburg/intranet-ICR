@@ -32,8 +32,10 @@ Diese Checkliste ist bewusst konservativ gehalten, damit Exporte auch bei streng
   - Pflichtfeld
   - vorab auf Format + Prüfsumme validieren
 - Debitor-BIC
-  - wenn vorhanden: auf 8/11-stelliges BIC-Format prüfen
-  - wenn nicht vorhanden: keinen falschen Fallback-BIC setzen
+  - EWR-IBAN: nie eine BIC, immer `DbtrAgt/FinInstnId/Othr/Id` = `NOTPROVIDED` (EPC130-08 v7.0, Index 2.70;
+    `debitorBic` in `lib/finance-category.ts`). Die BIC wird seit 20.11.2026 nicht mehr abgefragt.
+  - IBAN außerhalb des EWR (CH, GB, …): kommt derzeit nicht in die Datei (Vorschau „Konto außerhalb des EWR –
+    manuell“), bis der Export Anschrift (`PstlAdr`) und BIC für diese Konten liefert.
 - Kreditordaten (`CdtrAcct/IBAN`, `CdtrAgt/BIC`, `CdtrSchmeId`)
   - vollständig und korrekt hinterlegt
 
