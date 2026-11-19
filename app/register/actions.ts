@@ -6,6 +6,7 @@ import { DEFAULT_COUNTRY, countryFromSelectValue } from "@/lib/country-codes";
 import { FIELD_LIMITS, checkText } from "@/lib/member-fields";
 import {
   REGISTRIERUNG_SCHRITTE,
+  REGISTRIERUNG_SCHRITT_BEZUEGE,
   istRegistrierungSchritt,
   pruefeRegistrierung,
   pruefeRegistrierungSchritt,
@@ -33,9 +34,7 @@ export type RegisterSavedState = {
   student: string;
   studiengang: string;
   abschluss: string;
-  semester: string;
   iban: string;
-  bic: string;
   hochschultyp: string;
   sepa: boolean;
 };
@@ -74,9 +73,9 @@ export async function registerAction(
   const student = text("student");
   const studiengang = text("studiengang").trim();
   const abschluss = text("abschluss").trim();
-  const semester = text("semester").trim();
+  // Semester und BIC werden seit 20.11.2026 nicht mehr abgefragt (Entscheidung Hannes); auch alte Formulare,
+  // die sie noch schicken, speichern sie nicht.
   const iban = text("iban").trim();
-  const bic = text("bic").trim();
   const hochschultyp = text("hochschultyp");
   const sepa = formData.get("sepa") === "on";
 
@@ -96,15 +95,14 @@ export async function registerAction(
     student,
     studiengang,
     abschluss,
-    semester,
     iban,
-    bic,
     hochschultyp,
     sepa,
   };
 
   // Mitgliederdaten ausschließlich nach lib/member-rules.ts (Kontext „registrierung“): Pflichtfelder,
-  // Formate, E-Mail (isValidEmail), Handy → E.164, IBAN nur SEPA, BIC optional, PLZ je Land.
+  // Formate, E-Mail (isValidEmail), Handy → E.164 (freiwillig), IBAN nur SEPA, Anschrift freiwillig (Pflicht bei
+  // IBAN außerhalb des EWR oder wenn ein Teil angegeben ist), PLZ je Land.
   const pruefung = pruefeRegistrierung({
     vorname,
     nachname,
@@ -119,7 +117,6 @@ export async function registerAction(
     handyLand: handyLand ?? text("landesvorwahl"),
     handynummer: handynummerRaw,
     iban,
-    bic,
   });
   if (!pruefung.gueltig) {
     return { error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fieldErrors: pruefung.fehler, saved };
@@ -131,7 +128,6 @@ export async function registerAction(
   if (student === "Ja") {
     required.studiengang = studiengang;
     required.abschluss = abschluss;
-    required.semester = semester;
     required.hochschultyp = hochschultyp;
   }
   if (Object.values(required).some((v) => !v)) {
@@ -157,14 +153,6 @@ export async function registerAction(
   const passwordError = checkPasswordLength(password);
   if (passwordError) {
     return { error: passwordError, saved };
-  }
-
-  const semesterNumber = Number(semester);
-  if (
-    student === "Ja" &&
-    (!Number.isInteger(semesterNumber) || semesterNumber < 1 || semesterNumber > 99)
-  ) {
-    return { error: "Bitte gib ein gültiges Semester als Zahl ein.", saved };
   }
 
   // Bremse gegen Massen-Registrierungen je IP, dann Turnstile (VOR signUp).
@@ -194,7 +182,6 @@ export async function registerAction(
     Nachname: pruefung.werte.nachname,
     Fach: studiengang || null,
     Abschluss: abschluss || null,
-    Semester: student === "Ja" ? String(semesterNumber) : "",
     "Uni/OTH": hochschultyp || null,
     "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
     // Der letzte Schritt lautet „Mit der Registrierung akzeptierst du die Vereinssatzung“.
@@ -287,7 +274,7 @@ export async function pruefeRegistrierungsSchritt(
 
   // Nur bekannte Schlüssel des Schritts übernehmen, nur Zeichenketten bis 300 Zeichen.
   const eingabe: Record<string, string> = {};
-  const schluessel: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...(schritt === "contact" ? ["handyLand"] : [])];
+  const schluessel: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...REGISTRIERUNG_SCHRITT_BEZUEGE[schritt]];
   for (const key of schluessel) {
     if (!Object.prototype.hasOwnProperty.call(felder, key)) continue;
     const v = (felder as Record<string, unknown>)[key];

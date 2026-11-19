@@ -76,15 +76,8 @@ test("Vorstand: Feldnamen je aktivem Mitglied, Alumni ohne Bank, land_unbekannt 
   assert.deepEqual(r.ausland.datenMaengel, ["Land"]);
   // vorwahl_ergaenzt ist ein Hinweis, kein Mangel → kein Symbol
   assert.deepEqual(r.vorwahl.datenMaengel, []);
-  assert.deepEqual(r.ohnezeile.datenMaengel, [
-    "Straße",
-    "Hausnummer",
-    "PLZ",
-    "Ort",
-    "Handy",
-    "IBAN",
-    "Geburtsdatum",
-  ]);
+  // Handy und Anschrift sind freiwillig (seit 20.11.2026): ohne Daten fehlen nur IBAN und Geburtsdatum.
+  assert.deepEqual(r.ohnezeile.datenMaengel, ["IBAN", "Geburtsdatum"]);
   // Status „alumni“ (Altdaten) zählt als Alumni: leere Bankdaten kein Mangel
   assert.deepEqual(r.altstatus.datenMaengel, []);
   // Nicht aktiv oder nicht lesbar: keine Aussage, Eigenschaft fehlt
@@ -169,10 +162,24 @@ test("member_secrets nicht lesbar: alle nicht lesbar, keine Mängel", () => {
 
 test("maengelFelder: ohne handyLand (Altnummer ohne Vorwahl ist kein Mangel), Reihenfolge fest", () => {
   assert.deepEqual(maengelFelder(gueltig({ handynummer: "01761234567" }), { Rolle: "member" }, HEUTE), []);
+  // BIC wird nicht mehr bewertet: auch eine kaputte BIC ist kein Mangel.
   assert.deepEqual(
     maengelFelder(gueltig({ geburtsdatum: "2030-01-01", bic: "XYZ", ort: "" }), { Rolle: "member" }, HEUTE),
-    ["ort", "bic", "geburtsdatum"]
+    ["ort", "geburtsdatum"]
   );
+  assert.equal(Object.hasOwn(FELD_NAMEN, "bic"), false);
+});
+
+test("maengelFelder: Handy/Anschrift nur Mangel, wenn angegeben und falsch oder Pflicht wegen IBAN außerhalb des EWR", () => {
+  const ohne = { handynummer: null, strasse: null, hausnummer: null, plz: null, ort: null, land: null };
+  assert.deepEqual(maengelFelder(gueltig(ohne), { Rolle: "member" }, HEUTE), []);
+  assert.deepEqual(maengelFelder(gueltig({ handynummer: "+499411234567" }), { Rolle: "member" }, HEUTE), ["handynummer"]);
+  assert.deepEqual(
+    maengelFelder(gueltig({ ...ohne, iban: "CH9300762011623852957" }), { Rolle: "member" }, HEUTE),
+    ["strasse", "hausnummer", "plz", "ort"]
+  );
+  // Alumni: keine Pflicht-Anschrift.
+  assert.deepEqual(maengelFelder(gueltig({ ...ohne, iban: "CH9300762011623852957" }), { Rolle: "alumni" }, HEUTE), []);
 });
 
 test("Bestehende Felder der Liste unverändert (Name, Rolle, Status)", () => {

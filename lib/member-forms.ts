@@ -9,9 +9,9 @@ import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 import { DEFAULT_COUNTRY, findCountry } from "./country-codes";
 import { normalizeIban } from "./member-crypto";
 import {
+  ANSCHRIFT_TEILE,
   formatiereHandyAnzeige,
-  normalisiereBic,
-  pruefeBic,
+  nichtEwrIbanLand,
   pruefeFormular,
   pruefeHandy,
   pruefeVorstandskorrektur,
@@ -94,11 +94,34 @@ export function handyAnzeige(gespeichert: string | null | undefined): string {
   return bereinigt ? formatiereHandyAnzeige(bereinigt) : roh;
 }
 
-/** Nicht blockierender Hinweis zur BIC (Land weicht vom Land der IBAN ab), sonst null. Nur Anzeige. */
-export function bicHinweis(bic: string | null | undefined, iban: string | null | undefined): string | null {
-  if (!text(bic).trim()) return null;
-  const r = pruefeBic(bic, iban ?? "", { alumni: false, wer: "mitglied" });
-  return r.hinweis === "bic_land" ? "Die BIC gehört zu einem anderen Land als die IBAN." : null;
+/**
+ * Die BIC wird seit 20.11.2026 nicht mehr abgefragt (Entscheidung Hannes). Eine gespeicherte BIC gehört aber zum
+ * Konto: Ändert sich die IBAN (anderes Konto, verglichen nach `normalizeIban`), wird die alte BIC mitgeleert,
+ * damit der SEPA-Export nie die neue IBAN mit der BIC der alten Bank verschickt (sonst kann die Bank die
+ * Lastschrift zurückweisen; ohne BIC gilt im EWR die IBAN allein). Unveränderte Konten behalten ihre BIC.
+ */
+function bicMitleeren(neueIban: string | null | undefined, bestand: Partial<MemberSecretValues>): boolean {
+  return Boolean(text(bestand.bic).trim()) && normalizeIban(text(neueIban)) !== normalizeIban(text(bestand.iban));
+}
+
+/** Meldung an der IBAN, wenn die Anschrift für eine IBAN außerhalb des EWR fehlt (Profil, Abschnitt Bank). */
+export const ANSCHRIFT_FEHLT_PROFIL =
+  "Für eine IBAN außerhalb des EWR brauchen wir deine Anschrift. Trag sie bitte zuerst unter Persönliche Daten ein.";
+/** Dasselbe im Schritt Bankverbindung der Registrierung. */
+export const ANSCHRIFT_FEHLT_REGISTRIERUNG =
+  "Für eine IBAN außerhalb des EWR brauchen wir deine Anschrift. Trag sie bitte im Schritt Adresse ein.";
+
+/**
+ * Fehlt für diese IBAN die Pflicht-Anschrift? Nur bei einer IBAN außerhalb des EWR (nicht Alumni): Dann zählt,
+ * ob eines der Anschriftfelder nach den Regeln „fehlt“. Formatfehler einer gespeicherten Anschrift blockieren
+ * hier nicht (die meldet das Abfrage-Fenster am Feld).
+ */
+function anschriftFehltFuerIban(iban: unknown, anschrift: Mitgliederdaten, alumni: boolean, heute?: string): boolean {
+  if (alumni || !nichtEwrIbanLand(iban)) return false;
+  const daten: Mitgliederdaten = { iban, land: anschrift.land ?? "" };
+  for (const feld of ANSCHRIFT_TEILE) daten[feld] = anschrift[feld] ?? "";
+  const r = pruefeFormular(daten, { alumni: false, wer: "mitglied", heute });
+  return r.maengel.some((m) => ANSCHRIFT_TEILE.includes(m.feld) && m.code === "fehlt");
 }
 
 function leerZuNull(wert: string | undefined): string | null {
@@ -116,7 +139,6 @@ const FELD_REIHENFOLGE: readonly Feld[] = [
   "land",
   "handynummer",
   "iban",
-  "bic",
   "geburtsdatum",
 ];
 
@@ -170,12 +192,13 @@ export type RegistrierungEingabe = {
   handyLand: unknown;
   handynummer: unknown;
   iban: unknown;
-  bic: unknown;
 };
 
 /**
  * Mitgliedsantrag: alle Felder nach den Regeln (Kontext `registrierung`). `werte` enthält Name und E-Mail
- * normalisiert, `aenderungen` die verschlüsselten Felder (inkl. Land).
+ * normalisiert, `aenderungen` die verschlüsselten Felder (inkl. Land). Handy und Anschrift sind freiwillig
+ * (Anschrift Pflicht bei einer IBAN außerhalb des EWR oder wenn ein Teil angegeben ist); eine BIC wird nicht
+ * mehr erhoben (auch eine mitgeschickte nicht gespeichert).
  */
 export function pruefeRegistrierung(
   eingabe: RegistrierungEingabe,
@@ -198,7 +221,6 @@ export function pruefeRegistrierung(
           land: leerZuNull(w.land),
           handynummer: leerZuNull(w.handynummer),
           iban: leerZuNull(w.iban),
-          bic: leerZuNull(w.bic),
           geburtsdatum: leerZuNull(w.geburtsdatum),
         }
       : {},
@@ -210,9 +232,20 @@ export const REGISTRIERUNG_SCHRITTE = {
   person: ["vorname", "nachname", "geburtsdatum"],
   address: ["strasse", "hausnummer", "plz", "ort", "land"],
   contact: ["email", "handynummer"],
-  bank: ["iban", "bic"],
+  bank: ["iban"],
 } as const satisfies Record<string, readonly Feld[]>;
 export type RegistrierungSchritt = keyof typeof REGISTRIERUNG_SCHRITTE;
+
+/**
+ * Zusätzliche Eingaben je Schritt, die nur als Querbezug dienen (nicht gemeldet): Land der Handynummer; im
+ * Schritt Bankverbindung die Anschrift aus dem Schritt davor (Pflicht bei einer IBAN außerhalb des EWR).
+ */
+export const REGISTRIERUNG_SCHRITT_BEZUEGE = {
+  person: [],
+  address: [],
+  contact: ["handyLand"],
+  bank: ["strasse", "hausnummer", "plz", "ort", "land"],
+} as const satisfies Record<RegistrierungSchritt, readonly string[]>;
 
 export function istRegistrierungSchritt(schritt: unknown): schritt is RegistrierungSchritt {
   return typeof schritt === "string" && Object.prototype.hasOwnProperty.call(REGISTRIERUNG_SCHRITTE, schritt);
@@ -220,7 +253,9 @@ export function istRegistrierungSchritt(schritt: unknown): schritt is Registrier
 
 /**
  * Prüfung eines Schritts der Registrierung (bei „Weiter“): dieselben Regeln wie beim Absenden, gemeldet werden
- * nur die Felder des Schritts. Querbezüge liegen im selben Schritt (Land → PLZ, IBAN → BIC).
+ * nur die Felder des Schritts. Querbezüge: Land → PLZ im selben Schritt; im Schritt Bankverbindung fehlt bei
+ * einer IBAN außerhalb des EWR evtl. die Anschrift aus dem Schritt davor, das meldet die IBAN
+ * (ANSCHRIFT_FEHLT_REGISTRIERUNG).
  */
 export function pruefeRegistrierungSchritt(
   schritt: RegistrierungSchritt,
@@ -240,16 +275,18 @@ export function pruefeRegistrierungSchritt(
     handyLand: "",
     handynummer: "",
     iban: "",
-    bic: "",
   };
   const daten = { ...leer };
-  const erlaubt: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...(schritt === "contact" ? ["handyLand"] : [])];
+  const erlaubt: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...REGISTRIERUNG_SCHRITT_BEZUEGE[schritt]];
   for (const key of erlaubt) {
     if (Object.prototype.hasOwnProperty.call(eingabe, key)) daten[key as keyof RegistrierungEingabe] = eingabe[key as keyof RegistrierungEingabe];
   }
   const { fehler } = pruefeRegistrierung(daten, heute);
   const out: FeldFehler = {};
   for (const feld of REGISTRIERUNG_SCHRITTE[schritt]) if (fehler[feld]) out[feld] = fehler[feld];
+  if (schritt === "bank" && !out.iban && anschriftFehltFuerIban(daten.iban, daten, false, heute)) {
+    out.iban = ANSCHRIFT_FEHLT_REGISTRIERUNG;
+  }
   return out;
 }
 
@@ -265,7 +302,7 @@ export type Namen = { vorname?: string | null; nachname?: string | null };
 /** Felder je Abschnitt des Profils (das Geburtsdatum nur, solange keins gespeichert ist). */
 const ABSCHNITT_FELDER: Record<ProfilAbschnitt, readonly Feld[]> = {
   personal: ["strasse", "hausnummer", "plz", "ort", "land", "handynummer", "geburtsdatum"],
-  bank: ["iban", "bic"],
+  bank: ["iban"],
 };
 
 /**
@@ -274,8 +311,13 @@ const ABSCHNITT_FELDER: Record<ProfilAbschnitt, readonly Feld[]> = {
  * des anderen Abschnitts blockieren nicht.
  *  - Geburtsdatum: nur, solange keins gespeichert ist (einmal selbst nachtragen); sonst wird die Eingabe
  *    ignoriert und das gespeicherte Datum nicht geprüft (das Mitglied kann es nicht ändern).
- *  - Alumni: IBAN/BIC werden nur geprüft und gespeichert, wenn sie geändert wurden (eine alte ungültige
- *    IBAN blockiert sonst das Speichern; Alumni haben nie einen Bank-Mangel). Leeren ist erlaubt.
+ *  - Alumni: die IBAN wird nur geprüft und gespeichert, wenn sie geändert wurde (eine alte ungültige IBAN
+ *    blockiert sonst das Speichern; Alumni haben nie einen Bank-Mangel). Leeren ist erlaubt.
+ *  - Anschrift: freiwillig; Pflicht, wenn ein Teil angegeben ist oder die IBAN (gespeichert bzw. im Abschnitt
+ *    Bank neu) aus einem SEPA-Land außerhalb des EWR kommt. Im Abschnitt Bank meldet das die IBAN
+ *    (ANSCHRIFT_FEHLT_PROFIL), solange `anschriftAusBestand` gilt; das Abfrage-Fenster schaltet es ab, weil es
+ *    die Anschrift im selben Formular hat und den Bestand danach selbst bewertet.
+ *  - BIC: wird nicht mehr abgefragt; eine gespeicherte BIC wird bei einem Kontowechsel mitgeleert.
  */
 export function pruefeProfil(
   abschnitt: ProfilAbschnitt,
@@ -284,7 +326,9 @@ export function pruefeProfil(
   alumni: boolean,
   heute?: string,
   /** Formular wurde ohne bekanntes Land geladen (Übergang vor der Migration): Land nicht speichern. */
-  landUnbekannt = false
+  landUnbekannt = false,
+  /** Abschnitt Bank: fehlende Pflicht-Anschrift (IBAN außerhalb des EWR) aus dem Bestand an der IBAN melden. */
+  anschriftAusBestand = true
 ): FormularErgebnis & { namen: { vorname?: string; nachname?: string } } {
   const istAlumni = alumni === true;
   // Name (Klartext in profiles) gehört zu „Persönliches“, wenn das Formular ihn schickt (Entscheidung 11).
@@ -303,19 +347,27 @@ export function pruefeProfil(
       return handyGeaendert(eingabe.handyLand, eingabe.handynummer, bestand.handynummer);
     }
     if (istAlumni && feld === "iban") return normalizeIban(text(eingabe.iban)) !== normalizeIban(text(bestand.iban));
-    if (istAlumni && feld === "bic") return normalisiereBic(eingabe.bic) !== normalisiereBic(bestand.bic);
     return true;
   });
 
   const daten: Mitgliederdaten = {};
   for (const feld of felder) daten[feld] = eingabe[feld] ?? null;
   if (felder.includes("handynummer")) daten.handyLand = text(eingabe.handyLand) || DEFAULT_COUNTRY;
-  // Querbezüge (Land für PLZ/Hausnummer/Ort, IBAN für die BIC) aus dem Abschnitt bzw. dem Bestand.
+  // Querbezüge (Land für PLZ/Hausnummer/Ort, IBAN für die Pflicht-Anschrift) aus dem Abschnitt bzw. dem Bestand.
   if (!felder.includes("land")) daten.land = bestand.land ?? "";
   if (!felder.includes("iban")) daten.iban = bestand.iban ?? "";
 
   const r = pruefeFormular(daten, { alumni: istAlumni, wer: "mitglied", heute });
   const fehler = fehlerJeFeld(r, daten.land, felder);
+  if (
+    abschnitt === "bank" &&
+    anschriftAusBestand &&
+    felder.includes("iban") &&
+    !fehler.iban &&
+    anschriftFehltFuerIban(daten.iban, { ...bestand, land: bestand.land ?? "" }, istAlumni, heute)
+  ) {
+    fehler.iban = ANSCHRIFT_FEHLT_PROFIL;
+  }
   const gueltig = Object.keys(fehler).length === 0;
 
   const namen: { vorname?: string; nachname?: string } = {};
@@ -344,6 +396,7 @@ export function pruefeProfil(
         aenderungen.land = land;
       }
     }
+    if ("iban" in aenderungen && bicMitleeren(aenderungen.iban, bestand)) aenderungen.bic = null;
     // Sicher bereinigbare Altnummer (nur angezeigt, nicht angefasst): mitspeichern, wenn der Abschnitt ohnehin
     // gespeichert wird – geprüft, als E.164 ohne angenommene Länderauswahl.
     const bereinigt = abschnitt === "personal" && !felder.includes("handynummer") ? handyBereinigt(bestand.handynummer) : null;
@@ -371,7 +424,6 @@ export type KorrekturWerte = {
   handyLand: string;
   handynummer: string;
   geburtsdatum: string;
-  bic: string;
 };
 
 export const KORREKTUR_FELDER = [
@@ -385,7 +437,6 @@ export const KORREKTUR_FELDER = [
   "handyLand",
   "handynummer",
   "geburtsdatum",
-  "bic",
 ] as const satisfies readonly (keyof KorrekturWerte)[];
 
 /** Bestand → Anzeige im Korrekturdialog (Ausgangswerte für den Vergleich „geändert?“). */
@@ -402,14 +453,12 @@ export function korrekturWerte(bestand: MemberSecretValues & Namen): KorrekturWe
     handyLand: handy.land,
     handynummer: handy.nummer,
     geburtsdatum: bestand.geburtsdatum ?? "",
-    bic: bestand.bic ?? "",
   };
 }
 
-/** Vergleichsform für „hat der Vorstand das Feld geändert?“ (Leerraum außen egal, BIC ohne Leerzeichen). */
+/** Vergleichsform für „hat der Vorstand das Feld geändert?“ (Leerraum außen egal). */
 function vergleich(feld: keyof KorrekturWerte, wert: unknown): string {
   const t = text(wert).trim();
-  if (feld === "bic") return normalisiereBic(t);
   if (feld === "land" || feld === "handyLand") return t.toUpperCase();
   return t;
 }
@@ -432,7 +481,8 @@ export function geaenderteKorrekturFelder(eingabe: Partial<Record<keyof Korrektu
 /**
  * Korrektur durch den Vorstand: nur geänderte Felder werden geprüft (`pruefeVorstandskorrektur`) und
  * gespeichert, alte Fehler in anderen Feldern blockieren nicht. Leeren ist erlaubt außer beim Geburtsdatum.
- * `iban`: neue IBAN, leer = unverändert. Die Querbezüge kommen aus dem Bestand.
+ * `iban`: neue IBAN, leer = unverändert. Die Querbezüge kommen aus dem Bestand. Eine neue IBAN leert eine
+ * gespeicherte BIC mit (`bicMitleeren`); eine BIC fragt der Dialog nicht mehr ab.
  */
 export function pruefeKorrektur(
   eingabe: Partial<Record<keyof KorrekturWerte | "iban", unknown>>,
@@ -465,6 +515,10 @@ export function pruefeKorrektur(
     for (const feld of felder) out[feld] = leerZuNull(r.werte[feld as Feld]);
     if (r.werte.vorname !== undefined) namen.vorname = r.werte.vorname;
     if (r.werte.nachname !== undefined) namen.nachname = r.werte.nachname;
+    if (out.iban && bicMitleeren(out.iban, bestand)) {
+      out.bic = null;
+      felder.push("bic");
+    }
   }
   return { gueltig: r.gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen: out, felder, namen };
 }

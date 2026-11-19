@@ -46,7 +46,6 @@ export const FELD_NAMEN: Readonly<Record<Feld, string>> = Object.freeze({
   land: "Land",
   handynummer: "Handy",
   iban: "IBAN",
-  bic: "BIC",
   geburtsdatum: "Geburtsdatum",
 });
 
@@ -55,7 +54,9 @@ const FELD_REIHENFOLGE = Object.keys(FELD_NAMEN) as Feld[];
 /**
  * Felder mit Mangel im gespeicherten Bestand (BESTANDS_FELDER, gleiche Liste wie Abfrage-Fenster und Skript),
  * geprüft mit `pruefeBestand` OHNE `handyLand` (regeln-fuer-aufrufer.md 1); Alumni ohne Bankmängel (3).
- * `land_unbekannt` zählt nur am Feld `land` (Punkt 4). Hinweise (`vorwahl_ergaenzt`, `bic_land`) bleiben
+ * `land_unbekannt` zählt nur am Feld `land` (Punkt 4). Handy und Anschrift sind freiwillig (Mangel nur, wenn
+ * angegeben und falsch oder wegen einer IBAN außerhalb des EWR Pflicht); die BIC wird nicht mehr bewertet
+ * (Entscheidung Hannes 20.11.2026). Hinweise (`vorwahl_ergaenzt`) bleiben
  * bewusst weg: Sie blockieren nie, und das Mitglied bestätigt sie selbst im Abfrage-Fenster.
  */
 export function maengelFelder(

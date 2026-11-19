@@ -113,8 +113,11 @@ export async function bestaetigeStand(
 export type DatenBestand = MemberSecretValues & Namen;
 
 export const HINWEIS_VORWAHL = "Vorwahl +49 ergänzt. Stimmt die Nummer?";
-export const ANSCHRIFT_FEHLT = "Bitte trag deine Anschrift ein.";
-export const HINWEIS_BIC_LAND = "Die BIC gehört zu einem anderen Land als die IBAN.";
+/**
+ * Zeile „Anschrift“ ganz leer und trotzdem ein Mangel: Das geht nur, wenn die Anschrift wegen einer IBAN
+ * außerhalb des EWR Pflicht ist (sonst ist sie freiwillig, Entscheidung Hannes 20.11.2026).
+ */
+export const ANSCHRIFT_FEHLT = "Für eine IBAN außerhalb des EWR brauchen wir deine Anschrift.";
 
 export type BestandsBewertung = {
   gueltig: boolean;
@@ -131,7 +134,7 @@ function text(v: unknown): string {
 }
 
 /**
- * Bestand in die Form der Regeln: nur die 9 verschlüsselten Felder (BESTANDS_FELDER). Name und E-Mail sind kein
+ * Bestand in die Form der Regeln: nur die verschlüsselten Felder ohne BIC (BESTANDS_FELDER). Name und E-Mail sind kein
  * Bestandsmangel (Abstimmung mit Vorstandsübersicht und Skript); im Formular „Ändern“ gelten für den Namen die
  * Formularregeln aus PR 2.
  */
@@ -144,14 +147,13 @@ function alsDaten(b: DatenBestand): Mitgliederdaten {
     land: b.land ?? "",
     handynummer: b.handynummer,
     iban: b.iban,
-    bic: b.bic,
     geburtsdatum: b.geburtsdatum,
   };
 }
 
 /**
- * Gespeicherten Bestand bewerten (`pruefeBestand`, ohne `handyLand`). Alumni: IBAN/BIC nie ein Mangel
- * (Entscheidung 3). Hinweise (`vorwahl_ergaenzt`, `bic_land`) blockieren nie.
+ * Gespeicherten Bestand bewerten (`pruefeBestand`, ohne `handyLand`). Alumni: IBAN nie ein Mangel
+ * (Entscheidung 3). Hinweise (`vorwahl_ergaenzt`) blockieren nie. Die BIC wird nicht bewertet.
  */
 export function bewerteBestand(bestand: DatenBestand, alumni: boolean, heute?: string): BestandsBewertung {
   const r = pruefeBestand(alsDaten(bestand), { alumni: alumni === true, wer: "mitglied", heute });
@@ -167,7 +169,7 @@ export function bewerteBestand(bestand: DatenBestand, alumni: boolean, heute?: s
   for (const h of r.hinweise) {
     if (!istBestandsFeld(h.feld)) continue;
     if (fehler[h.feld] !== undefined) continue;
-    hinweise[h.feld] = h.code === "vorwahl_ergaenzt" ? HINWEIS_VORWAHL : HINWEIS_BIC_LAND;
+    if (h.code === "vorwahl_ergaenzt") hinweise[h.feld] = HINWEIS_VORWAHL;
   }
   return { gueltig: Object.keys(fehler).length === 0, fehler, hinweise, werte: r.werte };
 }
@@ -176,7 +178,8 @@ function istBestandsFeld(feld: Feld): boolean {
   return (BESTANDS_FELDER as readonly string[]).includes(feld);
 }
 
-const SECRET_FELDER_OHNE_LAND = ["strasse", "hausnummer", "plz", "ort", "handynummer", "geburtsdatum", "iban", "bic"] as const;
+/** Felder, die „Stimmt alles“ normalisiert zurückschreiben darf (ohne Land; ohne BIC, die wird nicht mehr geprüft). */
+const SECRET_FELDER_OHNE_LAND = ["strasse", "hausnummer", "plz", "ort", "handynummer", "geburtsdatum", "iban"] as const;
 
 function leerZuNull(wert: string | undefined): string | null {
   return wert ? wert : null;
@@ -196,7 +199,7 @@ export function bestaetigungsAenderungen(
 ): { secrets: Partial<MemberSecretValues>; namen: { vorname?: string; nachname?: string } } {
   const secrets: Partial<MemberSecretValues> = {};
   for (const feld of SECRET_FELDER_OHNE_LAND) {
-    if (alumni && (feld === "iban" || feld === "bic")) continue;
+    if (alumni && feld === "iban") continue;
     if (werte[feld] === undefined) continue;
     const neu = leerZuNull(werte[feld]);
     if (neu !== (bestand[feld] ?? null)) secrets[feld] = neu;
@@ -225,7 +228,6 @@ const ZEILEN: { key: DatenCheckZeilenSchluessel; label: string; felder: readonly
   { key: "handy", label: "Handy", felder: ["handynummer"] },
   { key: "email", label: "E-Mail", felder: [] },
   { key: "iban", label: "IBAN", felder: ["iban"] },
-  { key: "bic", label: "BIC", felder: ["bic"] },
   { key: "geburtsdatum", label: "Geburtsdatum", felder: ["geburtsdatum"] },
 ];
 
@@ -281,27 +283,26 @@ export function bauDatenCheckAnsicht({
     ],
     email: [email],
     iban: [ibanMaskiert(bestand.iban)],
-    bic: [wert("bic")],
     geburtsdatum: [datumDeutsch(wert("geburtsdatum"))],
   };
 
-  // Anschrift ganz leer: „Fehlt“ und eine Zeile für die ganze Anschrift statt nur der Straßen-Meldung; das
-  // vorbelegte Land allein ist kein Wert (Review B3). Die Feldmarkierungen im Formular bleiben.
+  // Anschrift ganz leer: keine Werte (das vorbelegte Land allein ist kein Wert, Review B3). Die Anschrift ist
+  // freiwillig; nur wenn sie trotzdem einen Mangel hat (IBAN außerhalb des EWR), eine Zeile für die ganze
+  // Anschrift statt der Meldungen je Feld. Die Feldmarkierungen im Formular bleiben.
   const anschriftLeer = (["strasse", "hausnummer", "plz", "ort"] as const).every((f) => !text(bestand[f]).trim());
+  const anschriftMangel = ZEILEN.find((z) => z.key === "anschrift")!.felder.some((f) => b.fehler[f] !== undefined);
   if (anschriftLeer) anzeige.anschrift = [];
 
   const zeilen: DatenCheckZeile[] = [];
   for (const z of ZEILEN) {
     const werte = anzeige[z.key].filter((w) => w !== "");
     const fehler =
-      z.key === "anschrift" && anschriftLeer
+      z.key === "anschrift" && anschriftLeer && anschriftMangel
         ? ANSCHRIFT_FEHLT
         : z.felder.map((f) => b.fehler[f]).find((f) => f !== undefined);
     const hinweis = z.felder.map((f) => b.hinweise[f]).find((h) => h !== undefined);
     // Alumni ohne Bankdaten: Zeile weglassen (nicht nötig, kein Mangel).
-    if (alumni && (z.key === "iban" || z.key === "bic") && werte.length === 0) continue;
-    // BIC ist freiwillig: leer und ohne Mangel nicht zeigen.
-    if (z.key === "bic" && werte.length === 0 && !fehler) continue;
+    if (alumni && z.key === "iban" && werte.length === 0) continue;
     const zeile: DatenCheckZeile = { key: z.key, label: z.label, wert: werte };
     if (fehler) zeile.fehler = fehler;
     if (hinweis) zeile.hinweis = hinweis;
@@ -325,7 +326,6 @@ export function bauDatenCheckAnsicht({
       handyNummer: handy.nummer,
       geburtsdatum: (bestand.geburtsdatum ?? "").trim(),
       iban: bestand.iban ?? "",
-      bic: bestand.bic ?? "",
       alumni,
       version,
       landUnbekannt: !landBekannt,
@@ -351,7 +351,6 @@ export const AENDERN_FELDER = [
   "handynummer",
   "geburtsdatum",
   "iban",
-  "bic",
 ] as const;
 
 /**
@@ -377,9 +376,11 @@ export function pruefeDatenCheckAenderung(
   for (const key of ["vorname", "nachname", "strasse", "hausnummer", "plz", "ort", "land", "handyLand", "handynummer", "geburtsdatum"]) {
     persoenlich[key] = eingabe[key];
   }
-  const bank: Record<string, unknown> = { iban: eingabe.iban, bic: eingabe.bic };
+  const bank: Record<string, unknown> = { iban: eingabe.iban };
   const p = pruefeProfil("personal", persoenlich, bestand, alumni, heute, landUnbekannt);
-  const k = pruefeProfil("bank", bank, bestand, alumni, heute, landUnbekannt);
+  // Pflicht-Anschrift bei einer IBAN außerhalb des EWR: Die Anschrift steht im selben Formular, das meldet die
+  // Bewertung des Bestands danach am Feld (nicht an der IBAN wie im Profil).
+  const k = pruefeProfil("bank", bank, bestand, alumni, heute, landUnbekannt, false);
   const formFehler: FeldFehler = { ...p.fehler, ...k.fehler };
   if (!p.gueltig || !k.gueltig) {
     return { gueltig: false, fehler: formFehler, ersterFehler: p.ersterFehler ?? k.ersterFehler, secrets: {}, namen: {} };

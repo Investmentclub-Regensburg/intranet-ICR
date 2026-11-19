@@ -62,11 +62,13 @@ function daten(aenderung = {}) {
 
 const bewerte = (profil, werte, hatZeile = true) => bewerteProfil({ profil, werte, hatZeile, heute: HEUTE });
 
-test("Feldliste: gelesene Felder = SECRET_FIELDS, geschrieben werden nur die vier erlaubten", () => {
-  assert.deepEqual([...GESPEICHERTE_FELDER].sort(), [...SECRET_FIELDS].sort());
+test("Feldliste: gelesene Felder = SECRET_FIELDS ohne BIC, geschrieben werden nur die drei erlaubten", () => {
+  assert.deepEqual([...GESPEICHERTE_FELDER].sort(), SECRET_FIELDS.filter((f) => f !== "bic").sort());
   assert.ok(GESPEICHERTE_FELDER.includes("land"));
-  assert.deepEqual([...SCHREIBBARE_FELDER].sort(), ["bic", "handynummer", "hausnummer", "strasse"]);
+  // Seit 20.11.2026 ohne „BIC mit falschem Format leeren“ (BIC wird nicht mehr geprüft).
+  assert.deepEqual([...SCHREIBBARE_FELDER].sort(), ["handynummer", "hausnummer", "strasse"]);
   assert.ok(AUSGABE_FELDER.includes("land"));
+  assert.equal(AUSGABE_FELDER.includes("bic"), false);
 });
 
 test("Land wird gelesen und geprüft, aber nie geschrieben", () => {
@@ -152,11 +154,14 @@ test("Handy: deutsche Belege → sicher (E.164), Rest vorschlag oder offen", () 
   assert.equal(at.status.handynummer, "vorschlag");
   assert.deepEqual(at.aenderungen, {});
 
+  // Leer ist seit 20.11.2026 in Ordnung (Handy freiwillig).
+  const ohneHandy = bewerte(AKTIV, daten({ handynummer: null }));
+  assert.equal(ohneHandy.status.handynummer, "gueltig");
+  assert.deepEqual(ohneHandy.maengel, []);
   for (const [roh, code] of [
     ["0941 123456", "kein_mobil"],
     ["0176 12", null],
     ["max.handy@example.org", "format"],
-    [null, "fehlt"],
     ["13812345678", null],
   ]) {
     const b = bewerte(AKTIV, daten({ handynummer: roh }));
@@ -168,19 +173,31 @@ test("Handy: deutsche Belege → sicher (E.164), Rest vorschlag oder offen", () 
   }
 });
 
-test("BIC: falsches Format → sicher leeren; Länderabweichung nur Hinweis", () => {
-  const format = bewerte(AKTIV, daten({ bic: "COBADE" }));
-  assert.equal(format.status.bic, "sicher");
-  assert.deepEqual(format.aenderungen, { bic: "" });
+test("BIC: weder geprüft noch gezählt noch geändert (Reparatur „leeren“ entfällt, 20.11.2026)", () => {
+  for (const bic of ["COBADE", "GIBAATWWXXX", null, "kaputt"]) {
+    const b = bewerte(AKTIV, daten({ bic }));
+    assert.equal("bic" in b.status, false, String(bic));
+    assert.deepEqual(b.aenderungen, {}, String(bic));
+    assert.deepEqual(b.maengel, [], String(bic));
+    assert.deepEqual(b.hinweise, [], String(bic));
+  }
+});
 
-  const land = bewerte(AKTIV, daten({ bic: "GIBAATWWXXX" }));
-  assert.equal(land.status.bic, "gueltig");
-  assert.deepEqual(land.aenderungen, {});
-  assert.deepEqual(land.hinweise, [{ feld: "bic", code: "bic_land" }]);
-
-  const leer = bewerte(AKTIV, daten({ bic: null }));
-  assert.equal(leer.status.bic, "gueltig");
-  assert.deepEqual(leer.maengel, []);
+test("Handy und Anschrift: Mangel nur, wenn angegeben und falsch oder Pflicht wegen IBAN außerhalb des EWR", () => {
+  const ohne = { handynummer: null, strasse: null, hausnummer: null, plz: null, ort: null, land: null };
+  assert.deepEqual(bewerte(AKTIV, daten(ohne)).maengel, []);
+  // Teilweise Anschrift: der Rest fehlt.
+  assert.deepEqual(
+    bewerte(AKTIV, daten({ ...ohne, plz: "93047" })).maengel.map((m) => `${m.feld}:${m.code}`),
+    ["strasse:fehlt", "hausnummer:fehlt", "ort:fehlt"]
+  );
+  // IBAN außerhalb des EWR ohne Anschrift: Anschrift fehlt (nicht bei Alumni).
+  const ch = daten({ ...ohne, iban: "CH9300762011623852957" });
+  assert.deepEqual(
+    bewerte(AKTIV, ch).maengel.map((m) => `${m.feld}:${m.code}`),
+    ["strasse:fehlt", "hausnummer:fehlt", "plz:fehlt", "ort:fehlt"]
+  );
+  assert.deepEqual(bewerte(ALUMNI, ch).maengel, []);
 });
 
 test("Straße mit Hausnummer → sicher abtrennen; unklare Fälle offen", () => {
@@ -234,20 +251,12 @@ test("gekündigt und Antrag offen: nur gezählt, nie geändert", () => {
   }
 });
 
-test("ohne member_secrets-Zeile: Pflichtfelder fehlen, nichts zu schreiben", () => {
+test("ohne member_secrets-Zeile: Pflichtfelder (IBAN, Geburtsdatum) fehlen, nichts zu schreiben", () => {
   const leer = Object.fromEntries(SECRET_FIELDS.map((f) => [f, null]));
   const b = bewerte(AKTIV, leer, false);
   assert.equal(b.hatZeile, false);
   const felder = b.maengel.map((m) => `${m.feld}:${m.code}`).sort();
-  assert.deepEqual(felder, [
-    "geburtsdatum:fehlt",
-    "handynummer:fehlt",
-    "hausnummer:fehlt",
-    "iban:fehlt",
-    "ort:fehlt",
-    "plz:fehlt",
-    "strasse:fehlt",
-  ]);
+  assert.deepEqual(felder, ["geburtsdatum:fehlt", "iban:fehlt"]);
   assert.deepEqual(b.aenderungen, {});
 });
 
@@ -346,7 +355,8 @@ test("Zählungen der Stichprobe", () => {
   assert.equal(z.ohneZeileGesamt, 1);
   assert.equal(z.nichtLesbar, 1);
   assert.equal(z.maengel.handynummer.kein_mobil, 1);
-  assert.equal(z.maengel.handynummer.fehlt, 1);
+  // Handy freiwillig: das leere Handy von ID 8 ist kein Mangel mehr.
+  assert.equal(z.maengel.handynummer.fehlt, undefined);
   assert.equal(z.maengel.iban.pruefziffer, 1);
   assert.equal(z.maengel.plz.format, 1);
   assert.equal(z.maengel.strasse.hausnummer_in_strasse, 1);
@@ -357,10 +367,10 @@ test("Zählungen der Stichprobe", () => {
   // Herkunft: ID 2 (ohne Präfix) nur angenommen; ID 1 (+49 0…) belegt; ID 5/7 ohne eigenes Handy-Muster belegt/leer.
   assert.equal(z.handyAngenommen, 1);
   assert.ok(z.handyBelegt >= 1);
-  assert.equal(z.status.bic.sicher, 1);
+  assert.equal(z.status.bic, undefined);
   assert.equal(z.status.strasse.sicher, 1);
   assert.equal(z.zuAendern, 3);
-  assert.deepEqual(z.aenderungenJeFeld, { handynummer: 2, bic: 1, strasse: 1, hausnummer: 1 });
+  assert.deepEqual(z.aenderungenJeFeld, { handynummer: 2, strasse: 1, hausnummer: 1 });
   // Summe je Feld = aktive, lesbare Profile
   for (const feld of AUSGABE_FELDER) {
     const summe = Object.values(z.status[feld]).reduce((a, b) => a + b, 0);
@@ -372,7 +382,7 @@ test("Ausgaben enthalten keine Werte und keine Profil-IDs", () => {
   const { z, eintraege } = auswerten();
   const r = neuesReparaturErgebnis();
   r.geaendert = 3;
-  r.felder = { handynummer: 1, bic: 1, strasse: 1, hausnummer: 1 };
+  r.felder = { handynummer: 1, strasse: 1, hausnummer: 1 };
   for (const text of [formatierePruefung(z), formatiereProbelauf(z), formatiereReparatur(r)]) {
     ohneKlartext(text);
     assert.match(text, /\d/);

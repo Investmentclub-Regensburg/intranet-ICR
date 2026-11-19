@@ -17,12 +17,13 @@ import { isActiveMemberProfile, isAlumniProfile, isCancelledProfile } from "../.
 import { normalizeIban } from "../../lib/member-crypto.ts";
 
 /**
- * Verschlüsselte Felder, die das Skript aus member_secrets liest und prüft (= SECRET_FIELDS, seit PR 2 mit
- * `land`). `land` wird nur gelesen und an die Prüfung gegeben (leer = DE), nie geschrieben.
+ * Verschlüsselte Felder, die das Skript aus member_secrets liest und prüft (= SECRET_FIELDS ohne `bic`, seit
+ * PR 2 mit `land`). `land` wird nur gelesen und an die Prüfung gegeben (leer = DE), nie geschrieben. Die BIC
+ * wird seit 20.11.2026 weder abgefragt noch geprüft (Entscheidung Hannes) und deshalb weder gezählt noch
+ * geändert; gespeicherte Werte bleiben, wie sie sind.
  */
 export const GESPEICHERTE_FELDER = Object.freeze([
   "iban",
-  "bic",
   "geburtsdatum",
   "strasse",
   "hausnummer",
@@ -34,10 +35,13 @@ export const GESPEICHERTE_FELDER = Object.freeze([
 
 /**
  * Felder, die das Skript automatisch ändern darf – und nur mit Status „sicher“ (Konzept Abschnitt 3,
- * Entscheidung 6): Handy → E.164, Straße/Hausnummer abtrennen, BIC mit falschem Format leeren.
- * Alles andere (auch die IBAN-Schreibweise) bleibt unangetastet.
+ * Entscheidung 6): Handy → E.164, Straße/Hausnummer abtrennen. Alles andere (auch die IBAN-Schreibweise und
+ * die BIC) bleibt unangetastet.
+ * Die frühere Reparatur „BIC mit falschem Format leeren“ entfällt (20.11.2026): Ohne BIC-Prüfung gibt es
+ * keinen Mangel mehr, den sie beheben würde; die Entscheidung hält vorhandene Werte vorerst fest (Löschen
+ * später); und der SEPA-Export ignoriert eine BIC mit falschem Format ohnehin.
  */
-export const SCHREIBBARE_FELDER = Object.freeze(["handynummer", "strasse", "hausnummer", "bic"]);
+export const SCHREIBBARE_FELDER = Object.freeze(["handynummer", "strasse", "hausnummer"]);
 
 /** Felder in der Ausgabe (Reihenfolge der Gesamtprüfung, inkl. `land`). */
 export const AUSGABE_FELDER = Object.freeze([...STAMMFELDER]);

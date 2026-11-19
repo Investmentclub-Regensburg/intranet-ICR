@@ -19,7 +19,6 @@ import { Label } from "@/components/ui/label";
 import { WizardNav, WizardStep, type WizardDirection } from "@/components/kit/Wizard";
 import {
   FeldFehler,
-  FeldHinweis,
   GespeichertHaken,
   HandyEingabe,
   IbanEingabe,
@@ -27,7 +26,7 @@ import {
   type HandyWert,
 } from "@/components/member/MemberInputs";
 import { ibanInViererbloecken } from "@/lib/member-rules-client";
-import { bicLandHinweis, plzInputMode } from "@/lib/member-inputs";
+import { plzInputMode } from "@/lib/member-inputs";
 import type { DatenCheckAnsicht, DatenCheckZeile } from "@/lib/member-data-check";
 import { confirmMemberData, postponeMemberDataCheck, saveMemberDataCheck } from "@/app/(intranet)/profile/data-check-actions";
 import { logoutAction } from "@/app/login/actions";
@@ -76,7 +75,6 @@ export function DatenCheckFenster({
   const [land, setLand] = useState(f.land);
   const [handy, setHandy] = useState<HandyWert>({ land: f.handyLand, nummer: f.handyNummer });
   const [iban, setIban] = useState(() => ibanInViererbloecken(f.iban));
-  const [bic, setBic] = useState(f.bic);
   const inhalt = useRef<HTMLDivElement>(null);
   // Fokus nach Schrittwechsel bzw. Serverfehler: Ziel merken, nach dem Rendern setzen (auch in Firefox).
   const fokusZiel = useRef<"fehler" | "schritt" | null>(null);
@@ -189,8 +187,6 @@ export function DatenCheckFenster({
     });
   }
 
-  const bicHinweis = bicLandHinweis(iban, bic);
-
   return (
     <>
       {children !== undefined && (
@@ -283,11 +279,11 @@ export function DatenCheckFenster({
                   <Input id={`${id}-nachname`} name="nachname" defaultValue={f.nachname} autoComplete="family-name" {...ungueltig(`${id}-nachname`, fehler.nachname)} onInput={() => clear("nachname")} />
                 </Feld>
               </div>
-              <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-3">
-                <Feld id={`${id}-strasse`} label="Straße" fehler={fehler.strasse}>
+              <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-3">
+                <Feld id={`${id}-strasse`} label="Straße (optional)" fehler={fehler.strasse}>
                   <Input id={`${id}-strasse`} name="strasse" defaultValue={f.strasse} autoComplete="address-line1" {...ungueltig(`${id}-strasse`, fehler.strasse)} onInput={() => clear("strasse")} />
                 </Feld>
-                <Feld id={`${id}-hausnummer`} label="Hausnr." fehler={fehler.hausnummer} fehlerUnterDerZeile>
+                <Feld id={`${id}-hausnummer`} label="Hausnr. (optional)" fehler={fehler.hausnummer} fehlerUnterDerZeile>
                   <Input id={`${id}-hausnummer`} name="hausnummer" defaultValue={f.hausnummer} {...ungueltig(`${id}-hausnummer`, fehler.hausnummer)} onInput={() => clear("hausnummer")} />
                 </Feld>
                 <ZeilenFehler id={`${id}-hausnummer`} fehler={fehler.hausnummer} />
@@ -306,18 +302,18 @@ export function DatenCheckFenster({
                   fehler={fehler.land}
                 />
               </div>
-              <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
-                <Feld id={`${id}-plz`} label="PLZ" fehler={fehler.plz} fehlerUnterDerZeile>
+              <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3">
+                <Feld id={`${id}-plz`} label="PLZ (optional)" fehler={fehler.plz} fehlerUnterDerZeile>
                   <Input id={`${id}-plz`} name="plz" defaultValue={f.plz} autoComplete="postal-code" inputMode={plzInputMode(land)} {...ungueltig(`${id}-plz`, fehler.plz)} onInput={() => clear("plz")} />
                 </Feld>
-                <Feld id={`${id}-ort`} label="Ort" fehler={fehler.ort}>
+                <Feld id={`${id}-ort`} label="Ort (optional)" fehler={fehler.ort}>
                   <Input id={`${id}-ort`} name="ort" defaultValue={f.ort} autoComplete="address-level2" {...ungueltig(`${id}-ort`, fehler.ort)} onInput={() => clear("ort")} />
                 </Feld>
                 <ZeilenFehler id={`${id}-plz`} fehler={fehler.plz} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-handy`} className="text-xs font-medium text-muted-foreground">
-                  Handynummer
+                  Handynummer (optional)
                 </Label>
                 <HandyEingabe
                   id={`${id}-handy`}
@@ -351,29 +347,12 @@ export function DatenCheckFenster({
                   wert={iban}
                   onChange={(w) => {
                     setIban(w);
-                    clear("iban", "bic");
+                    clear("iban");
                   }}
                   placeholder={f.alumni ? "Als Alumni nicht nötig" : undefined}
                   fehler={fehler.iban}
                 />
               </div>
-              <Feld id={`${id}-bic`} label="BIC (optional)" fehler={fehler.bic}>
-                <Input
-                  id={`${id}-bic`}
-                  name="bic"
-                  value={bic}
-                  onChange={(e) => {
-                    setBic(e.target.value);
-                    clear("bic");
-                  }}
-                  autoComplete="off"
-                  spellCheck={false}
-                  autoCapitalize="characters"
-                  className="font-mono tracking-wide"
-                  {...ungueltig(`${id}-bic`, fehler.bic)}
-                />
-                {!fehler.bic && <FeldHinweis>{bicHinweis}</FeldHinweis>}
-              </Feld>
               <Meldung>{meldung}</Meldung>
               <WizardNav onBack={pending ? undefined : () => gehe("uebersicht", "back")}>
                 <Button type="submit" disabled={pending}>
@@ -406,7 +385,8 @@ function ZeilenAnzeige({ zeile }: { zeile: DatenCheckZeile }) {
             </span>
           ))
         ) : (
-          <span className="text-muted-foreground">Fehlt</span>
+          // Leer ohne Mangel = freiwilliges Feld ohne Angabe (Handy, Anschrift).
+          <span className="text-muted-foreground">{zeile.fehler ? "Fehlt" : "Keine Angabe"}</span>
         )}
         {zeile.fehler ? (
           <span className="mt-1 flex items-start gap-1.5 text-xs font-normal text-destructive">

@@ -192,7 +192,8 @@ test("Gültiger Bestand: Stimmt alles + Später, nichts neu zu schreiben (U6)", 
   const a = ansicht(gut());
   assert.equal(a.gueltig, true);
   assert.equal(a.spaeterErlaubt, true);
-  assert.deepEqual(a.zeilen.map((zl) => zl.key), ["name", "anschrift", "handy", "email", "iban", "bic", "geburtsdatum"]);
+  // Die BIC wird nicht mehr abgefragt: keine Zeile, auch wenn eine gespeichert ist.
+  assert.deepEqual(a.zeilen.map((zl) => zl.key), ["name", "anschrift", "handy", "email", "iban", "geburtsdatum"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "anschrift").wert, ["Musterstraße 12a", "93047 Regensburg", "Deutschland"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "iban").wert, ["…3000"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "geburtsdatum").wert, ["12.04.2001"]);
@@ -215,14 +216,29 @@ test("Mangel → ungültig, kein Später; Punkt + eine Zeile am Feld (land_unbek
   assert.equal(l.fehler.plz, undefined);
 });
 
-test("Leere Pflichtfelder (keine Daten) → ungültig, Zeilen ohne Wert", () => {
+test("Leere Pflichtfelder (keine Daten) → ungültig nur wegen IBAN und Geburtsdatum; Handy/Anschrift freiwillig", () => {
   const leer = { vorname: "Max", nachname: "Leer", iban: null, bic: null, geburtsdatum: null, strasse: null, hausnummer: null, plz: null, ort: null, land: null, handynummer: null };
   const a = ansicht(leer);
   assert.equal(a.gueltig, false);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "handy").wert, []);
-  for (const key of ["anschrift", "handy", "iban", "geburtsdatum"]) assert.ok(a.zeilen.find((zl) => zl.key === key).fehler, key);
-  // BIC ist freiwillig: leer und ohne Mangel keine Zeile.
-  assert.equal(a.zeilen.find((zl) => zl.key === "bic"), undefined);
+  for (const key of ["iban", "geburtsdatum"]) assert.ok(a.zeilen.find((zl) => zl.key === key).fehler, key);
+  // Freiwillig: Zeile da (Anzeige „Keine Angabe“), aber ohne Mangel.
+  for (const key of ["anschrift", "handy"]) {
+    const zeile = a.zeilen.find((zl) => zl.key === key);
+    assert.deepEqual(zeile.wert, [], key);
+    assert.equal(zeile.fehler, undefined, key);
+  }
+  assert.deepEqual(Object.keys(a.formularFehler).sort(), ["geburtsdatum", "iban"]);
+  // Mit IBAN und Geburtsdatum ist ein Bestand ohne Handy und Anschrift gültig.
+  assert.equal(ansicht({ ...leer, iban: IBAN_DE, geburtsdatum: "2001-04-12" }).gueltig, true);
+  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
+  assert.match(fenster, /zeile\.fehler \? "Fehlt" : "Keine Angabe"/);
+});
+
+test("Handy angegeben, aber falsch → Mangel; Anschrift teilweise → Mangel", () => {
+  assert.ok(bewerteBestand(gut({ handynummer: "0941 123456" }), false, HEUTE).fehler.handynummer);
+  const teil = bewerteBestand(gut({ strasse: null, hausnummer: null, ort: null }), false, HEUTE);
+  assert.deepEqual(Object.keys(teil.fehler).sort(), ["hausnummer", "ort", "strasse"]);
 });
 
 test("Alumni ohne IBAN/BIC gültig, Bank bleibt unangetastet", () => {
@@ -250,18 +266,18 @@ test("Handy ohne Vorwahl (15/16/17): seit 19.11.2026 ohne Rückfrage, Anzeige E.
   assert.deepEqual(bestaetigungsAenderungen(bestand, b.werte, false).secrets, { handynummer: "+4917612345678" });
 });
 
-test("Normalisierter Altwert gilt als Änderung (Handy +49 0…, IBAN mit Leerzeichen, BIC klein, Name mit Leerraum)", () => {
+test("Normalisierter Altwert gilt als Änderung (Handy +49 0…, IBAN mit Leerzeichen, Name mit Leerraum); BIC bleibt, wie sie ist", () => {
   const bestand = gut({ handynummer: "+49 0176 1234567", iban: "de89 3704 0044 0532 0130 00", bic: "cobadeffxxx", vorname: " Erika " });
   const b = bewerteBestand(bestand, false, HEUTE);
   assert.equal(b.gueltig, true);
   const r = bestaetigungsAenderungen(bestand, b.werte, false);
-  assert.deepEqual(r.secrets, { handynummer: "+491761234567", iban: IBAN_DE, bic: "COBADEFFXXX" });
+  assert.deepEqual(r.secrets, { handynummer: "+491761234567", iban: IBAN_DE });
   // Name ist kein Bestandsfeld: wird weder bewertet noch bei „Stimmt alles“ umgeschrieben.
   assert.deepEqual(r.namen, {});
 });
 
 test("Name und E-Mail zählen nicht als Bestandsmangel (gleiche Feldliste wie Übersicht und Skript)", () => {
-  assert.deepEqual([...BESTANDS_FELDER].sort(), ["bic", "geburtsdatum", "handynummer", "hausnummer", "iban", "land", "ort", "plz", "strasse"]);
+  assert.deepEqual([...BESTANDS_FELDER].sort(), ["geburtsdatum", "handynummer", "hausnummer", "iban", "land", "ort", "plz", "strasse"]);
   const a = ansicht(gut({ vorname: "", nachname: "=Formel" }));
   assert.equal(a.gueltig, true);
   assert.equal(a.zeilen.find((zl) => zl.key === "name").fehler, undefined);
@@ -275,10 +291,10 @@ test("Land: Altdaten ohne Land werden nur bei anderen Änderungen mitgeschrieben
   const ohneLand = gut({ land: null });
   const b = bewerteBestand(ohneLand, false, HEUTE);
   assert.deepEqual(bestaetigungsAenderungen(ohneLand, b.werte, false).secrets, {});
-  const mitAenderung = gut({ land: null, bic: "cobadeffxxx" });
+  const mitAenderung = gut({ land: null, iban: "de89 3704 0044 0532 0130 00" });
   const b2 = bewerteBestand(mitAenderung, false, HEUTE);
-  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false).secrets, { bic: "COBADEFFXXX", land: "DE" });
-  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false, false).secrets, { bic: "COBADEFFXXX" });
+  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false).secrets, { iban: IBAN_DE, land: "DE" });
+  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false, false).secrets, { iban: IBAN_DE });
 });
 
 test("IBAN maskiert: nur die letzten vier Stellen", () => {
@@ -298,7 +314,6 @@ const formular = (extra = {}) => ({
   handynummer: "176 1234567",
   geburtsdatum: "2001-04-12",
   iban: "DE89 3704 0044 0532 0130 00",
-  bic: "COBADEFFXXX",
   ...extra,
 });
 
@@ -329,9 +344,15 @@ test("Ändern: unveränderte kaputte Altnummer blockiert (sonst gälte nichts al
 });
 
 test("Ändern: Pflichtfeld leeren → Fehler am Feld; Name wird geprüft und gespeichert", () => {
+  // Nur den Ort leeren = Anschrift unvollständig.
   const leer = pruefeDatenCheckAenderung(formular({ ort: "" }), gut(), false, false, HEUTE);
   assert.equal(leer.gueltig, false);
   assert.ok(leer.fehler.ort);
+  // Handy und ganze Anschrift leeren ist erlaubt (freiwillig).
+  const frei = pruefeDatenCheckAenderung(formular({ strasse: "", hausnummer: "", plz: "", ort: "", handynummer: "" }), gut(), false, false, HEUTE);
+  assert.equal(frei.gueltig, true, frei.ersterFehler ?? "");
+  assert.equal(frei.secrets.handynummer, null);
+  assert.equal(frei.secrets.strasse, null);
   const name = pruefeDatenCheckAenderung(formular({ nachname: "Muster-Neu" }), gut(), false, false, HEUTE);
   assert.equal(name.gueltig, true);
   assert.deepEqual(name.namen, { nachname: "Muster-Neu" });
@@ -339,10 +360,33 @@ test("Ändern: Pflichtfeld leeren → Fehler am Feld; Name wird geprüft und ges
 
 test("Ändern: Alumni ohne IBAN gültig; sobald eine IBAN eingegeben wird, wird sie geprüft", () => {
   const bestand = gut({ iban: null, bic: null });
-  assert.equal(pruefeDatenCheckAenderung(formular({ iban: "", bic: "" }), bestand, true, false, HEUTE).gueltig, true);
-  const falsch = pruefeDatenCheckAenderung(formular({ iban: "DE89370400440532013001", bic: "" }), bestand, true, false, HEUTE);
+  assert.equal(pruefeDatenCheckAenderung(formular({ iban: "" }), bestand, true, false, HEUTE).gueltig, true);
+  const falsch = pruefeDatenCheckAenderung(formular({ iban: "DE89370400440532013001" }), bestand, true, false, HEUTE);
   assert.equal(falsch.gueltig, false);
   assert.ok(falsch.fehler.iban);
+});
+
+test("Ändern: IBAN außerhalb des EWR – Anschrift im selben Formular zählt, fehlt sie, Meldung an den Feldern", () => {
+  const ohne = gut({ strasse: null, hausnummer: null, plz: null, ort: null });
+  const leer = { strasse: "", hausnummer: "", plz: "", ort: "" };
+  const r = pruefeDatenCheckAenderung(formular({ ...leer, iban: "CH9300762011623852957" }), ohne, false, false, HEUTE);
+  assert.equal(r.gueltig, false);
+  assert.equal(r.fehler.iban, undefined);
+  assert.equal(r.fehler.strasse, "Für eine IBAN außerhalb des EWR brauchen wir die Anschrift.");
+  // Anschrift im selben Formular nachgetragen: gültig, alte BIC geht mit dem Kontowechsel.
+  const ok = pruefeDatenCheckAenderung(
+    formular({ iban: "CH9300762011623852957", land: "CH", strasse: "Bahnhofstrasse", hausnummer: "1", plz: "8001", ort: "Zürich" }),
+    ohne,
+    false,
+    false,
+    HEUTE
+  );
+  assert.equal(ok.gueltig, true, ok.ersterFehler ?? "");
+  assert.equal(ok.secrets.iban, "CH9300762011623852957");
+  assert.equal(ok.secrets.bic, null);
+  // Fenster zeigt die leere Anschrift dann als eine Zeile mit Mangel.
+  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, iban: "CH9300762011623852957" }));
+  assert.equal(a.zeilen.find((zl) => zl.key === "anschrift").fehler, ANSCHRIFT_FEHLT);
 });
 
 test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .env.example", () => {
@@ -495,12 +539,16 @@ test("B2: „Ändern“ fokussiert bei Mängeln das erste markierte Feld", () =>
   assert.match(fenster, /fokussiere\(nach === "aendern" && Object\.values\(fehler\)\.some\(Boolean\) \? "fehler" : "schritt"\)/);
 });
 
-test("B3: Anschrift ganz leer → „Fehlt“ und eine Zeile für die Anschrift, Feldmarkierungen bleiben", () => {
-  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null }));
+test("B3: Anschrift ganz leer → ohne Mangel (freiwillig); mit IBAN außerhalb des EWR eine Zeile für die Anschrift, Feldmarkierungen bleiben", () => {
+  const frei = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null }));
+  assert.equal(frei.gueltig, true);
+  assert.deepEqual(frei.zeilen.find((zl) => zl.key === "anschrift").wert, []);
+  assert.equal(frei.zeilen.find((zl) => zl.key === "anschrift").fehler, undefined);
+  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null, iban: "GB82WEST12345698765432" }));
   const zeile = a.zeilen.find((zl) => zl.key === "anschrift");
   assert.deepEqual(zeile.wert, []);
   assert.equal(zeile.fehler, ANSCHRIFT_FEHLT);
-  assert.equal(ANSCHRIFT_FEHLT, "Bitte trag deine Anschrift ein.");
+  assert.equal(ANSCHRIFT_FEHLT, "Für eine IBAN außerhalb des EWR brauchen wir deine Anschrift.");
   for (const feld of ["strasse", "plz", "ort"]) assert.ok(a.formularFehler[feld], feld);
   // Nur teilweise leer: die Feldmeldung wie bisher.
   const teil = ansicht(gut({ plz: null })).zeilen.find((zl) => zl.key === "anschrift");

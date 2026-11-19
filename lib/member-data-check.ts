@@ -79,12 +79,13 @@ export function istBestaetigungOffen({
 
 /**
  * Felder, deren Mängel (`pruefeBestand`, ohne handyLand, Alumni ohne Bankmangel) die Daten „ungültig“ machen:
- * genau die 9 verschlüsselten Felder. Name und E-Mail zählen nicht als Bestandsmangel (gleiche Liste in
- * Abfrage-Fenster, Vorstandsübersicht und Skript-Zählung).
+ * die verschlüsselten Felder ohne BIC (seit 20.11.2026 weder abgefragt noch geprüft, Entscheidung Hannes). Name
+ * und E-Mail zählen nicht als Bestandsmangel (gleiche Liste in Abfrage-Fenster, Vorstandsübersicht und
+ * Skript-Zählung). Handy und Anschrift sind freiwillig: Mangel nur, wenn angegeben und falsch bzw. wenn die
+ * Anschrift wegen einer IBAN außerhalb des EWR Pflicht ist oder nur teilweise angegeben.
  */
 export const BESTANDS_FELDER = [
   "iban",
-  "bic",
   "geburtsdatum",
   "strasse",
   "hausnummer",
@@ -181,12 +182,12 @@ export function spaeterBis({ jetzt = new Date(), start }: { jetzt?: Date; start:
 // Anzeige im Fenster (vom Server berechnet, an die Client-Komponente gegeben)
 // ---------------------------------------------------------------------------------------------------
 
-export type DatenCheckZeilenSchluessel = "name" | "anschrift" | "handy" | "email" | "iban" | "bic" | "geburtsdatum";
+export type DatenCheckZeilenSchluessel = "name" | "anschrift" | "handy" | "email" | "iban" | "geburtsdatum";
 
 export type DatenCheckZeile = {
   key: DatenCheckZeilenSchluessel;
   label: string;
-  /** Anzeige in Zeilen (z. B. Anschrift: Straße, Ort, Land); leer = nichts gespeichert. */
+  /** Anzeige in Zeilen (z. B. Anschrift: Straße, Ort, Land); leer = nichts gespeichert („Fehlt“ bzw. „Keine Angabe“). */
   wert: string[];
   /** Mangel: eine Zeile Hinweis (blockiert). */
   fehler?: string;
@@ -207,7 +208,6 @@ export type DatenCheckFormular = {
   handyNummer: string;
   geburtsdatum: string;
   iban: string;
-  bic: string;
   alumni: boolean;
   /** Version der verschlüsselten Zeile (0 = keine): Sperre beim Speichern. */
   version: number;

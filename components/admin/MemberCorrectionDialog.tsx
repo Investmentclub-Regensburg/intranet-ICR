@@ -108,7 +108,6 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
           handyLand: handy.land,
           handynummer: handy.nummer,
           geburtsdatum: value("geburtsdatum"),
-          bic: value("bic"),
           iban,
         },
         data
@@ -242,19 +241,6 @@ export function MemberCorrectionDialog({ profileId, name }: { profileId: string;
                   Mandatsänderung.
                 </FeldHinweis>
               </div>
-              <Field id="mc-bic" label="BIC (optional)" fehler={fehler.bic}>
-                <Input
-                  id="mc-bic"
-                  name="bic"
-                  defaultValue={data.bic}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono tracking-wide"
-                  {...invalid("mc-bic", fehler.bic)}
-                  onInput={() => clear("bic")}
-                />
-                {!fehler.bic && <FeldHinweis>{data.bicHinweis}</FeldHinweis>}
-              </Field>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
                   Abbrechen
