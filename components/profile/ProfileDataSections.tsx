@@ -440,7 +440,8 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
           {profile.iban && profile.zahltBeitrag && (
             <>
               <Row label="Zahlungsweise" value="SEPA-Lastschrift" />
-              <Row label="Mandat vom" value={profile.mandatVom} numeric />
+              {/* Ohne Datum keine Zeile: „Nicht angegeben“ sähe nach einem Fehler des Mitglieds aus. */}
+              {profile.mandatVom && <Row label="Mandat vom" value={profile.mandatVom} numeric />}
             </>
           )}
         </Rows>
