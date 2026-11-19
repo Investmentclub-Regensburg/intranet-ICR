@@ -3,29 +3,26 @@
 import { useSearchParams } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
 import { PageHeader } from "@/components/kit/PageHeader";
-import { PROFILE_TABS, isProfileTab, type ProfileTabKey } from "@/components/profile/tabs";
+import { PROFILE_TABS, profileTabFromParam, profileTabTitle, type ProfileTabKey } from "@/components/profile/tabs";
 
 /**
- * Bereiche von „Mein Profil“. Gewählt wird in der Sidebar (aufgeklappt unter der
- * Nutzerzeile, Links auf /profile?tab=…); hier stehen nur Kopf und Inhalt. Alle
- * Bereiche werden auf dem Server gerendert und bleiben im DOM (offene Formulare
- * behalten ihren Stand), sichtbar ist nur der aktive; er blendet beim Wechsel neu
- * ein (data-reveal, Kacheln darin staffeln sich erneut).
+ * Bereiche von „Mein Profil“. Gewählt wird in der Sidebar (aufgeklappt über der Nutzerzeile, Links auf
+ * /profile?tab=…); hier stehen nur der Titel und der Inhalt (Skizze Profil.dc.html: keine Kopfkarte, keine
+ * Reiter). Alle Bereiche werden auf dem Server gerendert und bleiben im DOM (offene Formulare behalten ihren
+ * Stand), sichtbar ist nur der aktive; er blendet beim Wechsel neu ein (data-reveal).
  */
 export function ProfileTabs({ panels }: { panels: Record<ProfileTabKey, ReactNode> }) {
-  const param = useSearchParams().get("tab");
-  const active: ProfileTabKey = isProfileTab(param) ? param : "ueberblick";
-  const label = PROFILE_TABS.find((t) => t.key === active)?.label ?? "Mein Profil";
+  const active = profileTabFromParam(useSearchParams().get("tab"));
 
   return (
     <>
-      <PageHeader eyebrow="Mein Profil" title={label} />
+      <PageHeader key={active} title={profileTabTitle(active)} />
       <div>
         {PROFILE_TABS.map((t) => (
           <div
             key={t.key}
             role="region"
-            aria-label={t.label}
+            aria-label={t.title}
             hidden={t.key !== active}
             data-reveal="fade"
             style={{ "--reveal-delay": "0s" } as CSSProperties}
