@@ -18,7 +18,7 @@ export default async function AdminMembersPage() {
   ]);
   // Handy international formatiert (Altwerte, die noch nicht E.164 sind, roh).
   const members = rows.map((m) => ({ ...m, handynummer: handyAnzeige(m.handynummer) }));
-  const list = <AdminMembersWithSearch members={members} canEditRole={isBoard} />;
+  const list = <AdminMembersWithSearch members={members} canEditRole={isBoard} showDataIssues={isBoard} />;
 
   // Rollen und Status ändert nur der Vorstand (updateMemberRole prüft das selbst).
   // Kündigungsgründe sieht nur der Vorstand.

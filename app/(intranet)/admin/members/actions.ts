@@ -24,70 +24,65 @@ import {
 } from "@/lib/member-forms";
 import { maskIban } from "@/components/profile/profile-format";
 import { speichereNamen, type NamenStand } from "@/lib/member-names-server";
+import { adminMitgliederZeilen, type AdminMemberRow } from "@/lib/member-overview";
 
-export type AdminMemberRow = {
-  id: string;
-  name: string;
-  studiengang: string;
-  email: string;
-  handynummer: string;
-  /** Verschlüsselte Daten dieses Mitglieds nicht lesbar (Handynummer fehlt dann). */
-  secretsUnreadable: boolean;
-  rolle: string;
-  /** Kleinbuchstaben, z. B. active | cancelled | applicant */
-  status: string;
-};
+export type { AdminMemberRow } from "@/lib/member-overview";
 
+let bestaetigtSpalteGemeldet = false;
+
+/** PostgREST-/Postgres-Fehler „Spalte daten_bestaetigt_am fehlt“ (Migration 20261118140000 noch nicht da). */
+function fehltBestaetigtSpalte(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = String(error.message ?? "");
+  return /daten_bestaetigt_am/.test(message) && (error.code === "42703" || /does not exist/i.test(message));
+}
+
+/**
+ * Mitgliederliste für admin und Vorstand. Der Vorstand (board) bekommt zusätzlich je aktivem Mitglied die
+ * NAMEN der Felder mit Mangel (`datenMaengel`, nie Werte); berechnet aus den ohnehin entschlüsselten Werten.
+ * Für admin fehlt die Eigenschaft ganz (lib/member-overview.ts).
+ */
 export async function getAdminMembers(): Promise<AdminMemberRow[]> {
   const auth = await requireRole(["admin", "board"]);
   if (!auth.ok) return [];
 
   const admin = createServiceClient();
 
-  const { data, error } = await admin
-    .from("profiles")
-    .select(
-      'id, Vorname, Nachname, "Studiengang / Fach", "E-Mail", Rolle, Status'
-    )
-    .order("Nachname", { ascending: true })
-    .order("Vorname", { ascending: true });
+  const spalten = 'id, Vorname, Nachname, "Studiengang / Fach", "E-Mail", Rolle, Status';
+  const lesen = (mitBestaetigung: boolean) =>
+    admin
+      .from("profiles")
+      .select(mitBestaetigung ? `${spalten}, daten_bestaetigt_am` : spalten)
+      .order("Nachname", { ascending: true })
+      .order("Vorname", { ascending: true });
 
+  let bestaetigtBekannt = true;
+  let { data, error } = await lesen(true);
+  if (error && fehltBestaetigtSpalte(error)) {
+    // Übergang: App vor der Migration. Liste ohne Filter „Nicht bestätigt“ statt leerer Seite. Warnung nur
+    // einmal je Prozess (wie bei der Spalte land, Review V5).
+    if (!bestaetigtSpalteGemeldet) {
+      bestaetigtSpalteGemeldet = true;
+      console.warn("getAdminMembers: Spalte daten_bestaetigt_am fehlt (Migration 20261118140000), Liste ohne Bestätigungsstand");
+    }
+    bestaetigtBekannt = false;
+    ({ data, error } = await lesen(false));
+  }
   if (error) return [];
+  const profiles = (data ?? []) as unknown as Record<string, unknown>[];
 
-  // Handynummer aus member_secrets (verschlüsselt).
+  // Handynummer und Mängel aus member_secrets (verschlüsselt).
   let secrets: Map<string, MemberSecretsResult> | null = null;
   try {
     secrets = await readMemberSecretsMany(
       admin,
-      (data ?? []).map((p) => ({ id: String((p as { id?: unknown }).id ?? "") }))
+      profiles.map((p) => ({ id: String(p.id ?? "") }))
     );
   } catch (err) {
     console.error("getAdminMembers: member_secrets", err instanceof Error ? err.message : "unbekannt");
   }
 
-  return (data ?? []).map((p) => {
-    const raw = p as Record<string, unknown>;
-    const v = String(raw.Vorname ?? raw.vorname ?? "").trim();
-    const n = String(raw.Nachname ?? raw.nachname ?? "").trim();
-    const name = [v, n].filter(Boolean).join(" ") || "—";
-    const sg = raw["Studiengang / Fach"] ?? (raw as Record<string, unknown>)["Studiengang / Fach"];
-    const em = raw["E-Mail"] ?? (raw as Record<string, unknown>)["e-mail"];
-    const sv = secrets?.get(String(raw.id ?? ""));
-    const unreadable = !secrets || sv === "unreadable";
-    const hn = sv && sv !== "unreadable" ? sv.handynummer : null;
-    const rl = raw.Rolle ?? raw.rolle;
-    const st = raw.Status ?? raw.status;
-    return {
-      id: String(raw.id ?? ""),
-      name,
-      studiengang: String(sg ?? "").trim(),
-      email: String(em ?? "").trim(),
-      handynummer: String(hn ?? "").trim(),
-      secretsUnreadable: unreadable,
-      rolle: String(rl ?? "member").trim().toLowerCase(),
-      status: String(st ?? "active").trim().toLowerCase(),
-    };
-  });
+  return adminMitgliederZeilen(profiles, secrets, { vorstand: auth.role === "board", bestaetigtBekannt });
 }
 
 export type CancellationRow = {

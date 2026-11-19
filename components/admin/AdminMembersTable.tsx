@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import { MemberRoleSelect } from "./MemberRoleSelect";
 import { MemberCorrectionDialog } from "./MemberCorrectionDialog";
+import { DatenMaengelSymbol } from "./DatenMaengelSymbol";
 import { StatusPill } from "@/components/kit/StatusCard";
 import { ROLE_LABELS, statusGroup } from "./format";
 import type { AdminMemberRow } from "@/app/(intranet)/admin/members/actions";
@@ -54,6 +55,7 @@ export function AdminMembersTable({ members, canEditRole }: Props) {
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                   <p className="font-medium">{member.name}</p>
+                  <DatenMaengelSymbol felder={member.datenMaengel} name={member.name} />
                   <StatusPill status={pill.status}>{pill.label}</StatusPill>
                 </div>
                 <p className="text-sm text-muted-foreground">{member.studiengang || "—"}</p>
@@ -90,7 +92,10 @@ export function AdminMembersTable({ members, canEditRole }: Props) {
               return (
                 <TableRow key={member.id}>
                   <TableCell className="px-5 py-3">
-                    <p className="font-medium">{member.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium">{member.name}</p>
+                      <DatenMaengelSymbol felder={member.datenMaengel} name={member.name} />
+                    </div>
                     <p className="text-muted-foreground">{member.studiengang || "—"}</p>
                   </TableCell>
                   <TableCell className="py-3">

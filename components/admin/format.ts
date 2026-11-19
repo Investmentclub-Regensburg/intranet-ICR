@@ -56,3 +56,34 @@ export function statusGroup(m: { status: string }): "active" | "applicant" | "ca
   if (m.status === "applicant") return "applicant";
   return "active";
 }
+
+/** Filter „Daten“ in der Mitgliederliste (Paket „Mitgliederdaten“, PR 5). */
+export type DatenFilter = "all" | "unbestaetigt" | "unvollstaendig";
+
+/**
+ * Passt ein Mitglied zum Filter „Daten“? „unbestaetigt“: Bestätigung offen (nur aktive, siehe
+ * lib/member-overview.ts). „unvollstaendig“: mindestens ein Feld mit Mangel (nur der Vorstand bekommt die
+ * Feldnamen; ohne sie passt niemand).
+ */
+export function passtDatenFilter(
+  m: { bestaetigungOffen?: boolean | null; datenMaengel?: readonly string[] },
+  filter: DatenFilter,
+): boolean {
+  if (filter === "unbestaetigt") return m.bestaetigungOffen === true;
+  if (filter === "unvollstaendig") return (m.datenMaengel?.length ?? 0) > 0;
+  return true;
+}
+
+/**
+ * Lesbarkeit der verschlüsselten Daten für den Filter „Unvollständig“ (nur Vorstand): Zahl der nicht lesbaren
+ * aktiven Mitglieder (fehlen im Filter) und ob die Prüfung überhaupt möglich ist (nicht alles unlesbar).
+ */
+export function datenLesbarkeit(members: ReadonlyArray<{ secretsUnreadable: boolean; status: string }>): {
+  nichtLesbar: number;
+  pruefungMoeglich: boolean;
+} {
+  return {
+    nichtLesbar: members.filter((m) => m.secretsUnreadable && statusGroup(m) === "active").length,
+    pruefungMoeglich: members.length === 0 || members.some((m) => !m.secretsUnreadable),
+  };
+}
