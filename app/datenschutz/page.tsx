@@ -317,17 +317,18 @@ export default function DatenschutzPage() {
       <ul>
         <li>Vorname und Nachname</li>
         <li>Geburtsdatum</li>
-        <li>Anschrift (Straße, Hausnummer, Postleitzahl, Ort)</li>
-        <li>E-Mail-Adresse und Handynummer</li>
         <li>
-          ob Sie studieren; falls ja, Studiengang, angestrebter Abschluss, Semester und Hochschule
+          freiwillig Ihre Anschrift (Straße, Hausnummer, Postleitzahl, Ort); Pflicht ist sie nur bei einem Konto in einem
+          SEPA-Land außerhalb des Europäischen Wirtschaftsraums (z. B. Schweiz, Vereinigtes Königreich)
         </li>
-        <li>IBAN und BIC sowie Ihre Bestätigung des SEPA-Lastschriftmandats</li>
+        <li>E-Mail-Adresse und freiwillig Ihre Handynummer</li>
+        <li>ob Sie studieren; falls ja, Studiengang, angestrebter Abschluss und Hochschule</li>
+        <li>IBAN sowie Ihre Bestätigung des SEPA-Lastschriftmandats</li>
         <li>ein Passwort für Ihr Konto</li>
       </ul>
       <p>
-        Alle Angaben sind Pflichtangaben. Ohne sie können wir Ihre Mitgliedschaft nicht führen und den Beitrag nicht
-        einziehen. Ihr Konto wird erst aktiv, wenn Sie Ihre E-Mail-Adresse über den Link in unserer Bestätigungs-E-Mail
+        Alle Angaben außer den freiwilligen sind Pflichtangaben. Ohne sie können wir Ihre Mitgliedschaft nicht führen und
+        den Beitrag nicht einziehen. Ihr Konto wird erst aktiv, wenn Sie Ihre E-Mail-Adresse über den Link in unserer Bestätigungs-E-Mail
         bestätigt haben. Bis dahin speichern wir Ihre Angaben vorläufig. Über jede neue Registrierung informieren wir den
         Vorstand per E-Mail (Name, E-Mail-Adresse, Studienangaben, Datum des Antrags).
       </p>
@@ -340,7 +341,7 @@ export default function DatenschutzPage() {
       <h3>Prüfung der IBAN</h3>
       <p>
         Wenn Sie im Mitgliedsantrag Ihre IBAN eingeben, prüfen wir sie über den öffentlichen Prüfdienst openiban.com auf
-        Gültigkeit und ermitteln die zugehörige BIC. Übermittelt wird nur die IBAN, nicht Ihr Name, Ihre IP-Adresse oder
+        Gültigkeit und ermitteln den Namen Ihrer Bank. Übermittelt wird nur die IBAN, nicht Ihr Name, Ihre IP-Adresse oder
         andere Angaben. Nach Angaben des Dienstes werden dort keine Daten gespeichert. Eine Verarbeitung außerhalb der
         EU ist nicht ausgeschlossen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f
         DSGVO; wir haben ein berechtigtes Interesse daran, Tippfehler in der Bankverbindung früh zu erkennen und
@@ -398,11 +399,11 @@ export default function DatenschutzPage() {
       <h3>Zugriff durch Vorstand und Engagierte</h3>
       <p>
         Der Vorstand kann einzelne Mitglieder mit Verwaltungsaufgaben betrauen (Rolle „Engagierte“). Engagierte sehen in der
-        Mitgliederliste Name, Studiengang, E-Mail-Adresse, Handynummer, Status und Rolle, die Teilnehmerlisten von
+        Mitgliederliste Name, Studiengang, E-Mail-Adresse, Handynummer (sofern angegeben), Status und Rolle, die Teilnehmerlisten von
         Veranstaltungen sowie Anträge auf Alumni-Status und Zeitschriftenzugang (Name, E-Mail-Adresse, Datum).
       </p>
       <p>
-        Der Vorstand sieht zusätzlich Anschrift und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
+        Der Vorstand sieht zusätzlich Anschrift (sofern angegeben) und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
         sieht Kündigungen mit Kündigungsgrund und erstellt die Dateien für den Beitragseinzug und den Zeitschriftenzugang
         (siehe unten). Bei Korrekturen protokollieren wir, wer wann welche Felder geändert hat; die Werte selbst nicht.
         Für interne Statistiken wertet der Vorstand Angaben wie Alter, Studiengang, Hochschule und Abschluss nur
@@ -428,7 +429,7 @@ export default function DatenschutzPage() {
 
       <h3>Mitgliedsbeitrag und SEPA-Lastschrift</h3>
       <p>
-        Für den Einzug des Mitgliedsbeitrags erstellt der Vorstand je Semester eine Datei mit Name, IBAN, BIC, Betrag,
+        Für den Einzug des Mitgliedsbeitrags erstellt der Vorstand je Semester eine Datei mit Name, IBAN, BIC (sofern gespeichert), Betrag,
         Mandatsreferenz und Datum des Mandats und reicht sie bei unserem Kreditinstitut ein. Wir protokollieren, wer wann
         eine solche Datei erstellt hat und wie viele Buchungen sie enthält. Ändern Sie Ihre IBAN im Profil, informieren
         wir den Vorstand per E-Mail mit Ihrem Namen, Ihrer E-Mail-Adresse und den letzten vier Stellen der alten und der
@@ -439,7 +440,7 @@ export default function DatenschutzPage() {
       <p>
         Wenn Sie im Intranet einen Zugang zu den Zeitschriften des Bundesverbands der Börsenvereine an deutschen
         Hochschulen (BVH) e.V., Mannheim, beantragen, übermittelt der Vorstand dem BVH Ihren Namen, Ihre E-Mail-Adresse,
-        Ihr Geschlecht, Ihre Telefonnummer, Ihr Geburtsdatum und Ihre Anschrift, damit der BVH Ihnen einen Zugang
+        Ihr Geschlecht, Ihre Telefonnummer (sofern angegeben), Ihr Geburtsdatum und Ihre Anschrift (sofern angegeben), damit der BVH Ihnen einen Zugang
         einrichtet. Ab dann ist der BVH für die Verarbeitung selbst verantwortlich; es gelten die{" "}
         <a href="https://bvh.org/homepage/datenschutz.php" rel="noopener">
           Datenschutzhinweise des BVH

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarOff,
+  Globe,
   GraduationCap,
   Loader2,
   MinusCircle,
@@ -43,7 +44,14 @@ const CATEGORIES: Record<FinanceCategory, CategoryMeta> = {
     Icon: CalendarOff,
   },
   no_iban: { label: "Ohne IBAN", hint: "Keine Bankverbindung hinterlegt.", Icon: MinusCircle },
-  invalid: { label: "Bankdaten ungültig", hint: "IBAN oder BIC fehlerhaft, bitte nachfragen.", Icon: AlertTriangle },
+  invalid: { label: "Bankdaten ungültig", hint: "IBAN fehlerhaft, bitte nachfragen.", Icon: AlertTriangle },
+  // Bis der Export Anschrift und BIC für Nicht-EWR-Konten liefert (eigenes Paket), nicht in der Lastschriftdatei.
+  non_eea: {
+    label: "Konto außerhalb des EWR – manuell",
+    badge: "Außerhalb EWR",
+    hint: "Nicht in der Lastschriftdatei. Beitrag bitte manuell einziehen.",
+    Icon: Globe,
+  },
   removed: { label: "Entfernt", hint: "Manuell aus diesem Einzug genommen.", Icon: X },
 };
 
@@ -54,7 +62,11 @@ const ACTION_LEGEND: { Icon: LucideIcon; text: string }[] = [
   { Icon: Undo2, text: "Anpassung zurücksetzen" },
 ];
 
-const FILTER_ORDER: FinanceCategory[] = ["alumni", "cancelled", "free_semester", "no_iban", "invalid", "removed"];
+const FILTER_ORDER: FinanceCategory[] = ["alumni", "cancelled", "free_semester", "no_iban", "invalid", "removed", "non_eea"];
+/** Nur mit Treffern zeigen (Sonderfall; das Raster bleibt sonst bei sechs Kacheln). */
+const NUR_MIT_TREFFERN: ReadonlySet<FinanceCategory> = new Set(["non_eea"]);
+/** Kategorien, die der Vorstand bearbeiten muss (Warnfarbe). */
+const WARN: ReadonlySet<FinanceCategory> = new Set(["invalid", "non_eea"]);
 
 const euro = (n: number) => n.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
 
@@ -144,11 +156,11 @@ export function FinancePreview({
         </button>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {FILTER_ORDER.map((key) => {
+          {FILTER_ORDER.filter((key) => !NUR_MIT_TREFFERN.has(key) || stats[key] > 0).map((key) => {
             const c = CATEGORIES[key];
             const active = filter === key && !q;
             const count = stats[key];
-            const warn = key === "invalid" && count > 0;
+            const warn = WARN.has(key) && count > 0;
             return (
               <button
                 key={key}
@@ -298,7 +310,7 @@ function CategoryBadge({ category, manual }: { category: FinanceCategory; manual
   const tone =
     category === "debit"
       ? "bg-success-tint text-success"
-      : category === "invalid"
+      : WARN.has(category)
         ? "bg-destructive/10 text-destructive"
         : "bg-muted text-ink-soft";
   return (

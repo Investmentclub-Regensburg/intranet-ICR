@@ -398,7 +398,8 @@ function buildMail(
         ["E-Mail bestätigt", confirmed],
         ["Studiengang", str(p.studiengang)],
         ["Abschluss", str(p.abschluss)],
-        ["Semester", str(p.semester)],
+        // Semester wird seit 20.11.2026 nicht mehr abgefragt: Zeile nur bei Altdaten mit Wert.
+        ...(str(p.semester) ? ([["Semester", str(p.semester)]] as Array<[string, string]>) : []),
         ["Hochschulart", str(p.hochschulart)],
         ["Antragsdatum", formatDate(p.datum_antrag)],
         ["Zeitpunkt", formatDateTime(ev.created_at)],

@@ -16,7 +16,6 @@ import {
 } from "@/lib/member-secrets-server";
 import {
   KORREKTUR_FELDER,
-  bicHinweis,
   korrekturWerte,
   pruefeKorrektur,
   type FeldFehler,
@@ -92,8 +91,6 @@ export async function getAdminMembers(): Promise<AdminMemberRow[]> {
 export type MemberCorrectionData = KorrekturWerte & {
   name: string;
   ibanMasked: string;
-  /** Nicht blockierender Hinweis zur BIC (Land weicht von der IBAN ab), sonst null. */
-  bicHinweis: string | null;
   /** Version der verschlüsselten Zeile beim Öffnen (0 = keine): optimistische Sperre. */
   version: number;
   /** Ohne Spalte land geladen (Übergang): ein übermitteltes Land wird ignoriert. */
@@ -160,7 +157,6 @@ export async function getMemberCorrectionData(
       name: loaded.name,
       ...korrekturWerte({ ...v, ...loaded.namen }),
       ibanMasked: v.iban ? maskIban(v.iban) : "",
-      bicHinweis: bicHinweis(v.bic, v.iban),
       version: loaded.version,
       landUnbekannt: !loaded.landBekannt,
     },

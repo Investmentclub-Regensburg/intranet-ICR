@@ -1,5 +1,7 @@
 /**
- * Sperre der Abfrage „Stimmen deine Daten noch?“ (Paket „Mitgliederdaten“, PR 4, Gegenprüfung S-G1).
+ * Sperre der Abfrage „Stimmen deine Daten noch?“ (Paket „Mitgliederdaten“, PR 4, Gegenprüfung S-G1). Seit der
+ * Design-Runde 19.11.2026 ist die Abfrage eine eigene Seite: Jede fällige Abfrage (mit oder ohne Mängel) leitet
+ * dorthin um, mit dem angefragten Pfad als Rückkehrziel (Header aus middleware.ts, geprüft in rueckkehrZiel).
  *
  * Next rendert die Seite eines Segments parallel zum Layout und überträgt sie als eigenen Eintrag im RSC-Payload,
  * auch wenn das Layout mit `redirect()` abbricht. Bei einer Navigation, deren `Next-Router-State-Tree` das Layout
@@ -17,13 +19,14 @@
  */
 import "server-only";
 import { cache } from "react";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
-import { DATEN_CHECK_PFAD, type DatenCheckAnsicht } from "./member-data-check";
+import { RUECKKEHR_HEADER, datenCheckAdresse, type DatenCheckAnsicht } from "./member-data-check";
 import { datenCheckEinstellungen, faelligerDatenCheck } from "./member-data-check-server";
 
-/** Fenster-Daten des angemeldeten Mitglieds, falls die Abfrage fällig ist (sonst null). Einmal je Anfrage. */
+/** Daten der Abfrage-Seite für das angemeldete Mitglieds, falls die Abfrage fällig ist (sonst null). Einmal je Anfrage. */
 export const eigenerDatenCheck = cache(async (): Promise<DatenCheckAnsicht | null> => {
   if (!datenCheckEinstellungen().eingeschaltet) return null;
   const { user, profile, datenCheckSpalten } = await getCachedAuth();
@@ -37,11 +40,11 @@ export const eigenerDatenCheck = cache(async (): Promise<DatenCheckAnsicht | nul
 });
 
 /**
- * Fällig und ungültig → Weiterleitung auf DATEN_CHECK_PFAD (wirft, wie `redirect`). Sonst nichts. Erste Anweisung
- * jeder Intranet-Seite, damit von der Seite nichts gerendert wird. Ohne Anmeldung tut sie nichts (das regeln
- * middleware.ts und das Layout).
+ * Fällig → Weiterleitung auf die Abfrage-Seite mit Rückkehrziel (wirft, wie `redirect`). Sonst nichts. Erste
+ * Anweisung jeder Intranet-Seite, damit von der Seite nichts gerendert wird. Ohne Anmeldung tut sie nichts (das
+ * regeln middleware.ts und das Layout). Der Name stammt aus der Zeit, als nur Mängel umgeleitet haben.
  */
 export const sperreBeiDatenmaengeln = cache(async (): Promise<void> => {
   const datenCheck = await eigenerDatenCheck();
-  if (datenCheck && !datenCheck.gueltig) redirect(DATEN_CHECK_PFAD);
+  if (datenCheck) redirect(datenCheckAdresse((await headers()).get(RUECKKEHR_HEADER)));
 });

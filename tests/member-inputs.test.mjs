@@ -2,15 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import * as eingabehilfen from "../lib/member-inputs.ts";
 import {
-  bicLandHinweis,
   gleicheHandyEingabe,
   handyBeimTippen,
   handyBeimVerlassen,
   ibanBeimTippen,
   plzInputMode,
 } from "../lib/member-inputs.ts";
-import { pruefeBic } from "../lib/member-rules.ts";
 
 test("U1: bloßer Fokus ändert die Handynummer nicht", () => {
   for (const alt of ["0176 12", "+49 0176 1234567", "176 1234567", "+43 664 1234567", "max@example.org", ""]) {
@@ -43,29 +42,21 @@ test("U3: IBAN in Viererblöcken nur mit Cursor am Ende", () => {
   assert.deepEqual(ibanBeimTippen("DE89 37X04 0044", 7), { wert: "DE89 37X04 0044", cursor: 7 });
 });
 
-test("U4: BIC-Länderhinweis im Browser deckt sich mit der Regel auf dem Server", () => {
-  const faelle = [
-    ["DE89370400440532013000", "COBADEFFXXX"],
-    ["FR1420041010050500013M02606", "NTSBDEB1XXX"],
-    ["AT611904300234573201", "COBADEFFXXX"],
-    ["GB82WEST12345698765432", "ABCDJESHXXX"],
-    ["FI2112345600000785", "ABCDAXHHXXX"],
-    ["DE89370400440532013001", "COBAATWWXXX"], // ungültige IBAN: kein Abgleich
-    ["DE89370400440532013000", "COBA"], // ungültige BIC: kein Hinweis
-  ];
-  for (const [iban, bic] of faelle) {
-    const server = pruefeBic(bic, iban, { alumni: false, wer: "mitglied" }).hinweis === "bic_land";
-    assert.equal(bicLandHinweis(iban, bic) !== null, server, `${iban} / ${bic}`);
+test("U4: BIC wird nicht mehr abgefragt – kein BIC-Hinweis, keine BIC-Länderliste mehr (20.11.2026)", () => {
+  assert.equal("bicLandHinweis" in eingabehilfen, false);
+  for (const datei of ["../lib/member-inputs.ts", "../lib/member-rules.ts"]) {
+    assert.doesNotMatch(readFileSync(new URL(datei, import.meta.url), "utf8"), /BIC_LAENDER_ZU_IBAN/, datei);
   }
-  assert.equal(bicLandHinweis("", ""), null);
-});
-
-test("U4: Gebietsliste der BIC-Länder gleich wie in lib/member-rules.ts", () => {
-  const block = (datei) => {
-    const text = readFileSync(new URL(datei, import.meta.url), "utf8");
-    return text.match(/const BIC_LAENDER_ZU_IBAN[^{]*\{([^}]*)\}/)[1].replace(/\s+/g, "");
-  };
-  assert.equal(block("../lib/member-inputs.ts"), block("../lib/member-rules.ts"));
+  // Kein Formular fragt die BIC noch ab (kein Eingabefeld name="bic").
+  for (const datei of [
+    "../app/register/register-form.tsx",
+    "../app/register/iban-fields.tsx",
+    "../components/profile/ProfileDataSections.tsx",
+    "../components/member/DatenPruefenSeite.tsx",
+    "../components/admin/MemberCorrectionDialog.tsx",
+  ]) {
+    assert.doesNotMatch(readFileSync(new URL(datei, import.meta.url), "utf8"), /name="bic"|name="semester"/, datei);
+  }
 });
 
 test("U5: Ziffern-Tastatur für rein numerische PLZ", () => {

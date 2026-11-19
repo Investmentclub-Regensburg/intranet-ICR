@@ -290,6 +290,8 @@ export function FinanceExport() {
         const endToEndId =
           buildSepaIdentifier(`${messageId}${idx + 1}`, 35) || `E2E${idx + 1}`;
         const dtOfSgntr = escapeXml(sepaDate(row.mandateDate, today));
+        // Bei EWR-IBANs liefert der Server nie eine BIC → „NOTPROVIDED“ (EPC130-08 v7.0, Index 2.70; siehe
+        // `debitorBic` in lib/finance-category.ts).
         const bic = buildSepaIdentifier(row.bic, 11);
         // IBAN seit dem letzten XML-Export geändert: gleiches Mandat, neues Konto (SMNDA).
         const amendmentXml = row.amended

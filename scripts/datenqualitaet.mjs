@@ -7,8 +7,8 @@
 // Befehle:
 //   pruefen                  Zählungen je Feld und Mängel-Code, Hinweise, Profile ohne member_secrets-Zeile.
 //   reparieren --probelauf   Zählungen je Feld: gueltig / sicher / vorschlag / offen. Ändert nichts.
-//   reparieren               Schreibt nur „sicher“ (Handy → E.164, Straße/Hausnummer abtrennen, BIC mit
-//                            falschem Format leeren) über saveMemberSecrets. Braucht --vorstand <Profil-ID>
+//   reparieren               Schreibt nur „sicher“ (Handy → E.164, Straße/Hausnummer abtrennen) über
+//                            saveMemberSecrets (die BIC fasst es seit 20.11.2026 nicht mehr an). Braucht --vorstand <Profil-ID>
 //                            (Korrekturprotokoll member_data_corrections) und das Bestätigungswort
 //                            „REPARIEREN <ziel> <anzahl>“. Strg+C beendet nach dem laufenden Profil.
 // Optionen:

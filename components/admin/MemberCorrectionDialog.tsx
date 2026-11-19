@@ -54,7 +54,6 @@ const DATEN_FELDER = [
   "handyLand",
   "handynummer",
   "geburtsdatum",
-  "bic",
 ] as const satisfies readonly (keyof MemberCorrectionData)[];
 
 const ROLLEN_OPTIONEN = [
@@ -185,7 +184,6 @@ export function MemberCorrectionDialog({
         handyLand: handy.land,
         handynummer: handy.nummer,
         geburtsdatum: value("geburtsdatum"),
-        bic: value("bic"),
         iban,
       };
       eingabe = datenFuerKorrektur(eingabe, data, DATEN_FELDER, angefasst.current);
@@ -427,19 +425,6 @@ export function MemberCorrectionDialog({
                           Mandatsänderung.
                         </FeldHinweis>
                       </div>
-                      <Field id="mc-bic" label="BIC (optional)" fehler={fehler.bic}>
-                        <Input
-                          id="mc-bic"
-                          name="bic"
-                          defaultValue={data.bic}
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="font-mono tracking-wide"
-                          {...invalid("mc-bic", fehler.bic)}
-                          onInput={() => anfassen("bic")}
-                        />
-                        {!fehler.bic && <FeldHinweis>{data.bicHinweis}</FeldHinweis>}
-                      </Field>
                     </Abschnitt>
                   </div>
                 )}

@@ -1,11 +1,10 @@
 /**
  * Reine Eingabehilfen für die Mitgliederformulare (Browser und Server, ohne React): Formatieren beim Tippen
- * mit Cursor-Regel, BIC-Länderhinweis, Ziffern-Tastatur für die PLZ. ENTSCHEIDET NICHTS – gültig ist nur,
+ * mit Cursor-Regel, Ziffern-Tastatur für die PLZ. ENTSCHEIDET NICHTS – gültig ist nur,
  * was lib/member-rules.ts auf dem Server sagt. Nur lib/member-rules-client.ts und lib/iban.ts importieren
  * (keine `max`-Metadaten, kein node:crypto).
  */
 import { formatiereHandyEingabe, ibanInViererbloecken } from "./member-rules-client";
-import { validateBICFormat, validateIBAN } from "./iban";
 
 export type HandyWert = { land: string; nummer: string };
 
@@ -43,26 +42,6 @@ export function ibanBeimTippen(roh: string, cursor: number): { wert: string; cur
   if (cursor < roh.length) return { wert: roh, cursor };
   const wert = ibanInViererbloecken(roh);
   return { wert, cursor: wert.length };
-}
-
-/**
- * BIC-Länder, die zu einem IBAN-Land gehören, obwohl der Code abweicht (wie lib/member-rules.ts
- * `BIC_LAENDER_ZU_IBAN`; ein Test hält beide gleich).
- */
-const BIC_LAENDER_ZU_IBAN: Readonly<Record<string, readonly string[]>> = {
-  GB: ["GB", "JE", "GG", "IM"],
-  FR: ["FR", "GF", "GP", "MQ", "RE", "YT", "PM", "BL", "MF", "NC", "PF", "WF"],
-  FI: ["FI", "AX"],
-};
-
-/** Nicht blockierender Hinweis, wenn das BIC-Land (Stellen 5–6) nicht zum Land einer gültigen IBAN passt. */
-export function bicLandHinweis(iban: string, bic: string): string | null {
-  const i = iban.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const b = bic.toUpperCase().replace(/\s/g, "");
-  if (!i || !b || !validateIBAN(i) || !validateBICFormat(b)) return null;
-  const ibanLand = i.slice(0, 2);
-  const erlaubt = BIC_LAENDER_ZU_IBAN[ibanLand] ?? [ibanLand];
-  return erlaubt.includes(b.slice(4, 6)) ? null : "Die BIC gehört zu einem anderen Land als die IBAN.";
 }
 
 /** Länder, deren PLZ nur aus Ziffern besteht (ggf. mit optionalem Leerzeichen): Ziffern-Tastatur am Handy. */

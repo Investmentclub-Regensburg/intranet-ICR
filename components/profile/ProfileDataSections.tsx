@@ -28,7 +28,7 @@ import {
   type HandyWert,
 } from "@/components/member/MemberInputs";
 import { emailTippfehler, ibanInViererbloecken } from "@/lib/member-rules-client";
-import { bicLandHinweis, plzInputMode } from "@/lib/member-inputs";
+import { plzInputMode } from "@/lib/member-inputs";
 
 export type ProfileContactData = {
   vorname: string;
@@ -54,9 +54,6 @@ export type ProfileContactData = {
   /** Alumni zahlen keinen Beitrag: IBAN nicht Pflicht. */
   alumni: boolean;
   iban: string;
-  bic: string;
-  /** Nicht blockierender Hinweis zur BIC (Land weicht ab), sonst null. */
-  bicHinweis: string | null;
   /** Beitragspflichtig (keine Alumni): dann stehen Zahlungsweise und Mandat in der Bankverbindung. */
   zahltBeitrag: boolean;
   /** Datum des SEPA-Mandats „TT.MM.JJJJ“ oder null. */
@@ -150,19 +147,19 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
                 <Input id={`${id}-nachname`} name="nachname" defaultValue={profile.nachname} autoComplete="family-name" {...invalid(`${id}-nachname`, f.nachname)} onInput={() => editor.clear("nachname")} />
               </Field>
             </div>
-            <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
-              <Field id={`${id}-strasse`} label="Straße" fehler={f.strasse}>
+            <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] gap-3">
+              <Field id={`${id}-strasse`} label="Straße (optional)" fehler={f.strasse}>
                 <Input id={`${id}-strasse`} name="strasse" defaultValue={profile.strasse} autoComplete="address-line1" {...invalid(`${id}-strasse`, f.strasse)} onInput={() => editor.clear("strasse")} />
               </Field>
-              <Field id={`${id}-hausnummer`} label="Hausnr." fehler={f.hausnummer}>
+              <Field id={`${id}-hausnummer`} label="Hausnr. (optional)" fehler={f.hausnummer}>
                 <Input id={`${id}-hausnummer`} name="hausnummer" defaultValue={profile.hausnummer} {...invalid(`${id}-hausnummer`, f.hausnummer)} onInput={() => editor.clear("hausnummer")} />
               </Field>
             </div>
-            <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-3">
-              <Field id={`${id}-plz`} label="PLZ" fehler={f.plz}>
+            <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-3">
+              <Field id={`${id}-plz`} label="PLZ (optional)" fehler={f.plz}>
                 <Input id={`${id}-plz`} name="plz" defaultValue={profile.plz} autoComplete="postal-code" inputMode={plzInputMode(land)} {...invalid(`${id}-plz`, f.plz)} onInput={() => editor.clear("plz")} />
               </Field>
-              <Field id={`${id}-ort`} label="Ort" fehler={f.ort}>
+              <Field id={`${id}-ort`} label="Ort (optional)" fehler={f.ort}>
                 <Input id={`${id}-ort`} name="ort" defaultValue={profile.ort} autoComplete="address-level2" {...invalid(`${id}-ort`, f.ort)} onInput={() => editor.clear("ort")} />
               </Field>
             </div>
@@ -192,7 +189,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
             </Field>
             <EmailEditField id={id} currentEmail={profile.email} email={email} />
             <div className="space-y-1.5">
-              <FieldLabel htmlFor={`${id}-handy`}>Handynummer</FieldLabel>
+              <FieldLabel htmlFor={`${id}-handy`}>Handynummer (optional)</FieldLabel>
               <HandyEingabe
                 id={`${id}-handy`}
                 wert={handy}
@@ -397,13 +394,10 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
   const id = useId();
   const editor = useSectionEditor(id);
   const [iban, setIban] = useState(() => ibanInViererbloecken(profile.iban));
-  const [bic, setBic] = useState(profile.bic);
   const f = editor.fehler;
-  const hinweis = bicLandHinweis(iban, bic);
 
   function open() {
     setIban(ibanInViererbloecken(profile.iban));
-    setBic(profile.bic);
     editor.open();
   }
 
@@ -419,24 +413,6 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
             empty="Noch keine Bankverbindung hinterlegt"
             mono
           />
-          {(profile.iban || profile.bic) && (
-            <Row
-              label="BIC"
-              value={
-                profile.bic ? (
-                  <>
-                    <span className="block">{profile.bic}</span>
-                    {profile.bicHinweis && (
-                      <span className="mt-0.5 block font-sans text-xs font-normal tracking-normal text-muted-foreground">
-                        {profile.bicHinweis}
-                      </span>
-                    )}
-                  </>
-                ) : null
-              }
-              mono
-            />
-          )}
           {profile.iban && profile.zahltBeitrag && (
             <>
               <Row label="Zahlungsweise" value="SEPA-Lastschrift" />
@@ -470,23 +446,6 @@ function BankSection({ profile }: { profile: ProfileContactData }) {
               fehler={f.iban}
             />
           </div>
-          <Field id={`${id}-bic`} label="BIC (optional)" fehler={f.bic}>
-            <Input
-              id={`${id}-bic`}
-              name="bic"
-              value={bic}
-              onChange={(e) => {
-                setBic(e.target.value);
-                editor.clear("bic");
-              }}
-              autoComplete="off"
-              spellCheck={false}
-              autoCapitalize="characters"
-              className="font-mono tracking-wide"
-              {...invalid(`${id}-bic`, f.bic)}
-            />
-            {!f.bic && <FeldHinweis>{hinweis}</FeldHinweis>}
-          </Field>
         </EditForm>
       )}
     </ProfileCard>

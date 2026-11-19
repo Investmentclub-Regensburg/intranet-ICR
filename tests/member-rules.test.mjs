@@ -11,7 +11,6 @@ import {
   pruefeHandy,
   formatiereHandyAnzeige,
   pruefeIban,
-  pruefeBic,
   pruefeStrasse,
   pruefeHausnummer,
   pruefePlz,
@@ -27,9 +26,12 @@ import {
   HINWEIS_CODES,
   repariereHandy,
   repariereIban,
-  repariereBic,
   repariereStrasse,
   repariereMitgliederdaten,
+  ANSCHRIFT_IBAN_MELDUNG,
+  NICHT_EWR_SEPA_LAENDER,
+  anschriftPflichtGrund,
+  nichtEwrIbanLand,
 } from "../lib/member-rules.ts";
 import {
   formatiereHandyEingabe,
@@ -54,6 +56,8 @@ const MITGLIED = { alumni: false, wer: "mitglied", heute: HEUTE };
 const ALUMNI = { alumni: true, wer: "mitglied", heute: HEUTE };
 const REGISTRIERUNG = { alumni: false, wer: "registrierung", heute: HEUTE };
 const VORSTAND = { alumni: false, wer: "vorstand", heute: HEUTE };
+/** Einzelne Anschriftregel mit Pflicht-Anschrift (z. B. ein Teil ist angegeben). */
+const MITGLIED_ANSCHRIFT = { ...MITGLIED, anschrift: "angegeben" };
 
 const IBAN_DE = "DE89370400440532013000";
 const IBAN_AT = "AT611904300234573201";
@@ -132,11 +136,16 @@ test("Handy Ausland: AT gültig/ungültig, Land folgt der Nummer", () => {
   assert.equal(pruefeHandy("202 555 0123", "US", MITGLIED).land, "US");
 });
 
-test("Handy: Pflicht außer für den Vorstand; unbekanntes Land → DE", () => {
-  assert.equal(pruefeHandy("", "DE", MITGLIED).code, "fehlt");
-  assert.equal(pruefeHandy("  ", "DE", REGISTRIERUNG).code, "fehlt");
-  assert.equal(pruefeHandy(null, "DE", ALUMNI).code, "fehlt");
+test("Handy: freiwillig für alle (seit 20.11.2026), angegeben voll geprüft; unbekanntes Land → DE", () => {
+  assert.ok(ok(pruefeHandy("", "DE", MITGLIED)));
+  assert.ok(ok(pruefeHandy("  ", "DE", REGISTRIERUNG)));
+  assert.ok(ok(pruefeHandy(null, "DE", ALUMNI)));
   assert.ok(ok(pruefeHandy("", "DE", VORSTAND)));
+  assert.equal(pruefeHandy("", "DE", MITGLIED).wert, "");
+  assert.equal(istPflicht("handynummer", REGISTRIERUNG), false);
+  // Angegeben, aber falsch: weiter ein Mangel.
+  assert.equal(pruefeHandy("0941 123456", "DE", REGISTRIERUNG).code, "kein_mobil");
+  assert.equal(pruefeHandy("max@example.org", "DE", MITGLIED).code, "format");
   assert.equal(pruefeHandy("0176 12345678", "XX", MITGLIED).wert, "+4917612345678");
 });
 
@@ -147,7 +156,7 @@ test("Handy-Anzeige international", () => {
 });
 
 // ---------------------------------------------------------------------------------------------------
-// IBAN / BIC
+// IBAN
 // ---------------------------------------------------------------------------------------------------
 
 test("IBAN: SEPA, Länge, Prüfziffer, Meldungen", () => {
@@ -204,18 +213,26 @@ test("lib/iban.ts: bestehende Aufrufer (validateIBAN/validateBICFormat) funktion
   assert.equal(validateBICFormat("COBADEF"), false);
 });
 
-test("BIC: optional, Format, Land passt zur IBAN", () => {
-  assert.ok(ok(pruefeBic("", IBAN_DE, MITGLIED)));
-  assert.ok(ok(pruefeBic("", IBAN_DE, REGISTRIERUNG)));
-  const r = pruefeBic("coba de ff xxx", IBAN_DE, MITGLIED);
-  assert.ok(ok(r));
-  assert.equal(r.wert, "COBADEFFXXX");
-  assert.ok(ok(pruefeBic("COBADEFF", IBAN_DE, MITGLIED)));
-  assert.equal(pruefeBic("COBADEF", IBAN_DE, MITGLIED).code, "format");
-  assert.equal(pruefeBic("COBADEFFXX", IBAN_DE, MITGLIED).code, "format");
-  // Ohne IBAN kein Länderabgleich; Jersey-Bank zu GB-IBAN ist in Ordnung.
-  assert.ok(ok(pruefeBic("COBADEFF", "", MITGLIED)));
-  assert.ok(ok(pruefeBic("ABCDJESHXXX", IBAN_GB, MITGLIED)));
+test("BIC: wird nicht mehr geprüft, nie ein Mangel, nie ein Hinweis (Entscheidung 20.11.2026)", () => {
+  assert.equal(STAMMFELDER.includes("bic"), false);
+  assert.deepEqual(HINWEIS_CODES, ["vorwahl_ergaenzt"]);
+  for (const bic of ["", "COBADEF", "kaputt", "NTSBDEB1XXX", 42, null]) {
+    for (const kontext of [MITGLIED, ALUMNI, REGISTRIERUNG]) {
+      const r = pruefeFormular({ ...GUT, bic }, kontext);
+      assert.equal(r.gueltig, true, String(bic));
+      assert.deepEqual(r.hinweise, [], String(bic));
+      assert.equal("bic" in r.werte, false, String(bic));
+      assert.equal(pruefeBestand({ ...GUT, bic, iban: "FR1420041010050500013M02606" }, kontext).gueltig, true);
+    }
+  }
+  // Vorstandskorrektur ignoriert eine übergebene BIC (kein bekanntes Feld mehr).
+  const v = pruefeVorstandskorrektur({ bic: "COBADEF" }, GUT, HEUTE);
+  assert.equal(v.gueltig, true);
+  assert.deepEqual(v.werte, {});
+  // Reparatur fasst die BIC nicht mehr an.
+  const rep = repariereMitgliederdaten({ ...GUT, bic: "COBADEF" });
+  assert.equal("bic" in rep.status, false);
+  assert.equal("bic" in rep.sicher, false);
 });
 
 // ---------------------------------------------------------------------------------------------------
@@ -232,7 +249,10 @@ test("Straße: Buchstaben, Hausnummer ins eigene Feld", () => {
   assert.equal(pruefeStrasse("Hauptstr.5a", "", MITGLIED).code, "hausnummer_in_strasse");
   // Mit Hausnummer im eigenen Feld ist eine Zahl am Ende kein Mangel.
   assert.ok(ok(pruefeStrasse("Hauptstraße 12", "12", MITGLIED)));
-  assert.equal(pruefeStrasse("", "", MITGLIED).code, "fehlt");
+  // Leer: nur mit Grund (Anschrift angegeben bzw. IBAN außerhalb des EWR) ein Mangel.
+  assert.ok(ok(pruefeStrasse("", "", MITGLIED)));
+  assert.equal(pruefeStrasse("", "", MITGLIED_ANSCHRIFT).code, "fehlt");
+  assert.equal(pruefeStrasse("", "", { ...MITGLIED, anschrift: "iban" }).fehler, ANSCHRIFT_IBAN_MELDUNG);
   assert.equal(pruefeStrasse("=SUMME(A1)", "1", MITGLIED).code, "zeichen");
   assert.equal(pruefeStrasse("a".repeat(101), "1", MITGLIED).code, "zu_lang");
   assert.equal(pruefeStrasse("  Haupt\tstraße  ", "1", MITGLIED).wert, "Haupt straße");
@@ -246,9 +266,10 @@ test("Hausnummer DE: Ziffer zuerst; außerhalb DE optional", () => {
     assert.ok(pruefeHausnummer(nr, "DE", MITGLIED).code, nr);
   }
   assert.equal(pruefeHausnummer("a", "DE", MITGLIED).code, "format");
-  assert.equal(pruefeHausnummer("", "DE", MITGLIED).code, "fehlt");
-  assert.equal(pruefeHausnummer("", "", MITGLIED).code, "fehlt"); // leeres Land = DE
-  assert.ok(ok(pruefeHausnummer("", "AT", MITGLIED)));
+  assert.ok(ok(pruefeHausnummer("", "DE", MITGLIED))); // Anschrift freiwillig
+  assert.equal(pruefeHausnummer("", "DE", MITGLIED_ANSCHRIFT).code, "fehlt");
+  assert.equal(pruefeHausnummer("", "", MITGLIED_ANSCHRIFT).code, "fehlt"); // leeres Land = DE
+  assert.ok(ok(pruefeHausnummer("", "AT", MITGLIED_ANSCHRIFT)));
   assert.ok(ok(pruefeHausnummer("Stiege 2/Top 5", "AT", MITGLIED)));
   assert.ok(ok(pruefeHausnummer("", "DE", VORSTAND)));
 });
@@ -281,8 +302,9 @@ test("PLZ: DE 5 Ziffern, Tabelle je Land, sonst locker", () => {
     ["X", "US", "format"],
   ];
   for (const [plz, land, code] of tabelle) {
-    assert.equal(pruefePlz(plz, land, MITGLIED).code, code, `${land} ${plz}`);
+    assert.equal(pruefePlz(plz, land, MITGLIED_ANSCHRIFT).code, code, `${land} ${plz}`);
   }
+  assert.ok(ok(pruefePlz("", "DE", MITGLIED)));
   assert.equal(pruefePlz("1234 ab", "NL", MITGLIED).wert, "1234 AB");
   assert.equal(pruefePlz("9304", "DE", MITGLIED).fehler, "Die PLZ hat 5 Ziffern.");
   // Vorstand: Ausland immer locker, Deutschland streng.
@@ -297,7 +319,87 @@ test("Ort: keine Ziffern in DE, Buchstaben Pflicht", () => {
   assert.equal(pruefeOrt("Regensburg 2", "DE", MITGLIED).code, "ziffern");
   assert.equal(pruefeOrt("...", "DE", MITGLIED).code, "keine_buchstaben");
   assert.ok(ok(pruefeOrt("Dublin 4", "IE", MITGLIED)));
-  assert.equal(pruefeOrt("", "DE", MITGLIED).code, "fehlt");
+  assert.equal(pruefeOrt("", "DE", MITGLIED_ANSCHRIFT).code, "fehlt");
+  assert.ok(ok(pruefeOrt("", "DE", MITGLIED)));
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Anschrift freiwillig, Pflicht bei IBAN außerhalb des EWR (Entscheidung Hannes 20.11.2026)
+// ---------------------------------------------------------------------------------------------------
+
+const LEER_ANSCHRIFT = Object.freeze({ strasse: "", hausnummer: "", plz: "", ort: "" });
+
+test("Nicht-EWR-SEPA-Länder laut EPC409-09 v8.0 (+ Gibraltar), alle im SEPA-Raum", () => {
+  assert.deepEqual(
+    [...NICHT_EWR_SEPA_LAENDER].sort(),
+    ["AD", "AL", "CH", "GB", "GI", "MC", "MD", "ME", "MK", "RS", "SM", "VA"]
+  );
+  for (const land of NICHT_EWR_SEPA_LAENDER) assert.ok(SEPA_IBAN_LENGTHS[land], land);
+  // EU + IS/LI/NO sind EWR.
+  for (const land of ["DE", "AT", "FR", "IT", "IS", "LI", "NO", "FI", "IE", "HR"]) assert.equal(NICHT_EWR_SEPA_LAENDER.includes(land), false, land);
+  assert.equal(nichtEwrIbanLand(IBAN_CH), "CH");
+  assert.equal(nichtEwrIbanLand("ch93 0076 2011 6238 5295 7"), "CH");
+  assert.equal(nichtEwrIbanLand(IBAN_GB), "GB");
+  assert.equal(nichtEwrIbanLand(IBAN_DE), null);
+  assert.equal(nichtEwrIbanLand(IBAN_NO), null);
+  assert.equal(nichtEwrIbanLand(""), null);
+  assert.equal(nichtEwrIbanLand(42), null);
+});
+
+test("Anschrift leer: freiwillig bei EWR-IBAN, Pflicht bei IBAN außerhalb des EWR (nicht Alumni/Vorstand)", () => {
+  const ohne = { ...GUT, ...LEER_ANSCHRIFT };
+  for (const kontext of [MITGLIED, REGISTRIERUNG, ALUMNI]) {
+    assert.deepEqual(pruefeMitgliederdaten(ohne, kontext), [], kontext.wer);
+    assert.equal(anschriftPflichtGrund(ohne, kontext), null);
+  }
+  // Auch das Land allein (Vorauswahl) zählt nicht als Angabe.
+  assert.deepEqual(pruefeMitgliederdaten({ ...ohne, land: "AT" }, MITGLIED), []);
+  for (const iban of [IBAN_CH, IBAN_GB, "SM86U0322509800000000270100"]) {
+    const r = pruefeFormular({ ...ohne, iban }, MITGLIED);
+    assert.equal(anschriftPflichtGrund({ ...ohne, iban }, MITGLIED), "iban");
+    assert.deepEqual(r.maengel, [
+      { feld: "strasse", code: "fehlt" },
+      { feld: "hausnummer", code: "fehlt" },
+      { feld: "plz", code: "fehlt" },
+      { feld: "ort", code: "fehlt" },
+    ], iban);
+    assert.equal(r.fehler.strasse, ANSCHRIFT_IBAN_MELDUNG);
+    assert.equal(r.ersterFehler, ANSCHRIFT_IBAN_MELDUNG);
+    assert.equal(pruefeFormular({ ...ohne, iban }, REGISTRIERUNG).gueltig, false);
+  }
+  // Alumni zahlen nicht: keine Pflicht-Anschrift. Vorstand wird nie blockiert.
+  assert.deepEqual(pruefeMitgliederdaten({ ...ohne, iban: IBAN_CH }, ALUMNI), []);
+  assert.equal(pruefeVorstandskorrektur({ iban: IBAN_CH, strasse: "", ort: "" }, GUT, HEUTE).gueltig, true);
+  // Mit vollständiger Anschrift (Ausland: PLZ nach Muster) ist alles gut.
+  const ch = { ...GUT, iban: IBAN_CH, land: "CH", strasse: "Bahnhofstrasse", hausnummer: "1", plz: "8001", ort: "Zürich" };
+  assert.deepEqual(pruefeMitgliederdaten(ch, MITGLIED), []);
+  // Auch eine ungültige CH-IBAN macht die Anschrift Pflicht (alle Meldungen auf einmal).
+  const kaputt = pruefeMitgliederdaten({ ...ohne, iban: "CH9300762011623852958" }, MITGLIED);
+  assert.deepEqual(kaputt.map((m) => m.feld), ["strasse", "hausnummer", "plz", "ort", "iban"]);
+});
+
+test("Anschrift teilweise angegeben: dann vollständig (Straße, Ort; Hausnummer in DE; PLZ bei Muster)", () => {
+  const nurPlz = { ...GUT, ...LEER_ANSCHRIFT, plz: "93047" };
+  assert.equal(anschriftPflichtGrund(nurPlz, MITGLIED), "angegeben");
+  const r = pruefeFormular(nurPlz, REGISTRIERUNG);
+  assert.deepEqual(r.maengel, [
+    { feld: "strasse", code: "fehlt" },
+    { feld: "hausnummer", code: "fehlt" },
+    { feld: "ort", code: "fehlt" },
+  ]);
+  assert.equal(r.fehler.ort, "Bitte trag den Ort ein.");
+  // Nur Hausnummer, nur Straße, nur Ort: jeweils Rest fehlt.
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ...LEER_ANSCHRIFT, ort: "Regensburg" }, MITGLIED).map((m) => m.feld), ["strasse", "hausnummer", "plz"]);
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ...LEER_ANSCHRIFT, hausnummer: "3" }, MITGLIED).map((m) => m.feld), ["strasse", "plz", "ort"]);
+  // Ausland ohne PLZ-Muster: Straße + Ort genügen.
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ...LEER_ANSCHRIFT, land: "HK", strasse: "Queen's Road", ort: "Hongkong" }, MITGLIED), []);
+  // Nur harmlose/leere Zeichen sind keine Angabe.
+  assert.equal(anschriftPflichtGrund({ ...LEER_ANSCHRIFT, ort: "   " }, MITGLIED), null);
+  assert.equal(anschriftPflichtGrund({ ...LEER_ANSCHRIFT, ort: String.fromCodePoint(0x200b) }, MITGLIED), null);
+  // Vorstand: nie Pflicht.
+  assert.equal(anschriftPflichtGrund(nurPlz, VORSTAND), null);
+  // Angegeben schlägt IBAN-Grund (Meldungen je Feld statt IBAN-Satz).
+  assert.equal(anschriftPflichtGrund({ ...nurPlz, iban: IBAN_CH }, MITGLIED), "angegeben");
 });
 
 test("Land der Anschrift: ISO-Code, leer = DE", () => {
@@ -376,21 +478,16 @@ test("Gesamtprüfung: Alumni ohne IBAN kein Mangel, Mitglied ohne IBAN Mangel", 
   assert.deepEqual(pruefeMitgliederdaten(ohneBank, MITGLIED), [{ feld: "iban", code: "fehlt" }]);
 });
 
-test("Gesamtprüfung: leerer Altdatensatz (Mitglied) listet alle Pflichtfelder, ohne Werte", () => {
+test("Gesamtprüfung: leerer Altdatensatz (Mitglied) listet nur die Pflichtfelder IBAN und Geburtsdatum", () => {
   const maengel = pruefeMitgliederdaten({}, MITGLIED);
   assert.deepEqual(maengel, [
-    { feld: "strasse", code: "fehlt" },
-    { feld: "hausnummer", code: "fehlt" },
-    { feld: "plz", code: "fehlt" },
-    { feld: "ort", code: "fehlt" },
-    { feld: "handynummer", code: "fehlt" },
     { feld: "iban", code: "fehlt" },
     { feld: "geburtsdatum", code: "fehlt" },
   ]);
   for (const m of maengel) assert.ok(MANGEL_CODES.includes(m.code));
 });
 
-test("Gesamtprüfung: Altformat, BIC zu fremder IBAN, Codes und erste Meldung", () => {
+test("Gesamtprüfung: Altformat, Codes und erste Meldung (BIC ohne Hinweis)", () => {
   const r = pruefeFormular(
     { ...GUT, handynummer: "0941 123456", bic: "COBADEFF", iban: IBAN_AT, plz: "9304", strasse: "Hauptstraße 12", hausnummer: "" },
     MITGLIED
@@ -401,7 +498,7 @@ test("Gesamtprüfung: Altformat, BIC zu fremder IBAN, Codes und erste Meldung", 
     { feld: "plz", code: "format" },
     { feld: "handynummer", code: "kein_mobil" },
   ]);
-  assert.deepEqual(r.hinweise, [{ feld: "bic", code: "bic_land" }]);
+  assert.deepEqual(r.hinweise, []);
   assert.equal(r.ersterFehler, "Hausnummer bitte ins eigene Feld.");
   assert.equal(r.gueltig, false);
 });
@@ -430,14 +527,18 @@ test("Gesamtprüfung: Handy-Land getrennt vom Land der Anschrift", () => {
 test("Pflichtfelder je Kontext", () => {
   assert.equal(istPflicht("iban", MITGLIED), true);
   assert.equal(istPflicht("iban", ALUMNI), false);
-  assert.equal(istPflicht("bic", REGISTRIERUNG), false);
-  assert.equal(istPflicht("hausnummer", MITGLIED, "AT"), false);
+  assert.equal(istPflicht("handynummer", REGISTRIERUNG), false);
+  for (const feld of ["strasse", "hausnummer", "plz", "ort"]) {
+    assert.equal(istPflicht(feld, REGISTRIERUNG), false, feld);
+    assert.equal(istPflicht(feld, { ...REGISTRIERUNG, anschrift: "iban" }), true, feld);
+  }
+  assert.equal(istPflicht("hausnummer", MITGLIED_ANSCHRIFT, "AT"), false);
   assert.equal(istPflicht("geburtsdatum", VORSTAND), true);
   for (const feld of STAMMFELDER.filter((f) => f !== "geburtsdatum")) assert.equal(istPflicht(feld, VORSTAND), false, feld);
 });
 
 test("Vorstand: nur geänderte Felder zählen, Altdaten blockieren nicht", () => {
-  const alt = { ...GUT, handynummer: "+49 0176 12345678", plz: "9304", iban: "", bic: "COBADEF", geburtsdatum: "" };
+  const alt = { ...GUT, handynummer: "+49 0176 12345678", plz: "9304", iban: "", geburtsdatum: "" };
   // Ort korrigieren: die kaputten Altfelder blockieren nicht.
   const r = pruefeVorstandskorrektur({ ort: "Neumarkt i.d.OPf." }, alt, HEUTE);
   assert.equal(r.gueltig, true);
@@ -449,9 +550,6 @@ test("Vorstand: nur geänderte Felder zählen, Altdaten blockieren nicht", () =>
   assert.equal(geb.ersterFehler, "Das Geburtsdatum kann nicht gelöscht werden. Bitte ein vollständiges Datum eingeben.");
   // Geänderte Felder werden geprüft (Format, Querbezug aus den bestehenden Werten).
   assert.deepEqual(pruefeVorstandskorrektur({ plz: "9304" }, GUT, HEUTE).maengel, [{ feld: "plz", code: "format" }]);
-  const bicFremd = pruefeVorstandskorrektur({ bic: "COBADEFF" }, { ...GUT, iban: IBAN_AT }, HEUTE);
-  assert.equal(bicFremd.gueltig, true);
-  assert.deepEqual(bicFremd.hinweise, [{ feld: "bic", code: "bic_land" }]);
   assert.deepEqual(pruefeVorstandskorrektur({ strasse: "Hauptstraße 5" }, { ...GUT, hausnummer: "" }, HEUTE).maengel, [
     { feld: "strasse", code: "hausnummer_in_strasse" },
   ]);
@@ -482,7 +580,7 @@ test("Reparatur Handy: sicher, Vorschlag, offen", () => {
     ["0941 123456", "offen", "0941 123456"],
     ["941 123456", "offen", "941 123456"],
     ["0176 123", "offen", "0176 123"],
-    ["", "offen", ""],
+    ["", "gueltig", ""], // Handy freiwillig (seit 20.11.2026): leer ist in Ordnung
   ];
   for (const [eingabe, status, wert] of tabelle) {
     const r = repariereHandy(eingabe);
@@ -491,7 +589,7 @@ test("Reparatur Handy: sicher, Vorschlag, offen", () => {
   }
   assert.equal(repariereHandy("max@example.org").code, "format");
   assert.equal(repariereHandy("0941 123456").code, "kein_mobil");
-  assert.equal(repariereHandy("").code, "fehlt");
+  assert.equal(repariereHandy("").code, null);
   assert.equal(repariereHandy("", "DE", VORSTAND).status, "gueltig");
 });
 
@@ -540,19 +638,13 @@ test("Reparatur Handy: akzeptiertes Restrisiko USA/Kanada und China (Entscheidun
   assert.equal(repariereHandy("15112345678").status, "sicher"); // China 15x
 });
 
-test("Reparatur IBAN, BIC, Straße", () => {
+test("Reparatur IBAN, Straße", () => {
   assert.deepEqual(repariereIban("de89 3704 0044 0532 0130 00"), { status: "sicher", wert: IBAN_DE, code: null });
   assert.deepEqual(repariereIban(IBAN_DE), { status: "gueltig", wert: IBAN_DE, code: null });
   assert.equal(repariereIban("DE89370400440532013001").status, "offen");
   assert.equal(repariereIban("DE89370400440532013001").code, "pruefziffer");
   assert.equal(repariereIban("", ALUMNI).status, "gueltig");
   assert.equal(repariereIban("", MITGLIED).status, "offen");
-
-  assert.deepEqual(repariereBic("coba deff xxx", IBAN_DE), { status: "sicher", wert: "COBADEFFXXX", code: null });
-  assert.deepEqual(repariereBic("COBADEFF", IBAN_DE), { status: "gueltig", wert: "COBADEFF", code: null });
-  assert.deepEqual(repariereBic("COBADEF", IBAN_DE), { status: "sicher", wert: "", code: "format" });
-  assert.deepEqual(repariereBic("COBADEFF", IBAN_AT), { status: "gueltig", wert: "COBADEFF", code: null });
-  assert.deepEqual(repariereBic("", IBAN_DE), { status: "gueltig", wert: "", code: null });
 
   assert.deepEqual(repariereStrasse("Hauptstraße 12a", ""), { status: "sicher", strasse: "Hauptstraße", hausnummer: "12a" });
   assert.deepEqual(repariereStrasse("Hauptstr.5", ""), { status: "sicher", strasse: "Hauptstr.", hausnummer: "5" });
@@ -570,10 +662,6 @@ test("Reparatur ist idempotent (zweimal anwenden = gleiches Ergebnis)", () => {
     assert.equal(zweimal.wert, einmal.wert, h);
     assert.ok(zweimal.status === einmal.status || zweimal.status === "gueltig", h);
     assert.deepEqual(repariereHandy(zweimal.wert), zweimal, h);
-  }
-  for (const b of ["coba deff xxx", "COBADEF", ""]) {
-    const einmal = repariereBic(b, IBAN_DE);
-    assert.equal(repariereBic(einmal.wert, IBAN_DE).wert, einmal.wert, b);
   }
   for (const i of ["de89 3704 0044 0532 0130 00", "DE89370400440532013001"]) {
     const einmal = repariereIban(i);
@@ -597,7 +685,7 @@ test("Reparatur Datensatz: sicher/Vorschlag getrennt, danach gültig", () => {
   const r = repariereMitgliederdaten(alt, MITGLIED);
   assert.deepEqual(r.sicher, { handynummer: "+4917612345678", iban: IBAN_DE, strasse: "Hauptstraße", hausnummer: "12a" });
   assert.deepEqual(r.vorschlaege, {});
-  assert.deepEqual(r.status, { handynummer: "sicher", iban: "sicher", bic: "gueltig", strasse: "sicher" });
+  assert.deepEqual(r.status, { handynummer: "sicher", iban: "sicher", strasse: "sicher" });
   // Nach sicherer Reparatur + bestätigtem Vorschlag ist der Datensatz gültig und im Zielformat.
   const fertig = { ...alt, ...r.sicher, ...r.vorschlaege };
   const pruefung = pruefeFormular(fertig, MITGLIED);
@@ -819,7 +907,7 @@ test("F3/R2: Handy-Reparatur „sicher“ mit deutschem Beleg oder 15/16/17 ohne
 });
 
 test("F4: Hinweis vorwahl_ergaenzt tritt bei deutschen Nummern nicht mehr auf (Code bleibt, Abwärtskompatibilität)", () => {
-  assert.deepEqual(HINWEIS_CODES, ["vorwahl_ergaenzt", "bic_land"]);
+  assert.deepEqual(HINWEIS_CODES, ["vorwahl_ergaenzt"]);
   // Seit 19.11.2026 werden 15/16/17 ohne 0 sicher korrigiert → kein Hinweis mehr (Hinweis ⇔ Vorschlag).
   for (const handy of ["17612345678", "176 12345678", "+49 15112345678"]) {
     const r = pruefeBestand({ ...GUT, handynummer: handy }, MITGLIED);
@@ -840,19 +928,13 @@ test("F4: Hinweis vorwahl_ergaenzt tritt bei deutschen Nummern nicht mehr auf (C
   }
 });
 
-test("F5: Alumni – IBAN/BIC im Bestand nie ein Mangel, im Formular geprüft", () => {
+test("F5: Alumni – IBAN im Bestand nie ein Mangel, im Formular geprüft (BIC nie)", () => {
   const alt = { ...GUT, iban: "DE89370400440532013001", bic: "COBADEF" };
   assert.deepEqual(pruefeMitgliederdaten(alt, ALUMNI), []);
   assert.equal(pruefeBestand(alt, ALUMNI).gueltig, true);
-  assert.deepEqual(pruefeMitgliederdaten(alt, MITGLIED), [
-    { feld: "iban", code: "pruefziffer" },
-    { feld: "bic", code: "format" },
-  ]);
+  assert.deepEqual(pruefeMitgliederdaten(alt, MITGLIED), [{ feld: "iban", code: "pruefziffer" }]);
   // Formular: eingegebene IBAN eines Alumnus wird geprüft.
-  assert.deepEqual(pruefeFormular(alt, ALUMNI).maengel, [
-    { feld: "iban", code: "pruefziffer" },
-    { feld: "bic", code: "format" },
-  ]);
+  assert.deepEqual(pruefeFormular(alt, ALUMNI).maengel, [{ feld: "iban", code: "pruefziffer" }]);
   // Andere Mängel bleiben auch bei Alumni.
   const ohneOrt = pruefeBestand({ ...alt, ort: "" }, ALUMNI);
   assert.deepEqual(ohneOrt.maengel, [{ feld: "ort", code: "fehlt" }]);
@@ -862,41 +944,18 @@ test("F5: Alumni – IBAN/BIC im Bestand nie ein Mangel, im Formular geprüft", 
   assert.equal(repariereMitgliederdaten(alt, MITGLIED).status.iban, "offen");
 });
 
-test("F6/R3: BIC wird nur gegen eine gültige IBAN abgeglichen und nicht wegen kaputter IBAN geleert", () => {
-  for (const iban of ["siehe Vorstand", "ED89370400440532013000", "DE89370400440532013001", ""]) {
-    const r = pruefeBic("COBADEFFXXX", iban, MITGLIED);
-    assert.ok(ok(r), iban);
-    assert.equal(r.hinweis, undefined, iban);
-    assert.deepEqual(repariereBic("COBADEFFXXX", iban), { status: "gueltig", wert: "COBADEFFXXX", code: null }, iban);
-  }
-});
-
-test("F7: BIC-Land ≠ IBAN-Land ist nur Hinweis, wird nicht gelöscht; falsches Format wird geleert", () => {
-  const IBAN_FR = "FR1420041010050500013M02606";
-  const n26 = pruefeBic("NTSBDEB1XXX", IBAN_FR, MITGLIED);
-  assert.equal(n26.code, null);
-  assert.equal(n26.fehler, null);
-  assert.equal(n26.hinweis, "bic_land");
-  assert.equal(pruefeBic("REVOLT21", IBAN_DE, MITGLIED).hinweis, "bic_land");
-  assert.deepEqual(repariereBic("NTSBDEB1XXX", IBAN_FR), { status: "gueltig", wert: "NTSBDEB1XXX", code: null });
-  const r = pruefeFormular({ ...GUT, iban: IBAN_FR, bic: "NTSBDEB1XXX" }, MITGLIED);
-  assert.equal(r.gueltig, true);
-  assert.deepEqual(r.hinweise, [{ feld: "bic", code: "bic_land" }]);
-  assert.deepEqual(repariereBic("COBADEF", IBAN_DE), { status: "sicher", wert: "", code: "format" });
-});
-
-test("F8: Vorstand ändert Land/IBAN – abhängige PLZ/BIC werden bewusst nicht neu geprüft", () => {
+test("F8: Vorstand ändert Land/IBAN – abhängige PLZ/Anschrift werden bewusst nicht neu geprüft", () => {
   assert.equal(pruefeVorstandskorrektur({ land: "AT" }, GUT, HEUTE).gueltig, true);
   assert.equal(pruefeVorstandskorrektur({ iban: IBAN_AT }, GUT, HEUTE).gueltig, true);
 });
 
 test("F9: PLZ Pflicht nur bei Ländern mit Muster, Länderpräfix wird entfernt", () => {
   for (const land of ["HK", "AE", "US"]) {
-    assert.ok(ok(pruefePlz("", land, MITGLIED)), land);
-    assert.equal(istPflicht("plz", MITGLIED, land), false, land);
+    assert.ok(ok(pruefePlz("", land, MITGLIED_ANSCHRIFT)), land);
+    assert.equal(istPflicht("plz", MITGLIED_ANSCHRIFT, land), false, land);
   }
-  assert.equal(pruefePlz("", "AT", MITGLIED).code, "fehlt");
-  assert.equal(pruefePlz("", "DE", MITGLIED).code, "fehlt");
+  assert.equal(pruefePlz("", "AT", MITGLIED_ANSCHRIFT).code, "fehlt");
+  assert.equal(pruefePlz("", "DE", MITGLIED_ANSCHRIFT).code, "fehlt");
   const tabelle = [
     ["A-1010", "AT", "1010"],
     ["AT-1010", "AT", "1010"],
@@ -960,7 +1019,6 @@ test("R4: Nicht-Strings sind immer `format`, nie „leer“", () => {
       assert.equal(pruefePlz(wert, "US", kontext).code, "format");
       assert.equal(pruefeHandy(wert, "DE", kontext).code, "format");
       assert.equal(pruefeIban(wert, kontext).code, "format");
-      assert.equal(pruefeBic(wert, IBAN_DE, kontext).code, "format");
       assert.equal(pruefeGeburtsdatum(wert, kontext).code, "format");
       assert.equal(pruefeEmail(wert, kontext).code, "format");
       assert.equal(pruefeLand(wert).code, "format");
@@ -972,8 +1030,8 @@ test("R4: Nicht-Strings sind immer `format`, nie „leer“", () => {
   }
   // null/undefined bleiben „leer“.
   assert.ok(ok(pruefeIban(null, ALUMNI)));
-  assert.ok(ok(pruefeBic(undefined, IBAN_DE, MITGLIED)));
-  assert.equal(pruefeStrasse(undefined, "", MITGLIED).code, "fehlt");
+  assert.equal(pruefeStrasse(undefined, "", MITGLIED_ANSCHRIFT).code, "fehlt");
+  assert.ok(ok(pruefeStrasse(undefined, "", MITGLIED)));
   // Gesamtprüfung: Datei im Feld → Mangel format (bei Alumni ist die IBAN kein Bestandsmangel).
   assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ort: datei, iban: 42 }, ALUMNI), [{ feld: "ort", code: "format" }]);
   assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ort: datei, iban: 42 }, MITGLIED), [
@@ -1137,8 +1195,8 @@ test("H1: harmlose Format-Zeichen still entfernt, Bidi weiter gemeldet", () => {
     const r = pruefeStrasse(`Hauptstraße 12${z}`, "", MITGLIED);
     assert.equal(r.code, "hausnummer_in_strasse", name);
     assert.equal(r.fehler, "Hausnummer bitte ins eigene Feld.", name);
-    // Nur aus harmlosen Zeichen = leer.
-    assert.equal(pruefeOrt(z, "DE", MITGLIED).code, "fehlt", name);
+    // Nur aus harmlosen Zeichen = leer (mit Pflicht-Anschrift ein Mangel).
+    assert.equal(pruefeOrt(z, "DE", MITGLIED_ANSCHRIFT).code, "fehlt", name);
   }
   // Gespeichert wird der bereinigte Wert (Gesamtprüfung).
   const weich = String.fromCodePoint(0x00ad);
@@ -1161,7 +1219,7 @@ test("M4: Bindestrich U+2010/U+2011 wird zu „-“ (Name, Straße, Ort)", () =>
 });
 
 test("G4: nur alumni === true macht zum Alumnus", () => {
-  const ohneBank = { ...GUT, iban: "", bic: "" };
+  const ohneBank = { ...GUT, iban: "" };
   for (const alumni of ["false", "true", 1, {}, null, undefined]) {
     const kontext = { alumni, wer: "mitglied", heute: HEUTE };
     assert.deepEqual(pruefeMitgliederdaten(ohneBank, kontext), [{ feld: "iban", code: "fehlt" }], String(alumni));
@@ -1249,18 +1307,13 @@ test("K2: Reparatur meldet „sicher“ mit bereinigtem Wert, wenn sich der Rohw
   });
   // Übrige Helfer vergleichen mit dem Rohwert.
   assert.equal(repariereIban(` ${IBAN_DE}`).status, "sicher");
-  assert.equal(repariereBic("COBADEFF ", IBAN_DE).status, "sicher");
   assert.equal(repariereHandy(`+4917612345678${zwsp}`).status, "sicher");
 });
 
-test("K3: harmlose Format-Zeichen auch bei BIC, Handy und Geburtsdatum still entfernt", () => {
+test("K3: harmlose Format-Zeichen auch bei Handy und Geburtsdatum still entfernt", () => {
   for (const cp of [0x00ad, 0x200b, 0x200e, 0x200f, 0x2060, 0xfeff]) {
     const z = String.fromCodePoint(cp);
     const name = cp.toString(16);
-    const bic = pruefeBic(`COBADEFF${z}XXX`, IBAN_DE, MITGLIED);
-    assert.ok(ok(bic), name);
-    assert.equal(bic.wert, "COBADEFFXXX", name);
-    assert.deepEqual(repariereBic(`COBADEFF${z}XXX`, IBAN_DE), { status: "sicher", wert: "COBADEFFXXX", code: null }, name);
     const handy = pruefeHandy(`0176${z} 12345678`, "DE", MITGLIED);
     assert.ok(ok(handy), name);
     assert.equal(handy.wert, "+4917612345678", name);
@@ -1268,14 +1321,13 @@ test("K3: harmlose Format-Zeichen auch bei BIC, Handy und Geburtsdatum still ent
     const geb = pruefeGeburtsdatum(`2001-05${z}-17`, MITGLIED);
     assert.ok(ok(geb), name);
     assert.equal(geb.wert, "2001-05-17", name);
-    // Nur harmlose Zeichen = leer.
-    assert.equal(pruefeHandy(z, "DE", MITGLIED).code, "fehlt", name);
+    // Nur harmlose Zeichen = leer (Handy freiwillig, Geburtsdatum Pflicht).
+    assert.ok(ok(pruefeHandy(z, "DE", MITGLIED)), name);
+    assert.equal(pruefeHandy(z, "DE", MITGLIED).wert, "", name);
     assert.equal(pruefeGeburtsdatum(z, MITGLIED).code, "fehlt", name);
-    assert.ok(ok(pruefeBic(z, IBAN_DE, MITGLIED)), name);
   }
-  // Bidi bleibt ein Fehler (BIC/Handy/Datum: Format).
+  // Bidi bleibt ein Fehler (Handy/Datum: Format).
   const rlo = String.fromCodePoint(0x202e);
-  assert.equal(pruefeBic(`COBADEFF${rlo}XXX`, IBAN_DE, MITGLIED).code, "format");
   assert.equal(pruefeHandy(`0176${rlo}12345678`, "DE", MITGLIED).code, "format");
   assert.equal(pruefeGeburtsdatum(`2001-05-17${rlo}`, MITGLIED).code, "format");
 });

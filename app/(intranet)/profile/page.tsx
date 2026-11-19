@@ -14,7 +14,7 @@ import {
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
 import { emptySecretValues, readMemberSecretsWithMeta, type MemberSecretValues } from "@/lib/member-secrets-server";
-import { bicHinweis, handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-forms";
+import { handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-forms";
 import { findCountry } from "@/lib/country-codes";
 import { isAlumniProfile } from "@/lib/profile-status";
 import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
@@ -85,7 +85,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     land: landAusBestand(sensitive.land),
     mobil: sensitive.handynummer ?? "",
     iban: sensitive.iban ?? "",
-    bic: sensitive.bic ?? "",
   };
   const handy = handyFuerEingabe(sensitive.handynummer);
 
@@ -141,10 +140,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 geburtsdatum: (sensitive.geburtsdatum ?? "").trim(),
                 alumni: isAlumniProfile(profile as Record<string, unknown> | null),
                 iban: p.iban,
-                bic: p.bic,
                 zahltBeitrag: paysFee,
                 mandatVom: formatDate(p.datumMandat),
-                bicHinweis: bicHinweis(p.bic, p.iban),
                 version: secretsVersion,
                 landUnbekannt,
               }}

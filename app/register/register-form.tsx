@@ -34,7 +34,7 @@ import { plzInputMode } from "@/lib/member-inputs";
 import { FeldFehler, FeldHinweis, HandyEingabe, LandAuswahl } from "@/components/member/MemberInputs";
 import { StudiengangAuswahl } from "@/components/member/StudiengangAuswahl";
 import { SONSTIGES } from "@/lib/studiengaenge";
-import { IbanBicFields } from "./iban-bic-fields";
+import { IbanFields } from "./iban-fields";
 import { AuthFrame, StageHeading, flyDelay } from "@/components/auth/AuthFrame";
 import {
   PickTile,
@@ -78,9 +78,7 @@ const DEFAULT_FORM: RegisterSavedState = {
   studiengang: "",
   studiengangSonstiges: "",
   abschluss: "",
-  semester: "",
   iban: "",
-  bic: "",
   hochschultyp: "",
   sepa: false,
 };
@@ -112,7 +110,6 @@ const FIELD_STEP: Record<string, StepKey> = {
   studiengang: "study",
   studiengangSonstiges: "study",
   iban: "bank",
-  bic: "bank",
 };
 
 /** Reihenfolge der Felder (erster Fehler bekommt den Fokus) und abweichende Element-IDs. */
@@ -130,7 +127,6 @@ const FELD_REIHENFOLGE = [
   "studiengang",
   "studiengangSonstiges",
   "iban",
-  "bic",
 ] as const;
 const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag", studiengangSonstiges: "studiengang-sonstiges" };
 
@@ -205,8 +201,8 @@ export function RegisterForm() {
   const router = useRouter();
   const [state, formAction, pending] = useActionState(registerAction, initialState);
   const [formValues, setFormValues] = useState<RegisterSavedState>(DEFAULT_FORM);
-  /** Nur für die Zusammenfassung: IBAN/BIC leben in IbanBicFields. */
-  const [bankPreview, setBankPreview] = useState({ iban: "", bic: "" });
+  /** Nur für die Zusammenfassung: Die IBAN lebt in IbanFields. */
+  const [bankPreview, setBankPreview] = useState({ iban: "" });
   const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
   const isDevelopment = process.env.NODE_ENV === "development";
 
@@ -222,7 +218,7 @@ export function RegisterForm() {
 
     const timeoutId = window.setTimeout(() => {
       setFormValues(state.saved ?? DEFAULT_FORM);
-      setBankPreview({ iban: state.saved?.iban ?? "", bic: state.saved?.bic ?? "" });
+      setBankPreview({ iban: state.saved?.iban ?? "" });
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
@@ -303,7 +299,7 @@ export function RegisterForm() {
   /** Weiter: erst die Felder des Schritts prüfen (gleiche Regeln wie bisher beim Absenden). */
   const [checking, setChecking] = useState(false);
   const handleNext = async () => {
-    // Fokus lösen, damit Prüfungen beim Verlassen eines Felds (IBAN/BIC) laufen.
+    // Fokus lösen, damit Prüfungen beim Verlassen eines Felds (IBAN) laufen.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     if (!reportStepValidity(formRef.current, step)) return;
     // Felder des Schritts mit denselben Regeln wie beim Absenden prüfen (Server-Action, speichert nichts).
@@ -345,7 +341,8 @@ export function RegisterForm() {
       case "contact":
         return { email: w.email, handyLand: w.landesvorwahl, handynummer: w.handynummer };
       case "bank":
-        return { iban: bankPreview.iban, bic: bankPreview.bic };
+        // Anschrift als Querbezug: Bei einer IBAN außerhalb des EWR ist sie Pflicht (Meldung an der IBAN).
+        return { iban: bankPreview.iban, strasse: w.strasse, hausnummer: w.hausnummer, plz: w.plz, ort: w.ort, land: w.land };
       default:
         return null;
     }
@@ -384,13 +381,16 @@ export function RegisterForm() {
     });
   }
   if (done("address")) {
+    const anschriftLeer = ![v.strasse, v.hausnummer, v.plz, v.ort].some((t) => t.trim());
     rows.push({
       key: "address",
       label: "Adresse",
       Icon: MapPin,
-      value: `${v.strasse} ${v.hausnummer}, ${v.plz} ${v.ort}${
-        v.land && v.land !== DEFAULT_COUNTRY ? `, ${findCountry(v.land)?.name ?? v.land}` : ""
-      }`,
+      value: anschriftLeer
+        ? "Keine Angabe"
+        : `${v.strasse} ${v.hausnummer}, ${v.plz} ${v.ort}${
+            v.land && v.land !== DEFAULT_COUNTRY ? `, ${findCountry(v.land)?.name ?? v.land}` : ""
+          }`,
     });
   }
   if (done("contact")) {
@@ -398,7 +398,9 @@ export function RegisterForm() {
       key: "contact",
       label: "Kontakt",
       Icon: Mail,
-      value: `${v.email} · ${dialCodeFor(v.landesvorwahl) ?? ""} ${v.handynummer}`,
+      value: v.handynummer.trim()
+        ? `${v.email} · ${dialCodeFor(v.landesvorwahl) ?? ""} ${v.handynummer}`
+        : v.email,
     });
   }
   if (done("password")) {
@@ -412,7 +414,7 @@ export function RegisterForm() {
       Icon: GraduationCap,
       value:
         v.student === "Ja"
-          ? `${v.studiengang === SONSTIGES ? v.studiengangSonstiges : v.studiengang} (${v.abschluss}), ${v.semester}. Semester, ${hochschule}`
+          ? `${v.studiengang === SONSTIGES ? v.studiengangSonstiges : v.studiengang} (${v.abschluss}), ${hochschule}`
           : "Kein Studium",
     });
   }
@@ -421,7 +423,7 @@ export function RegisterForm() {
       key: "bank",
       label: "Bankverbindung",
       Icon: Landmark,
-      value: `${formatIban(bankPreview.iban)}${bankPreview.bic ? ` · ${bankPreview.bic}` : ""}`,
+      value: formatIban(bankPreview.iban),
     });
   }
 
@@ -485,8 +487,8 @@ export function RegisterForm() {
         }}
         onChange={(e) => {
           const t = e.target;
-          if (t instanceof HTMLInputElement && (t.name === "iban" || t.name === "bic")) {
-            setBankPreview((b) => ({ ...b, [t.name]: t.value.replace(/\s/g, "").toUpperCase() }));
+          if (t instanceof HTMLInputElement && t.name === "iban") {
+            setBankPreview({ iban: t.value.replace(/\s/g, "").toUpperCase() });
           }
         }}
         className="space-y-8"
@@ -561,15 +563,14 @@ export function RegisterForm() {
 
         {/* 2 Adresse */}
         <WizardStep {...stepProps("address")} title="Wo wohnst du?">
-          <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-            <Field id="strasse" label="Straße" fehler={fe.strasse}>
+          <div className="grid gap-4 sm:grid-cols-[1fr_11rem]">
+            <Field id="strasse" label="Straße (optional)" fehler={fe.strasse}>
               <Input
                 id="strasse"
                 {...invalid("strasse", fe.strasse)}
                 name="strasse"
                 type="text"
                 placeholder="Musterstraße"
-                required
                 autoComplete="street-address"
                 className={FIELD_CLASS}
                 value={v.strasse}
@@ -579,14 +580,13 @@ export function RegisterForm() {
                 }}
               />
             </Field>
-            <Field id="hausnummer" label="Hausnummer" fehler={fe.hausnummer}>
+            <Field id="hausnummer" label="Hausnummer (optional)" fehler={fe.hausnummer}>
               <Input
                 id="hausnummer"
                 {...invalid("hausnummer", fe.hausnummer)}
                 name="hausnummer"
                 type="text"
                 placeholder="42"
-                required={v.land === DEFAULT_COUNTRY}
                 className={FIELD_CLASS}
                 value={v.hausnummer}
                 onChange={(e) => {
@@ -610,7 +610,7 @@ export function RegisterForm() {
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-[8rem_1fr]">
-            <Field id="plz" label="PLZ" fehler={fe.plz}>
+            <Field id="plz" label="PLZ (optional)" fehler={fe.plz}>
               <Input
                 id="plz"
                 {...invalid("plz", fe.plz)}
@@ -618,7 +618,6 @@ export function RegisterForm() {
                 type="text"
                 placeholder="80331"
                 inputMode={plzInputMode(v.land)}
-                required={v.land === DEFAULT_COUNTRY}
                 autoComplete="postal-code"
                 className={FIELD_CLASS}
                 value={v.plz}
@@ -628,14 +627,13 @@ export function RegisterForm() {
                 }}
               />
             </Field>
-            <Field id="ort" label="Ort" fehler={fe.ort}>
+            <Field id="ort" label="Ort (optional)" fehler={fe.ort}>
               <Input
                 id="ort"
                 {...invalid("ort", fe.ort)}
                 name="ort"
                 type="text"
                 placeholder="München"
-                required
                 autoComplete="address-level2"
                 className={FIELD_CLASS}
                 value={v.ort}
@@ -675,7 +673,7 @@ export function RegisterForm() {
             {!fe.email && <FeldHinweis>{emailTippfehler(v.email)}</FeldHinweis>}
           </Field>
           <div className="space-y-2">
-            <Label htmlFor="handynummer">Handynummer</Label>
+            <Label htmlFor="handynummer">Handynummer (optional)</Label>
             <HandyEingabe
               id="handynummer"
               landName="landesvorwahl"
@@ -684,7 +682,6 @@ export function RegisterForm() {
                 setFormValues((f) => ({ ...f, landesvorwahl: w.land, handynummer: w.nummer }));
                 clearError("handynummer");
               }}
-              required
               fehler={fe.handynummer}
               className="[&_input]:h-11 [&_select]:h-11"
             />
@@ -774,7 +771,6 @@ export function RegisterForm() {
                   studiengang: "",
                   studiengangSonstiges: "",
                   abschluss: "",
-                  semester: "",
                   hochschultyp: "",
                 }));
                 // Auswahl springt von selbst weiter (Muster Tenant-Dashboard).
@@ -799,33 +795,18 @@ export function RegisterForm() {
                   ohneKeinStudium
                 />
               </div>
-              <div className="grid gap-4 sm:grid-cols-[1fr_10rem]">
-                <Field id="abschluss" label="Angestrebter Abschluss">
-                  <Input
-                    id="abschluss"
-                    name="abschluss"
-                    type="text"
-                    placeholder="z.B. Bachelor, Master"
-                    required
-                    className={FIELD_CLASS}
-                    value={v.abschluss}
-                    onChange={(e) => setField("abschluss", e.target.value)}
-                  />
-                </Field>
-                <Field id="semester" label="Aktuelles Semester">
-                  <Input
-                    id="semester"
-                    name="semester"
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="z.B. 3"
-                    required
-                    className={FIELD_CLASS}
-                    value={v.semester}
-                    onChange={(e) => setField("semester", e.target.value)}
-                  />
-                </Field>
-              </div>
+              <Field id="abschluss" label="Angestrebter Abschluss">
+                <Input
+                  id="abschluss"
+                  name="abschluss"
+                  type="text"
+                  placeholder="z.B. Bachelor, Master"
+                  required
+                  className={FIELD_CLASS}
+                  value={v.abschluss}
+                  onChange={(e) => setField("abschluss", e.target.value)}
+                />
+              </Field>
               <fieldset className="space-y-2">
                 <legend className="mb-2 text-sm font-medium">Uni oder Hochschule</legend>
                 <div className="grid gap-2">
@@ -862,11 +843,10 @@ export function RegisterForm() {
               Semester buchen wir 15&nbsp;€ je Semester per SEPA-Lastschrift ab.
             </p>
           </div>
-          <IbanBicFields
+          <IbanFields
             initialIban={v.iban}
-            initialBic={v.bic}
-            serverErrors={{ iban: fe.iban, bic: fe.bic }}
-            onEdit={(feld) => clearError(feld)}
+            serverErrors={{ iban: fe.iban }}
+            onEdit={() => clearError("iban")}
           />
           <PickTile
             type="checkbox"

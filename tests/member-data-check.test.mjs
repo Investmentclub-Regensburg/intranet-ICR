@@ -9,7 +9,9 @@ import {
   istAbfrageFaellig,
   istBestaetigungOffen,
   DATEN_CHECK_PFAD,
-  layoutModus,
+  RUECKKEHR_HEADER,
+  datenCheckAdresse,
+  rueckkehrZiel,
   leseDatenCheckEinstellungen,
   letzterStichtag,
   spaeterBis,
@@ -23,11 +25,14 @@ import {
   datenCheckEinstellungen,
   bestaetigungsAenderungen,
   bewerteBestand,
+  eingabeMitBestand,
+  formularAusBestand,
   ibanMaskiert,
   pruefeDatenCheckAenderung,
   HINWEIS_VORWAHL,
 } from "../lib/member-data-check-server.ts";
 import { isActiveMemberProfile } from "../lib/profile-status.ts";
+import { NUR_IM_BESTAND_GEPRUEFT, markierungenNachPruefung } from "../components/member/daten-pruefen.ts";
 
 const z = (iso) => new Date(iso);
 
@@ -192,7 +197,8 @@ test("Gültiger Bestand: Stimmt alles + Später, nichts neu zu schreiben (U6)", 
   const a = ansicht(gut());
   assert.equal(a.gueltig, true);
   assert.equal(a.spaeterErlaubt, true);
-  assert.deepEqual(a.zeilen.map((zl) => zl.key), ["name", "anschrift", "handy", "email", "iban", "bic", "geburtsdatum"]);
+  // Die BIC wird nicht mehr abgefragt: keine Zeile, auch wenn eine gespeichert ist.
+  assert.deepEqual(a.zeilen.map((zl) => zl.key), ["name", "anschrift", "handy", "email", "iban", "geburtsdatum"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "anschrift").wert, ["Musterstraße 12a", "93047 Regensburg", "Deutschland"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "iban").wert, ["…3000"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "geburtsdatum").wert, ["12.04.2001"]);
@@ -215,14 +221,31 @@ test("Mangel → ungültig, kein Später; Punkt + eine Zeile am Feld (land_unbek
   assert.equal(l.fehler.plz, undefined);
 });
 
-test("Leere Pflichtfelder (keine Daten) → ungültig, Zeilen ohne Wert", () => {
+test("Leere Pflichtfelder (keine Daten) → ungültig nur wegen IBAN und Geburtsdatum; Handy/Anschrift freiwillig", () => {
   const leer = { vorname: "Max", nachname: "Leer", iban: null, bic: null, geburtsdatum: null, strasse: null, hausnummer: null, plz: null, ort: null, land: null, handynummer: null };
   const a = ansicht(leer);
   assert.equal(a.gueltig, false);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "handy").wert, []);
-  for (const key of ["anschrift", "handy", "iban", "geburtsdatum"]) assert.ok(a.zeilen.find((zl) => zl.key === key).fehler, key);
-  // BIC ist freiwillig: leer und ohne Mangel keine Zeile.
-  assert.equal(a.zeilen.find((zl) => zl.key === "bic"), undefined);
+  for (const key of ["iban", "geburtsdatum"]) assert.ok(a.zeilen.find((zl) => zl.key === key).fehler, key);
+  // Freiwillig: Zeile da (Anzeige „Keine Angabe“), aber ohne Mangel.
+  for (const key of ["anschrift", "handy"]) {
+    const zeile = a.zeilen.find((zl) => zl.key === key);
+    assert.deepEqual(zeile.wert, [], key);
+    assert.equal(zeile.fehler, undefined, key);
+  }
+  assert.deepEqual(Object.keys(a.formularFehler).sort(), ["geburtsdatum", "iban"]);
+  // Mit IBAN und Geburtsdatum ist ein Bestand ohne Handy und Anschrift gültig.
+  assert.equal(ansicht({ ...leer, iban: IBAN_DE, geburtsdatum: "2001-04-12" }).gueltig, true);
+  // Seite: Anschrift und Handy als optional beschriftet.
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.match(seite, /<Abschnitt titel="Anschrift" optional=\{anschriftOptional\(markierungen\)\} \/>/);
+  assert.match(seite, /Handynummer <span className="[^"]*">\(optional\)<\/span>/);
+});
+
+test("Handy angegeben, aber falsch → Mangel; Anschrift teilweise → Mangel", () => {
+  assert.ok(bewerteBestand(gut({ handynummer: "0941 123456" }), false, HEUTE).fehler.handynummer);
+  const teil = bewerteBestand(gut({ strasse: null, hausnummer: null, ort: null }), false, HEUTE);
+  assert.deepEqual(Object.keys(teil.fehler).sort(), ["hausnummer", "ort", "strasse"]);
 });
 
 test("Alumni ohne IBAN/BIC gültig, Bank bleibt unangetastet", () => {
@@ -250,18 +273,18 @@ test("Handy ohne Vorwahl (15/16/17): seit 19.11.2026 ohne Rückfrage, Anzeige E.
   assert.deepEqual(bestaetigungsAenderungen(bestand, b.werte, false).secrets, { handynummer: "+4917612345678" });
 });
 
-test("Normalisierter Altwert gilt als Änderung (Handy +49 0…, IBAN mit Leerzeichen, BIC klein, Name mit Leerraum)", () => {
+test("Normalisierter Altwert gilt als Änderung (Handy +49 0…, IBAN mit Leerzeichen, Name mit Leerraum); BIC bleibt, wie sie ist", () => {
   const bestand = gut({ handynummer: "+49 0176 1234567", iban: "de89 3704 0044 0532 0130 00", bic: "cobadeffxxx", vorname: " Erika " });
   const b = bewerteBestand(bestand, false, HEUTE);
   assert.equal(b.gueltig, true);
   const r = bestaetigungsAenderungen(bestand, b.werte, false);
-  assert.deepEqual(r.secrets, { handynummer: "+491761234567", iban: IBAN_DE, bic: "COBADEFFXXX" });
+  assert.deepEqual(r.secrets, { handynummer: "+491761234567", iban: IBAN_DE });
   // Name ist kein Bestandsfeld: wird weder bewertet noch bei „Stimmt alles“ umgeschrieben.
   assert.deepEqual(r.namen, {});
 });
 
 test("Name und E-Mail zählen nicht als Bestandsmangel (gleiche Feldliste wie Übersicht und Skript)", () => {
-  assert.deepEqual([...BESTANDS_FELDER].sort(), ["bic", "geburtsdatum", "handynummer", "hausnummer", "iban", "land", "ort", "plz", "strasse"]);
+  assert.deepEqual([...BESTANDS_FELDER].sort(), ["geburtsdatum", "handynummer", "hausnummer", "iban", "land", "ort", "plz", "strasse"]);
   const a = ansicht(gut({ vorname: "", nachname: "=Formel" }));
   assert.equal(a.gueltig, true);
   assert.equal(a.zeilen.find((zl) => zl.key === "name").fehler, undefined);
@@ -275,10 +298,10 @@ test("Land: Altdaten ohne Land werden nur bei anderen Änderungen mitgeschrieben
   const ohneLand = gut({ land: null });
   const b = bewerteBestand(ohneLand, false, HEUTE);
   assert.deepEqual(bestaetigungsAenderungen(ohneLand, b.werte, false).secrets, {});
-  const mitAenderung = gut({ land: null, bic: "cobadeffxxx" });
+  const mitAenderung = gut({ land: null, iban: "de89 3704 0044 0532 0130 00" });
   const b2 = bewerteBestand(mitAenderung, false, HEUTE);
-  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false).secrets, { bic: "COBADEFFXXX", land: "DE" });
-  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false, false).secrets, { bic: "COBADEFFXXX" });
+  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false).secrets, { iban: IBAN_DE, land: "DE" });
+  assert.deepEqual(bestaetigungsAenderungen(mitAenderung, b2.werte, false, false).secrets, { iban: IBAN_DE });
 });
 
 test("IBAN maskiert: nur die letzten vier Stellen", () => {
@@ -298,7 +321,6 @@ const formular = (extra = {}) => ({
   handynummer: "176 1234567",
   geburtsdatum: "2001-04-12",
   iban: "DE89 3704 0044 0532 0130 00",
-  bic: "COBADEFFXXX",
   ...extra,
 });
 
@@ -329,9 +351,15 @@ test("Ändern: unveränderte kaputte Altnummer blockiert (sonst gälte nichts al
 });
 
 test("Ändern: Pflichtfeld leeren → Fehler am Feld; Name wird geprüft und gespeichert", () => {
+  // Nur den Ort leeren = Anschrift unvollständig.
   const leer = pruefeDatenCheckAenderung(formular({ ort: "" }), gut(), false, false, HEUTE);
   assert.equal(leer.gueltig, false);
   assert.ok(leer.fehler.ort);
+  // Handy und ganze Anschrift leeren ist erlaubt (freiwillig).
+  const frei = pruefeDatenCheckAenderung(formular({ strasse: "", hausnummer: "", plz: "", ort: "", handynummer: "" }), gut(), false, false, HEUTE);
+  assert.equal(frei.gueltig, true, frei.ersterFehler ?? "");
+  assert.equal(frei.secrets.handynummer, null);
+  assert.equal(frei.secrets.strasse, null);
   const name = pruefeDatenCheckAenderung(formular({ nachname: "Muster-Neu" }), gut(), false, false, HEUTE);
   assert.equal(name.gueltig, true);
   assert.deepEqual(name.namen, { nachname: "Muster-Neu" });
@@ -339,17 +367,40 @@ test("Ändern: Pflichtfeld leeren → Fehler am Feld; Name wird geprüft und ges
 
 test("Ändern: Alumni ohne IBAN gültig; sobald eine IBAN eingegeben wird, wird sie geprüft", () => {
   const bestand = gut({ iban: null, bic: null });
-  assert.equal(pruefeDatenCheckAenderung(formular({ iban: "", bic: "" }), bestand, true, false, HEUTE).gueltig, true);
-  const falsch = pruefeDatenCheckAenderung(formular({ iban: "DE89370400440532013001", bic: "" }), bestand, true, false, HEUTE);
+  assert.equal(pruefeDatenCheckAenderung(formular({ iban: "" }), bestand, true, false, HEUTE).gueltig, true);
+  const falsch = pruefeDatenCheckAenderung(formular({ iban: "DE89370400440532013001" }), bestand, true, false, HEUTE);
   assert.equal(falsch.gueltig, false);
   assert.ok(falsch.fehler.iban);
 });
 
-test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .env.example", () => {
+test("Ändern: IBAN außerhalb des EWR – Anschrift im selben Formular zählt, fehlt sie, Meldung an den Feldern", () => {
+  const ohne = gut({ strasse: null, hausnummer: null, plz: null, ort: null });
+  const leer = { strasse: "", hausnummer: "", plz: "", ort: "" };
+  const r = pruefeDatenCheckAenderung(formular({ ...leer, iban: "CH9300762011623852957" }), ohne, false, false, HEUTE);
+  assert.equal(r.gueltig, false);
+  assert.equal(r.fehler.iban, undefined);
+  assert.equal(r.fehler.strasse, "Für eine IBAN außerhalb des EWR brauchen wir die Anschrift.");
+  // Anschrift im selben Formular nachgetragen: gültig, alte BIC geht mit dem Kontowechsel.
+  const ok = pruefeDatenCheckAenderung(
+    formular({ iban: "CH9300762011623852957", land: "CH", strasse: "Bahnhofstrasse", hausnummer: "1", plz: "8001", ort: "Zürich" }),
+    ohne,
+    false,
+    false,
+    HEUTE
+  );
+  assert.equal(ok.gueltig, true, ok.ersterFehler ?? "");
+  assert.equal(ok.secrets.iban, "CH9300762011623852957");
+  assert.equal(ok.secrets.bic, null);
+  // Fenster zeigt die leere Anschrift dann als eine Zeile mit Mangel.
+  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, iban: "CH9300762011623852957" }));
+  assert.equal(a.zeilen.find((zl) => zl.key === "anschrift").fehler, ANSCHRIFT_FEHLT);
+});
+
+test("Ort im Code: Sperre im Layout, nie in middleware.ts; Schalter steht in .env.example", () => {
   const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
   assert.doesNotMatch(middleware, /member-data-check|member-crypto/);
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  assert.match(layout, /eigenerDatenCheck/);
+  assert.match(layout, /await sperreBeiDatenmaengeln\(\);/);
   const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(env, /^DATA_CHECK_ENABLED=\r?$/m);
   assert.match(env, /^DATA_CHECK_START=\r?$/m);
@@ -359,41 +410,111 @@ test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .e
 // Fixrunde (Reviews A1–A4, B1–B3)
 // ---------------------------------------------------------------------------------------------------
 
-test("A1/B1: Layout-Modus – Mängel → Weiterleitung, gültig → Fenster über der Seite, nicht fällig → Seite", () => {
-  assert.equal(layoutModus(null), "seite");
-  assert.equal(layoutModus({ gueltig: true }), "fenster-ueber-seite");
-  assert.equal(layoutModus({ gueltig: false }), "umleiten");
+test("A1/B1 (Design-Runde 19.11.): jede fällige Abfrage → eigene Seite mit Rückkehrziel, nicht fällig → zurück", () => {
   assert.equal(DATEN_CHECK_PFAD, "/daten-bestaetigen");
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  // Weiterleitung vor jeder Ausgabe (die Seite eines Segments käme sonst als eigener RSC-Eintrag mit).
-  assert.match(layout, /if \(modus === "umleiten"\) redirect\(DATEN_CHECK_PFAD\);/);
-  assert.ok(layout.indexOf('redirect(DATEN_CHECK_PFAD)') < layout.indexOf("return ("));
-  // Eigene Seite außerhalb des Intranet-Layouts, nur bei Mängeln, sonst zurück.
+  // Kein Fenster über der Seite mehr; das Layout leitet über die Sperre um (vor jeder Ausgabe).
+  assert.doesNotMatch(layout, /DatenCheckFenster|fenster-ueber-seite/);
+  assert.ok(layout.indexOf("await sperreBeiDatenmaengeln();") < layout.indexOf("return ("));
+  // Eigene Seite außerhalb des Intranet-Layouts: nicht fällig → zum (geprüften) Rückkehrziel.
   const seite = readFileSync(new URL("../app/daten-bestaetigen/page.tsx", import.meta.url), "utf8");
-  assert.match(seite, /if \(!datenCheck \|\| datenCheck\.gueltig\) redirect\("\/dashboard"\);/);
+  assert.match(seite, /const weiter = rueckkehrZiel\(/);
+  assert.match(seite, /if \(!datenCheck\) redirect\(weiter\);/);
   assert.match(seite, /if \(!user\) redirect\("\/login"\);/);
   assert.doesNotMatch(seite, /\{children\}/);
   const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
   assert.match(middleware, /"\/daten-bestaetigen",/);
-  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  // Ohne Portal (steht im Server-HTML), Seite darunter inert, noscript mit Abmelden, JS-Knöpfe ohne JS aus.
-  assert.doesNotMatch(fenster, /DialogPrimitive\.Portal|<DialogPortal|<DialogContent/);
-  assert.match(fenster, /inert=\{offen\}/);
-  assert.match(fenster, /<noscript>[\s\S]*Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\.[\s\S]*action=\{logoutAction\}/);
-  // G2: bei gültigen Daten „… zu bestätigen.“, bei Mängeln „… zu aktualisieren.“ (Intranet ohne JS in beiden Fällen gesperrt).
+  // Rückkehr-Header setzt immer die Middleware (Wert des Browsers zählt nie), ohne _rsc.
+  assert.match(middleware, /request\.headers\.set\(RUECKKEHR_HEADER, /);
+  assert.match(middleware, /searchParams\.delete\("_rsc"\)/);
+  const seiteClient = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  // Ohne JS: Hinweis, Formular und „Später“ ausgeblendet, Abmelden als Formular mit Server-Action (geht ohne JS).
+  assert.match(seiteClient, /<noscript>[\s\S]*\[data-nur-mit-js\]\{display:none!important\}/);
   assert.match(
-    fenster,
+    seiteClient,
     /ansicht\.gueltig\s*\?\s*"Bitte aktiviere JavaScript, um deine Daten zu bestätigen\."\s*:\s*"Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\."/,
   );
-  // G1: Overlay ohne Einblenden (ab dem ersten Bild deckend), Fenster bei reduzierter Bewegung ohne Einblenden.
-  const overlay = /<DialogPrimitive\.Overlay className="([^"]*)"/.exec(fenster);
-  assert.ok(overlay);
-  assert.doesNotMatch(overlay[1], /animate-in|fade-in/);
-  const inhalt = /<DialogPrimitive\.Content[\s\S]*?className="([^"]*)"/.exec(fenster);
-  assert.ok(inhalt);
-  assert.match(inhalt[1], /(^| )motion-reduce:animate-none!( |$)/);
-  assert.match(fenster, /\[data-nur-mit-js\]\{display:none!important\}/);
+  assert.match(seiteClient, /<form action=\{logoutAction\}>/);
+  assert.match(seiteClient, /<form\s+ref=\{formular\}\s+data-nur-mit-js\s+method="post"/);
+  // Bewegung nur ohne „Bewegung reduzieren“.
+  for (const m of seiteClient.matchAll(/animate-in[^"]*"/g)) assert.match(m[0], /motion-reduce:animate-none/);
+  // Felder ohne name: Vor der Hydration bzw. ohne JS gehen keine Werte als normales Formular über die Leitung.
+  assert.doesNotMatch(seiteClient, /name="(?!")/);
 });
+
+test("Rückkehrziel: nur sichere relative Pfade, nie die Abfrage selbst", () => {
+  assert.equal(RUECKKEHR_HEADER, "x-icr-pfad");
+  assert.equal(rueckkehrZiel("/events/abc?tab=2"), "/events/abc?tab=2");
+  for (const schlecht of [null, undefined, "", "//boese.example", "https://boese.example/", "/\\boese", "/login", "javascript:alert(1)"]) {
+    assert.equal(rueckkehrZiel(schlecht), "/dashboard", String(schlecht));
+  }
+  for (const schleife of ["/daten-bestaetigen", "/daten-bestaetigen/", "/DATEN-BESTAETIGEN?weiter=%2Fnews"]) {
+    assert.equal(rueckkehrZiel(schleife), "/dashboard", schleife);
+  }
+  assert.equal(datenCheckAdresse("/news"), "/daten-bestaetigen?weiter=%2Fnews");
+  assert.equal(datenCheckAdresse("/events/abc?tab=2"), "/daten-bestaetigen?weiter=%2Fevents%2Fabc%3Ftab%3D2");
+  assert.equal(datenCheckAdresse("/dashboard"), "/daten-bestaetigen");
+  assert.equal(datenCheckAdresse(null), "/daten-bestaetigen");
+  assert.equal(datenCheckAdresse("//boese.example"), "/daten-bestaetigen");
+  // Die Sperre leitet jede fällige Abfrage um (auch gültige), mit dem Pfad aus dem Header.
+  const sperre = readFileSync(new URL("../lib/member-data-check-sperre.ts", import.meta.url), "utf8");
+  assert.match(sperre, /if \(datenCheck\) redirect\(datenCheckAdresse\(\(await headers\(\)\)\.get\(RUECKKEHR_HEADER\)\)\);/);
+});
+
+test("Nur geänderte Felder: was die Seite nicht schickt, kommt aus dem Bestand", () => {
+  const bestand = gut({ handynummer: "+491761234567", land: null });
+  const start = formularAusBestand(bestand);
+  assert.equal(start.land, "DE");
+  assert.equal(start.handyLand, "DE");
+  assert.equal(start.handynummer, "176 1234567");
+  // Nichts geschickt → alles wie im Bestand → gültig, nichts zu schreiben.
+  const nichts = eingabeMitBestand(() => null, bestand);
+  assert.deepEqual(nichts, start);
+  const r = pruefeDatenCheckAenderung(nichts, bestand, false, false, HEUTE);
+  assert.equal(r.gueltig, true);
+  assert.deepEqual(r.secrets, {});
+  // Geleert (leere Zeichenkette) zählt als Eingabe, nicht als „nicht geschickt“.
+  const geleert = eingabeMitBestand((feld) => (feld === "handynummer" ? "" : null), bestand);
+  assert.equal(geleert.handynummer, "");
+  assert.equal(geleert.iban, bestand.iban);
+  const ohneHandy = pruefeDatenCheckAenderung(geleert, bestand, false, false, HEUTE);
+  assert.equal(ohneHandy.gueltig, true);
+  assert.equal(ohneHandy.secrets.handynummer, null);
+  // Alumni: IBAN nicht geschickt → gespeicherte IBAN bleibt unangetastet; sie geht auch nicht an den Browser.
+  const alumni = pruefeDatenCheckAenderung(eingabeMitBestand(() => null, bestand), bestand, true, false, HEUTE);
+  assert.equal(alumni.gueltig, true);
+  assert.equal("iban" in alumni.secrets, false);
+  assert.equal(ansicht(bestand, { alumni: true }).formular.iban, "");
+  assert.equal(ansicht(bestand).formular.iban, bestand.iban);
+  // Die Actions nehmen die Eingabe nur über eingabeMitBestand.
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  assert.equal(actions.match(/eingabeMitBestand\(\(feld\) => formData\.get\(feld\), g\.bestand\)/g)?.length, 2);
+  assert.doesNotMatch(actions, /AENDERN_FELDER/);
+});
+
+test("Prüfen während der Eingabe: vollstaendig nur, wenn der Bestand danach ganz bewertet ist", () => {
+  // Formularfehler → nicht vollständig (Mängel unveränderter Felder fehlen darin).
+  const formfehler = pruefeDatenCheckAenderung(
+    formular({ iban: "DE89370400440532013001", handynummer: "941 123456" }),
+    gut({ handynummer: "0941 123456" }),
+    false,
+    false,
+    HEUTE,
+  );
+  assert.equal(formfehler.gueltig, false);
+  assert.equal(formfehler.vollstaendig, false);
+  assert.ok(formfehler.fehler.iban);
+  // Formular gut, Bestand danach ganz bewertet → vollständig.
+  assert.equal(pruefeDatenCheckAenderung(formular(), gut(), false, false, HEUTE).vollstaendig, true);
+  // Die Prüf-Action speichert nichts, liefert nur Meldungen, hat ein eigenes Rate-Limit.
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  const ab = actions.slice(actions.indexOf("export async function pruefeMemberDataCheck"));
+  const pruefen = ab.slice(0, ab.search(/\r?\n\}\r?\n/) + 3);
+  assert.match(pruefen, /withinRateLimits\(\[/);
+  assert.doesNotMatch(pruefen, /saveMemberSecrets|speichere|bestaetigeStand|\.update\(/);
+  assert.match(pruefen, /return \{ success: true, fehler: r\.fehler, vollstaendig: r\.vollstaendig \};/);
+});
+
 
 function fakeAdmin({ rpc, version = 0, rpcFehler = null } = {}) {
   const calls = { rpc: [], updates: [] };
@@ -467,8 +588,8 @@ test("A3: landUnbekannt kommt nur vom Server, nie aus dem Formular", () => {
   const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
   assert.doesNotMatch(actions, /formData\.get\("landUnbekannt"\)/);
   assert.match(actions, /const landUnbekannt = !g\.landBekannt;/);
-  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(fenster, /name="landUnbekannt"/);
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(seite, /landUnbekannt/);
 });
 
 test("A4: Schalter an ohne gültiges Start-Datum → einmal Warnung ohne Wert", () => {
@@ -490,20 +611,104 @@ test("A4: Schalter an ohne gültiges Start-Datum → einmal Warnung ohne Wert", 
   }
 });
 
-test("B2: „Ändern“ fokussiert bei Mängeln das erste markierte Feld", () => {
-  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  assert.match(fenster, /fokussiere\(nach === "aendern" && Object\.values\(fehler\)\.some\(Boolean\) \? "fehler" : "schritt"\)/);
+test("B2: nach einem Fehler beim Absenden steht der Fokus im ersten markierten Feld", () => {
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.match(seite, /formular\.current\?\.querySelector<HTMLElement>\('\[aria-invalid="true"\]'\)\?\.focus\(\)/);
 });
 
-test("B3: Anschrift ganz leer → „Fehlt“ und eine Zeile für die Anschrift, Feldmarkierungen bleiben", () => {
-  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null }));
+test("B3: Anschrift ganz leer → ohne Mangel (freiwillig); mit IBAN außerhalb des EWR eine Zeile für die Anschrift, Feldmarkierungen bleiben", () => {
+  const frei = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null }));
+  assert.equal(frei.gueltig, true);
+  assert.deepEqual(frei.zeilen.find((zl) => zl.key === "anschrift").wert, []);
+  assert.equal(frei.zeilen.find((zl) => zl.key === "anschrift").fehler, undefined);
+  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null, iban: "GB82WEST12345698765432" }));
   const zeile = a.zeilen.find((zl) => zl.key === "anschrift");
   assert.deepEqual(zeile.wert, []);
   assert.equal(zeile.fehler, ANSCHRIFT_FEHLT);
-  assert.equal(ANSCHRIFT_FEHLT, "Bitte trag deine Anschrift ein.");
+  assert.equal(ANSCHRIFT_FEHLT, "Für eine IBAN außerhalb des EWR brauchen wir deine Anschrift.");
   for (const feld of ["strasse", "plz", "ort"]) assert.ok(a.formularFehler[feld], feld);
   // Nur teilweise leer: die Feldmeldung wie bisher.
   const teil = ansicht(gut({ plz: null })).zeilen.find((zl) => zl.key === "anschrift");
   assert.notEqual(teil.fehler, ANSCHRIFT_FEHLT);
   assert.ok(teil.wert.length > 0);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Review Pflichtfelder, Runde 2 (N1, N2)
+// ---------------------------------------------------------------------------------------------------
+
+test("N1: Wechsel von Nicht-EWR- auf EWR-IBAN zusammen mit dem Leeren der Anschrift blockiert nicht", () => {
+  const ch = gut({ iban: "CH9300762011623852957", land: "CH", strasse: "Bahnhofstrasse", hausnummer: "1", plz: "8001", ort: "Zürich" });
+  const leer = { strasse: "", hausnummer: "", plz: "", ort: "" };
+  const r = pruefeDatenCheckAenderung(formular({ ...leer, land: "CH", iban: IBAN_DE }), ch, false, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal(r.secrets.iban, IBAN_DE);
+  assert.equal(r.secrets.strasse, null);
+  // Bleibt die CH-IBAN, ist die Anschrift weiter Pflicht.
+  const bleibt = pruefeDatenCheckAenderung(formular({ ...leer, land: "CH", iban: "CH9300762011623852957" }), ch, false, false, HEUTE);
+  assert.equal(bleibt.gueltig, false);
+  assert.ok(bleibt.fehler.strasse);
+});
+
+test("N2: leere Anschrift mit Mangel nur am Land → Meldung des Lands, nicht die IBAN-Sammelmeldung", () => {
+  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: "XX" }));
+  const zeile = a.zeilen.find((zl) => zl.key === "anschrift");
+  assert.ok(zeile.fehler);
+  assert.notEqual(zeile.fehler, ANSCHRIFT_FEHLT);
+  assert.ok(a.formularFehler.land);
+});
+
+test("N4: „Stimmt alles“ leert ein Land ohne Anschrift, Ändern ohne Anschrift speichert kein Land", () => {
+  const altLand = gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: "DE" });
+  const b = bewerteBestand(altLand, false, HEUTE);
+  assert.equal(b.gueltig, true);
+  assert.deepEqual(bestaetigungsAenderungen(altLand, b.werte, false).secrets, { land: null });
+  const ohneLand = gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null });
+  assert.deepEqual(bestaetigungsAenderungen(ohneLand, bewerteBestand(ohneLand, false, HEUTE).werte, false).secrets, {});
+  const r = pruefeDatenCheckAenderung(formular({ strasse: "", hausnummer: "", plz: "", ort: "", land: "AT" }), ohneLand, false, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal("land" in r.secrets, false);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Review daten-seite, Runde 2 (M1)
+// ---------------------------------------------------------------------------------------------------
+
+test("M1: Nach IBAN CH → DE gilt die Pflicht-Anschrift nicht mehr, auch wenn der Server nur Formularfehler meldet", () => {
+  const CH = "CH9300762011623852957";
+  const bestand = gut({ iban: CH, strasse: null, hausnummer: null, plz: null, ort: null, land: null, geburtsdatum: null });
+  const anfang = ansicht(bestand).formularFehler;
+  for (const feld of ["strasse", "hausnummer", "plz", "ort", "geburtsdatum"]) assert.ok(anfang[feld], feld);
+  // Nur die IBAN geändert (Geburtsdatum fehlt weiter): Formularfehler, nicht vollständig.
+  const eingabe = eingabeMitBestand((feld) => (feld === "iban" ? IBAN_DE : null), bestand);
+  const r = pruefeDatenCheckAenderung(eingabe, bestand, false, false, HEUTE);
+  assert.equal(r.gueltig, false);
+  assert.equal(r.vollstaendig, false);
+  assert.deepEqual(Object.keys(r.fehler), ["geburtsdatum"]);
+  // Die Seite behält davon keine Anschrift-Markierung aus der ersten Bewertung.
+  const neu = markierungenNachPruefung({ anfang, pruefung: r.fehler, vollstaendig: r.vollstaendig, geaendert: ["iban"] });
+  assert.deepEqual(Object.keys(neu), ["geburtsdatum"]);
+  // „Speichern“ reicht vollstaendig durch, „Stimmt alles“ meldet immer den ganzen Bestand; die Seite nutzt das Flag.
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  assert.match(actions, /fehler: r\.fehler, vollstaendig: r\.vollstaendig \}/);
+  assert.match(actions, /error: MAENGEL_MELDUNG, fehler: b\.fehler, vollstaendig: true \}/);
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.match(seite, /vollstaendig: r\.vollstaendig === true,/);
+});
+
+test("M1: Gegenprobe NUR_IM_BESTAND_GEPRUEFT – nur Handy und Geburtsdatum bewertet das Formular unverändert nicht neu", () => {
+  assert.deepEqual([...NUR_IM_BESTAND_GEPRUEFT].sort(), ["geburtsdatum", "handynummer"]);
+  // Ein anderer Formularfehler (IBAN-Prüfziffer) sorgt dafür, dass nur Formularfehler kommen.
+  const falscheIban = (feld) => (feld === "iban" ? "DE89370400440532013001" : null);
+  // PLZ, Straße, Hausnummer, Ort, Land: bewertet das Formular immer selbst (auch unverändert).
+  const plz = gut({ plz: "9304" });
+  const rPlz = pruefeDatenCheckAenderung(eingabeMitBestand(falscheIban, plz), plz, false, false, HEUTE);
+  assert.equal(rPlz.vollstaendig, false);
+  assert.ok(rPlz.fehler.plz);
+  // Unveränderte alte Handynummer: nicht in den Formularfehlern (bleibt aus der ersten Bewertung stehen).
+  const handy = gut({ handynummer: "0941 123456" });
+  assert.ok(bewerteBestand(handy, false, HEUTE).fehler.handynummer);
+  const rHandy = pruefeDatenCheckAenderung(eingabeMitBestand(falscheIban, handy), handy, false, false, HEUTE);
+  assert.equal(rHandy.vollstaendig, false);
+  assert.equal(rHandy.fehler.handynummer, undefined);
 });
