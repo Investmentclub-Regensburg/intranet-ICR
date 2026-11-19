@@ -430,7 +430,15 @@ test("A2: Übergang ohne Funktion – Version vergleichen, nur bei gleichem Stan
 test("A2: Migration confirm_member_data – Versionsvergleich unter Sperre, nur service_role", () => {
   const sql = readFileSync(new URL("../supabase/migrations/20261118150000_member_data_confirm.sql", import.meta.url), "utf8");
   const code = sql.replace(/--.*$/gm, "");
-  assert.match(code, /for share;/);
+  // Sperrreihenfolge wie save_member_secrets (S-G2): erst profiles for update, dann member_secrets lesen (kein Deadlock).
+  assert.doesNotMatch(code, /for share/);
+  const sperre = code.search(/from public\.profiles p where p\.id = p_profile_id for update;/);
+  const version = code.indexOf("from public.member_secrets ms");
+  assert.ok(sperre > 0 && version > sperre, "profiles muss vor member_secrets gesperrt werden");
+  const speichern = readFileSync(new URL("../supabase/migrations/20261118120000_member_secrets_land.sql", import.meta.url), "utf8");
+  assert.ok(
+    speichern.indexOf("from public.profiles where id = p_profile_id for update") < speichern.indexOf("update public.member_secrets ms"),
+  );
   assert.match(code, /coalesce\(v_version, 0\) <> p_expected_version/);
   assert.match(code, /security definer/);
   assert.match(code, /set search_path = ''/);
