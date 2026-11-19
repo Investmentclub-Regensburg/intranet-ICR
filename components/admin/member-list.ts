@@ -116,7 +116,7 @@ export function ariaSort(s: Sortierung, spalte: SortSpalte): "ascending" | "desc
  * Bearbeiten-Fenster: Abschnitt „Mitgliedschaft“
  * ------------------------------------------------------------------------- */
 
-/** Wählbarer Status im Fenster. „Antrag offen“ wird nur angezeigt (Anträge laufen über die Aufgaben). */
+/** Wählbarer Status im Fenster. „Antrag offen“ wird nur angezeigt, freigegeben wird über „Aktiv“. */
 export type StatusAuswahl = "active" | "cancelled";
 
 export type Mitgliedschaft = { rolle: Rolle; status: StatusGruppe };
