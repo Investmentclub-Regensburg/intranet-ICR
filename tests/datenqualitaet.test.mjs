@@ -142,10 +142,11 @@ test("Handy: deutsche Belege → sicher (E.164), Rest vorschlag oder offen", () 
     assert.equal(b.status.handynummer, "sicher", roh);
     assert.deepEqual(b.aenderungen, { handynummer: "+4917612345678" }, roh);
   }
+  // Seit 19.11.2026: 15/16/17 ohne Vorwahl sicher (Entscheidung Hannes), kein Hinweis mehr.
   const ohneVorwahl = bewerte(AKTIV, daten({ handynummer: "17612345678" }));
-  assert.equal(ohneVorwahl.status.handynummer, "vorschlag");
-  assert.deepEqual(ohneVorwahl.aenderungen, {});
-  assert.deepEqual(ohneVorwahl.hinweise, [{ feld: "handynummer", code: "vorwahl_ergaenzt" }]);
+  assert.equal(ohneVorwahl.status.handynummer, "sicher");
+  assert.deepEqual(ohneVorwahl.aenderungen, { handynummer: "+4917612345678" });
+  assert.deepEqual(ohneVorwahl.hinweise, []);
 
   const at = bewerte(AKTIV, daten({ handynummer: "+43 664 1234567" }));
   assert.equal(at.status.handynummer, "vorschlag");
@@ -339,13 +340,14 @@ test("Zählungen der Stichprobe", () => {
   assert.equal(z.maengel.iban.pruefziffer, 1);
   assert.equal(z.maengel.plz.format, 1);
   assert.equal(z.maengel.strasse.hausnummer_in_strasse, 1);
-  assert.equal(z.hinweise.handynummer.vorwahl_ergaenzt, 1);
-  assert.equal(z.status.handynummer.sicher, 1);
-  assert.equal(z.status.handynummer.vorschlag, 1);
+  // Seit 19.11.2026 ist „17698765432“ (ID 2) sicher statt Vorschlag, ohne Hinweis.
+  assert.equal(z.hinweise.handynummer?.vorwahl_ergaenzt ?? 0, 0);
+  assert.equal(z.status.handynummer.sicher, 2);
+  assert.equal(z.status.handynummer.vorschlag ?? 0, 0);
   assert.equal(z.status.bic.sicher, 1);
   assert.equal(z.status.strasse.sicher, 1);
   assert.equal(z.zuAendern, 3);
-  assert.deepEqual(z.aenderungenJeFeld, { handynummer: 1, bic: 1, strasse: 1, hausnummer: 1 });
+  assert.deepEqual(z.aenderungenJeFeld, { handynummer: 2, bic: 1, strasse: 1, hausnummer: 1 });
   // Summe je Feld = aktive, lesbare Profile
   for (const feld of AUSGABE_FELDER) {
     const summe = Object.values(z.status[feld]).reduce((a, b) => a + b, 0);
