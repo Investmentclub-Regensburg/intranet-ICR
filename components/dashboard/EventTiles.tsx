@@ -260,7 +260,7 @@ export function MyRegistrationTiles({ events, total }: { events: DashboardEvent[
         ))}
         {total > events.length && (
           <Link
-            href="/profile"
+            href="/profile?tab=veranstaltungen"
             className={cn(
               "rounded-xs px-1 text-sm font-semibold text-primary hover:text-brand-hover",
               DASH_FOCUS,
