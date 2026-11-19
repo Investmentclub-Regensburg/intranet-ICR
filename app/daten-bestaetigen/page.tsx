@@ -4,7 +4,7 @@ import { IntranetMotion } from "@/components/layout/IntranetMotion";
 import { DatenCheckFenster } from "@/components/member/DatenCheckFenster";
 import { eigenerDatenCheck } from "@/lib/member-data-check-sperre";
 
-export const metadata = { title: "Stimmen deine Daten noch? · ICR Intranet" };
+export const metadata = { title: "Bitte aktualisiere deine Daten · ICR Intranet" };
 
 /**
  * Abfrage „Stimmen deine Daten noch?“ bei Mängeln (Paket „Mitgliederdaten“, PR 4, Review A1/B1): bewusst außerhalb

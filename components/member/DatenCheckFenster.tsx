@@ -10,6 +10,7 @@
  */
 import { useEffect, useId, useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { Check, LogOut, Pencil } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,16 @@ import { confirmMemberData, postponeMemberDataCheck, saveMemberDataCheck } from 
 import { logoutAction } from "@/app/login/actions";
 
 type Schritt = "uebersicht" | "aendern" | "fertig";
+
+/**
+ * Überschrift mit Vornamen (Hannes, 19.11.): gültig „Hallo Max, stimmen deine Daten noch?“, bei Mängeln
+ * „Hallo Max, bitte aktualisiere deine Daten.“ Ohne Vornamen ohne Anrede.
+ */
+export function fensterTitel(vorname: string, gueltig: boolean): string {
+  const name = vorname.trim();
+  const frage = gueltig ? "stimmen deine Daten noch?" : "bitte aktualisiere deine Daten.";
+  return name ? `Hallo ${name}, ${frage}` : frage.charAt(0).toUpperCase() + frage.slice(1);
+}
 type Fehler = Partial<Record<string, string>>;
 
 /**
@@ -202,7 +213,7 @@ export function DatenCheckFenster({
         // (useReducedMotionSafe liefert beim ersten Rendern false).
         className="bg-card text-card-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 motion-reduce:animate-none! fixed top-[50%] left-[50%] z-50 grid max-h-[92dvh] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-0 overflow-x-hidden overflow-y-auto rounded-2xl border p-5 shadow-card duration-200 sm:max-w-md sm:p-6"
       >
-        <DialogTitle className="text-xl">Stimmen deine Daten noch?</DialogTitle>
+        <DialogTitle className="text-xl">{fensterTitel(f.vorname, ansicht.gueltig)}</DialogTitle>
         {/* Ohne JavaScript funktionieren die Knöpfe nicht: Hinweis und Abmelden (Server-Action als Formular). */}
         <noscript>
           {/* Knöpfe, die nur mit JavaScript gehen, ausblenden. */}
@@ -231,9 +242,11 @@ export function DatenCheckFenster({
               {ansicht.gueltig ? (
                 <>
                   <Button type="button" onClick={stimmtAlles} disabled={pending} className="sm:flex-1">
+                    <Check aria-hidden />
                     {pending && aktion === "stimmt" ? "Wird gespeichert…" : "Stimmt alles"}
                   </Button>
                   <Button type="button" variant="outline" onClick={() => gehe("aendern", "forward")} disabled={pending} className="sm:flex-1">
+                    <Pencil aria-hidden />
                     Ändern
                   </Button>
                   {ansicht.spaeterErlaubt && (
@@ -245,9 +258,11 @@ export function DatenCheckFenster({
               ) : (
                 <>
                   <Button type="button" onClick={() => gehe("aendern", "forward")} disabled={pending} className="sm:flex-1">
-                    Ändern
+                    <Pencil aria-hidden />
+                    Aktualisieren
                   </Button>
                   <Button type="button" variant="ghost" onClick={abmelden} disabled={pending} className="sm:flex-1">
+                    <LogOut aria-hidden />
                     Abmelden
                   </Button>
                 </>
