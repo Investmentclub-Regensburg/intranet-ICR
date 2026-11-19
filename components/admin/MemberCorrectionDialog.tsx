@@ -32,7 +32,6 @@ import {
   angezeigteRolle,
   datenFuerKorrektur,
   mitgliedschaftAufruf,
-  mitgliedschaftGesperrt,
   mitgliedschaftFehlerText,
   mitgliedschaftVon,
   rolleGesperrt,
@@ -240,7 +239,6 @@ export function MemberCorrectionDialog({
   const invalid = (id: string, f?: string) =>
     f ? { "aria-invalid": true as const, "aria-describedby": `${id}-fehler` } : {};
 
-  const gesperrt = mitgliedschaftGesperrt(basisMs);
   const rolleZu = rolleGesperrt(basisMs, auswahlMs);
 
   return (
@@ -310,7 +308,7 @@ export function MemberCorrectionDialog({
                       <select
                         id="mc-status"
                         value={auswahlMs.status}
-                        disabled={gesperrt || saving}
+                        disabled={saving}
                         onChange={(e) => {
                           const status = e.target.value === "cancelled" ? "cancelled" : "active";
                           setAuswahlMs((alt) => ({ ...alt, status }));

@@ -126,11 +126,6 @@ export function mitgliedschaftVon(m: { rolle: string; status: string }): Mitglie
   return { rolle: rolleVon(m), status: statusGroup(m) };
 }
 
-/** Bei offenem Antrag sind Rolle und Status gesperrt. */
-export function mitgliedschaftGesperrt(basis: Mitgliedschaft): boolean {
-  return basis.status === "applicant";
-}
-
 /**
  * Welche Rolle das Feld zeigt: Wird jemand gerade auf „Ausgetreten“ gesetzt, setzt der Server die Rolle auf
  * Mitglied zurück (updateMemberRole mit „cancelled“) – das Feld zeigt das schon vorher und ist gesperrt.
@@ -140,26 +135,29 @@ export function angezeigteRolle(basis: Mitgliedschaft, auswahl: Mitgliedschaft):
   return auswahl.rolle;
 }
 
-/** Rollenfeld gesperrt: bei offenem Antrag und solange „Ausgetreten“ gewählt ist. */
-export function rolleGesperrt(basis: Mitgliedschaft, auswahl: Mitgliedschaft): boolean {
-  return mitgliedschaftGesperrt(basis) || auswahl.status === "cancelled";
+/**
+ * Rollenfeld gesperrt, solange nicht „Aktiv“ gewählt ist: Bei „Ausgetreten“ setzt der Server die Rolle selbst,
+ * bei „Antrag offen“ würde jede Rollenwahl den Antrag freigeben (der Server setzt dann Status aktiv). Die Rolle
+ * wird deshalb zusammen mit „Aktiv“ gewählt.
+ */
+export function rolleGesperrt(_basis: Mitgliedschaft, auswahl: Mitgliedschaft): boolean {
+  return auswahl.status !== "active";
 }
 
 /**
  * Auswahl im Fenster → Wert für updateMemberRole(profileId, wert), oder null, wenn nichts zu senden ist.
- *   - Antrag offen: nie (gesperrt).
- *   - Austritt (aktiv → ausgetreten): „cancelled“; der Server setzt Status, Kündigungsdatum und Rolle Mitglied.
- *   - Wiederaufnahme (ausgetreten → aktiv): die gewählte Rolle, auch wenn sie gleich bleibt; der Server setzt
- *     Status aktiv und löscht das Kündigungsdatum.
+ *   - Austritt (aktiv oder Antrag → ausgetreten): „cancelled“; der Server setzt Status, Kündigungsdatum und Rolle
+ *     Mitglied.
+ *   - Wiederaufnahme (ausgetreten → aktiv) und Freigabe eines Antrags (Antrag offen → aktiv): die gewählte Rolle,
+ *     auch wenn sie gleich bleibt; der Server setzt Status aktiv und löscht das Kündigungsdatum.
  *   - Aktiv bleibt aktiv: nur bei geänderter Rolle die neue Rolle.
- *   - Ausgetreten bleibt ausgetreten: nichts.
+ *   - Ausgetreten bleibt ausgetreten, Antrag bleibt offen: nichts („Antrag offen“ ist nicht wählbar, nur sichtbar).
  */
 export function mitgliedschaftAufruf(basis: Mitgliedschaft, auswahl: Mitgliedschaft): string | null {
-  if (mitgliedschaftGesperrt(basis)) return null;
-  if (auswahl.status === "applicant") return null;
   if (!(ROLLEN as readonly string[]).includes(auswahl.rolle)) return null;
+  if (auswahl.status === "applicant") return null;
   if (auswahl.status === "cancelled") return basis.status === "cancelled" ? null : "cancelled";
-  if (basis.status === "cancelled") return auswahl.rolle;
+  if (basis.status !== "active") return auswahl.rolle;
   return auswahl.rolle !== basis.rolle ? auswahl.rolle : null;
 }
 

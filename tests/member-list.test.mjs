@@ -9,7 +9,6 @@ import {
   filterAbweichungen,
   filtereMitglieder,
   mitgliedschaftAufruf,
-  mitgliedschaftGesperrt,
   mitgliedschaftNachAufruf,
   mitgliedschaftVon,
   naechsteSortierung,
@@ -172,12 +171,17 @@ test("Zuordnung: Wiederaufnahme → gewählte Rolle, auch unverändert", () => {
   assert.equal(mitgliedschaftAufruf(ms("member", "cancelled"), ms("alumni", "active")), "alumni");
 });
 
-test("Zuordnung: Antrag offen ist gesperrt, nie ein Aufruf", () => {
+test("Zuordnung: Antrag offen → Aktiv gibt frei (gewählte Rolle), Antrag bleibt offen → nichts", () => {
   const basis = ms("member", "applicant");
-  assert.equal(mitgliedschaftGesperrt(basis), true);
-  assert.equal(mitgliedschaftAufruf(basis, ms("admin", "active")), null);
-  assert.equal(mitgliedschaftAufruf(basis, ms("member", "cancelled")), null);
+  assert.equal(mitgliedschaftAufruf(basis, ms("member", "active")), "member");
+  assert.equal(mitgliedschaftAufruf(basis, ms("alumni", "active")), "alumni");
+  assert.equal(mitgliedschaftAufruf(basis, basis), null);
+  // Rolle allein, Status weiter „Antrag offen“: nichts (das Rollenfeld ist dann ohnehin gesperrt).
+  assert.equal(mitgliedschaftAufruf(basis, ms("admin", "applicant")), null);
   assert.equal(rolleGesperrt(basis, basis), true);
+  assert.equal(rolleGesperrt(basis, ms("member", "active")), false);
+  // Ablehnen als Austritt bleibt möglich (wie bisher im Dropdown).
+  assert.equal(mitgliedschaftAufruf(basis, ms("member", "cancelled")), "cancelled");
 });
 
 test("Zuordnung: ungültige Werte senden nichts", () => {
