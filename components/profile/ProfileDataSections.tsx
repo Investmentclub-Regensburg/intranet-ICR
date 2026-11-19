@@ -379,11 +379,11 @@ function EmailEditField({ id, currentEmail, email }: { id: string; currentEmail:
               {email.error}
             </p>
           )}
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="button" variant="outline" className="h-9" onClick={email.hide} disabled={email.pending}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" className="h-10 sm:h-9" onClick={email.hide} disabled={email.pending}>
               Abbrechen
             </Button>
-            <Button type="submit" form={email.formId} className="h-9" disabled={email.pending}>
+            <Button type="submit" form={email.formId} className="h-10 sm:h-9" disabled={email.pending}>
               {email.pending ? "Wird gesendet…" : "Bestätigungslink senden"}
             </Button>
           </div>
