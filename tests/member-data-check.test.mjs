@@ -175,6 +175,7 @@ test("Später: Einschalt-Datum verlängert die Grenze (4 Wochen nach DATA_CHECK_
 
 const HEUTE = "2026-11-18";
 const IBAN_DE = "DE89370400440532013000";
+const IBAN_CH = "CH9300762011623852957";
 const gut = (extra = {}) => ({
   vorname: "Erika",
   nachname: "Muster",
@@ -214,11 +215,17 @@ test("Mangel → ungültig, kein Später; Punkt + eine Zeile am Feld (land_unbek
   assert.equal(a.gueltig, false);
   assert.equal(a.spaeterErlaubt, false);
   assert.ok(a.zeilen.find((zl) => zl.key === "iban").fehler);
-  assert.equal(a.zeilen.find((zl) => zl.key === "anschrift").fehler, "In Deutschland hat die PLZ 5 Ziffern.");
-  assert.ok(a.formularFehler.iban && a.formularFehler.plz);
-  const l = bewerteBestand(gut({ land: "XX" }), false, HEUTE);
+  // Die Anschrift ist freiwillig: eine ungültige PLZ ist kein Mangel (Klickrunde 20.11.2026).
+  assert.equal(a.zeilen.find((zl) => zl.key === "anschrift").fehler, undefined);
+  assert.deepEqual(Object.keys(a.formularFehler), ["iban"]);
+  // Pflicht-Anschrift (IBAN außerhalb des EWR): PLZ-Meldung an der Zeile.
+  const ch = ansicht(gut({ iban: IBAN_CH, plz: "9304" }));
+  assert.equal(ch.zeilen.find((zl) => zl.key === "anschrift").fehler, "In Deutschland hat die PLZ 5 Ziffern.");
+  assert.ok(ch.formularFehler.plz);
+  const l = bewerteBestand(gut({ land: "XX", iban: IBAN_CH }), false, HEUTE);
   assert.ok(l.fehler.land);
   assert.equal(l.fehler.plz, undefined);
+  assert.equal(bewerteBestand(gut({ land: "XX" }), false, HEUTE).gueltig, true);
 });
 
 test("Leere Pflichtfelder (keine Daten) → ungültig nur wegen IBAN und Geburtsdatum; Handy/Anschrift freiwillig", () => {
@@ -242,9 +249,29 @@ test("Leere Pflichtfelder (keine Daten) → ungültig nur wegen IBAN und Geburts
   assert.match(seite, /Handynummer <span className="[^"]*">\(optional\)<\/span>/);
 });
 
-test("Handy angegeben, aber falsch → Mangel; Anschrift teilweise → Mangel", () => {
-  assert.ok(bewerteBestand(gut({ handynummer: "0941 123456" }), false, HEUTE).fehler.handynummer);
-  const teil = bewerteBestand(gut({ strasse: null, hausnummer: null, ort: null }), false, HEUTE);
+test("Handy angegeben, aber falsch / Anschrift teilweise → kein Mangel, nicht markiert, nicht umgeschrieben (Klickrunde 20.11.2026)", () => {
+  for (const extra of [
+    { handynummer: "0941 123456" },
+    { handynummer: "kaputt" },
+    { strasse: null, hausnummer: null, ort: null },
+    { plz: "9304" },
+    { ort: "Regensburg 1" },
+  ]) {
+    const bestand = gut(extra);
+    const b = bewerteBestand(bestand, false, HEUTE);
+    assert.equal(b.gueltig, true, JSON.stringify(extra));
+    assert.deepEqual(b.fehler, {}, JSON.stringify(extra));
+    // „Stimmt alles“ fasst die ungültige freiwillige Angabe nicht an.
+    assert.deepEqual(bestaetigungsAenderungen(bestand, b.werte, false).secrets, {}, JSON.stringify(extra));
+    const a = ansicht(bestand);
+    assert.equal(a.gueltig, true, JSON.stringify(extra));
+    assert.deepEqual(a.formularFehler, {}, JSON.stringify(extra));
+    assert.ok(a.zeilen.every((zl) => !zl.fehler), JSON.stringify(extra));
+  }
+  // Angezeigt wird der gespeicherte Wert, wie er ist.
+  assert.deepEqual(ansicht(gut({ handynummer: "0941 123456" })).zeilen.find((zl) => zl.key === "handy").wert, ["0941 123456"]);
+  // Pflicht wegen IBAN außerhalb des EWR: teilweise Anschrift ist ein Mangel.
+  const teil = bewerteBestand(gut({ iban: IBAN_CH, strasse: null, hausnummer: null, ort: null }), false, HEUTE);
   assert.deepEqual(Object.keys(teil.fehler).sort(), ["hausnummer", "ort", "strasse"]);
 });
 
@@ -339,15 +366,43 @@ test("Ändern: neue IBAN + PLZ korrigiert → normalisiert gespeichert", () => {
   assert.equal(r.secrets.plz, "93047");
 });
 
-test("Ändern: unveränderte kaputte Altnummer blockiert (sonst gälte nichts als bestätigt), nichts gespeichert", () => {
+test("Ändern: unveränderte kaputte Altnummer blockiert nicht und bleibt; eine neu eingegebene ungültige Nummer blockiert", () => {
+  // Klickrunde 20.11.2026: Handy ist freiwillig, ein alter ungültiger Wert ist kein Mangel.
   const bestand = gut({ handynummer: "0941 123456" });
   const r = pruefeDatenCheckAenderung(formular({ handynummer: "0941 123456" }), bestand, false, false, HEUTE);
-  assert.equal(r.gueltig, false);
-  assert.ok(r.fehler.handynummer);
-  assert.deepEqual(r.secrets, {});
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal("handynummer" in r.secrets, false);
+  // Anderes Feld ändern: die Altnummer blockiert nicht und wird nicht angefasst.
+  const plz = pruefeDatenCheckAenderung(formular({ handynummer: "0941 123456", ort: "Regensburg-Süd" }), bestand, false, false, HEUTE);
+  assert.equal(plz.gueltig, true, plz.ersterFehler ?? "");
+  assert.equal(plz.secrets.ort, "Regensburg-Süd");
+  assert.equal("handynummer" in plz.secrets, false);
+  // Aktiv geändert: Formatprüfung gilt (nichts Ungültiges neu speichern).
+  const neu = pruefeDatenCheckAenderung(formular({ handynummer: "0941 654321" }), bestand, false, false, HEUTE);
+  assert.equal(neu.gueltig, false);
+  assert.ok(neu.fehler.handynummer);
+  assert.deepEqual(neu.secrets, {});
   const ok = pruefeDatenCheckAenderung(formular({ handynummer: "176 1234567" }), bestand, false, false, HEUTE);
   assert.equal(ok.gueltig, true);
   assert.equal(ok.secrets.handynummer, "+491761234567");
+});
+
+test("Ändern: unveränderte ungültige freiwillige Anschrift blockiert nicht; geändert wird sie ganz geprüft", () => {
+  const bestand = gut({ plz: "9304" });
+  // Nur das Handy geändert: Anschrift unverändert, kein Fehler, nicht gespeichert.
+  const r = pruefeDatenCheckAenderung(formular({ plz: "9304", handynummer: "176 7654321" }), bestand, false, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal(r.secrets.handynummer, "+491767654321");
+  assert.equal("plz" in r.secrets, false);
+  // Ein Teil der Anschrift geändert: die ganze Anschrift wird geprüft.
+  const ort = pruefeDatenCheckAenderung(formular({ plz: "9304", ort: "Regensburg-Süd" }), bestand, false, false, HEUTE);
+  assert.equal(ort.gueltig, false);
+  assert.ok(ort.fehler.plz);
+  // Pflicht-Anschrift (IBAN außerhalb des EWR): auch unverändert ein Mangel.
+  const ch = gut({ iban: IBAN_CH, plz: "9304" });
+  const pflicht = pruefeDatenCheckAenderung(formular({ plz: "9304", iban: IBAN_CH, handynummer: "176 7654321" }), ch, false, false, HEUTE);
+  assert.equal(pflicht.gueltig, false);
+  assert.ok(pflicht.fehler.plz);
 });
 
 test("Ändern: Pflichtfeld leeren → Fehler am Feld; Name wird geprüft und gespeichert", () => {
@@ -650,12 +705,16 @@ test("N1: Wechsel von Nicht-EWR- auf EWR-IBAN zusammen mit dem Leeren der Anschr
   assert.ok(bleibt.fehler.strasse);
 });
 
-test("N2: leere Anschrift mit Mangel nur am Land → Meldung des Lands, nicht die IBAN-Sammelmeldung", () => {
+test("N2: leere Anschrift mit unbekanntem Land → kein Mangel (freiwillig), keine IBAN-Sammelmeldung", () => {
+  // Seit der Klickrunde 20.11.2026 ist die freiwillige Anschrift nie ein Mangel, auch nicht das Land.
   const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: "XX" }));
   const zeile = a.zeilen.find((zl) => zl.key === "anschrift");
-  assert.ok(zeile.fehler);
-  assert.notEqual(zeile.fehler, ANSCHRIFT_FEHLT);
-  assert.ok(a.formularFehler.land);
+  assert.equal(zeile.fehler, undefined);
+  assert.equal(a.formularFehler.land, undefined);
+  assert.equal(a.gueltig, true);
+  // Mit IBAN außerhalb des EWR: Sammelmeldung für die leere Anschrift.
+  const ch = ansicht(gut({ iban: IBAN_CH, strasse: null, hausnummer: null, plz: null, ort: null, land: "XX" }));
+  assert.equal(ch.zeilen.find((zl) => zl.key === "anschrift").fehler, ANSCHRIFT_FEHLT);
 });
 
 test("N4: „Stimmt alles“ leert ein Land ohne Anschrift, Ändern ohne Anschrift speichert kein Land", () => {
@@ -700,15 +759,20 @@ test("M1: Gegenprobe NUR_IM_BESTAND_GEPRUEFT – nur Handy und Geburtsdatum bewe
   assert.deepEqual([...NUR_IM_BESTAND_GEPRUEFT].sort(), ["geburtsdatum", "handynummer"]);
   // Ein anderer Formularfehler (IBAN-Prüfziffer) sorgt dafür, dass nur Formularfehler kommen.
   const falscheIban = (feld) => (feld === "iban" ? "DE89370400440532013001" : null);
-  // PLZ, Straße, Hausnummer, Ort, Land: bewertet das Formular immer selbst (auch unverändert).
-  const plz = gut({ plz: "9304" });
-  const rPlz = pruefeDatenCheckAenderung(eingabeMitBestand(falscheIban, plz), plz, false, false, HEUTE);
+  // Pflicht-Anschrift (IBAN außerhalb des EWR): PLZ, Straße, Hausnummer, Ort, Land bewertet das Formular immer
+  // selbst (auch unverändert). Formularfehler hier: leerer Vorname.
+  const ohneVorname = (feld) => (feld === "vorname" ? "" : null);
+  const plz = gut({ plz: "9304", iban: IBAN_CH });
+  assert.ok(bewerteBestand(plz, false, HEUTE).fehler.plz);
+  const rPlz = pruefeDatenCheckAenderung(eingabeMitBestand(ohneVorname, plz), plz, false, false, HEUTE);
   assert.equal(rPlz.vollstaendig, false);
   assert.ok(rPlz.fehler.plz);
-  // Unveränderte alte Handynummer: nicht in den Formularfehlern (bleibt aus der ersten Bewertung stehen).
-  const handy = gut({ handynummer: "0941 123456" });
-  assert.ok(bewerteBestand(handy, false, HEUTE).fehler.handynummer);
-  const rHandy = pruefeDatenCheckAenderung(eingabeMitBestand(falscheIban, handy), handy, false, false, HEUTE);
-  assert.equal(rHandy.vollstaendig, false);
-  assert.equal(rHandy.fehler.handynummer, undefined);
+  // Freiwillige Anschrift bzw. Handy mit Altmangel: weder im Bestand markiert noch in den Formularfehlern.
+  for (const extra of [{ plz: "9304" }, { handynummer: "0941 123456" }]) {
+    const bestand = gut(extra);
+    assert.deepEqual(bewerteBestand(bestand, false, HEUTE).fehler, {});
+    const r = pruefeDatenCheckAenderung(eingabeMitBestand(falscheIban, bestand), bestand, false, false, HEUTE);
+    assert.equal(r.vollstaendig, false);
+    assert.deepEqual(Object.keys(r.fehler), ["iban"]);
+  }
 });

@@ -76,17 +76,24 @@ test("Land wird gelesen und geprüft, aber nie geschrieben", () => {
   assert.deepEqual(at.maengel, []);
   assert.equal(at.status.land, "gueltig");
   assert.ok(!("land" in at.aenderungen));
-  // AT-PLZ bei leerem Land (= DE) ist ein Mangel, mit gespeichertem Land nicht
-  assert.deepEqual(bewerte(AKTIV, daten({ plz: "1010" })).maengel, [{ feld: "plz", code: "format" }]);
-  assert.deepEqual(bewerte(AKTIV, daten({ land: "AT", plz: "1010" })).maengel, []);
+  // AT-PLZ bei leerem Land (= DE) ist ungültig, mit gespeichertem Land nicht. Die Anschrift ist freiwillig: kein
+  // Mangel, nur eine ungültige freiwillige Angabe (Klickrunde 20.11.2026).
+  assert.deepEqual(bewerte(AKTIV, daten({ plz: "1010" })).maengel, []);
+  assert.deepEqual(bewerte(AKTIV, daten({ plz: "1010" })).freiwillig, [{ feld: "plz", code: "format" }]);
+  assert.deepEqual(bewerte(AKTIV, daten({ land: "AT", plz: "1010" })).freiwillig, []);
   for (const land of [null, "", "de", " DE ", "XX", "AT"]) {
     const b = bewerte(AKTIV, daten({ land, handynummer: "0176 12345678", bic: "COBADE" }));
     assert.ok(!("land" in b.aenderungen), String(land));
     assert.ok(Object.keys(b.aenderungen).every((f) => SCHREIBBARE_FELDER.includes(f)), String(land));
   }
   const unbekannt = bewerte(AKTIV, daten({ land: "XX" }));
-  assert.deepEqual(unbekannt.maengel, [{ feld: "land", code: "land_unbekannt" }]);
+  assert.deepEqual(unbekannt.maengel, []);
+  assert.deepEqual(unbekannt.freiwillig, [{ feld: "land", code: "land_unbekannt" }]);
   assert.equal(unbekannt.status.land, "offen");
+  // Pflicht-Anschrift (IBAN außerhalb des EWR): unbekanntes Land ist ein Mangel.
+  assert.deepEqual(bewerte(AKTIV, daten({ land: "XX", iban: "CH9300762011623852957" })).maengel, [
+    { feld: "land", code: "land_unbekannt" },
+  ]);
 });
 
 test("sauberer Datensatz: alles gültig, nichts zu ändern", () => {
@@ -97,9 +104,10 @@ test("sauberer Datensatz: alles gültig, nichts zu ändern", () => {
   for (const feld of AUSGABE_FELDER) assert.equal(b.status[feld], "gueltig", feld);
 });
 
-test("Land fehlt → gilt als DE (PLZ 4-stellig ist Mangel)", () => {
+test("Land fehlt → gilt als DE (PLZ 4-stellig ungültig, freiwillig)", () => {
   const b = bewerte(AKTIV, daten({ plz: "9304" }));
-  assert.deepEqual(b.maengel, [{ feld: "plz", code: "format" }]);
+  assert.deepEqual(b.maengel, []);
+  assert.deepEqual(b.freiwillig, [{ feld: "plz", code: "format" }]);
   assert.equal(b.status.land, "gueltig");
   assert.equal(b.status.plz, "offen");
 });
@@ -124,7 +132,8 @@ test("unbekanntes Land (nach PR 2): land_unbekannt je Profil nur einmal gezählt
 
 test("Bidi-Steuerzeichen im Ort → zeichen (nicht still bereinigt)", () => {
   const b = bewerte(AKTIV, daten({ ort: `Regens${String.fromCodePoint(0x202e)}burg` }));
-  assert.deepEqual(b.maengel, [{ feld: "ort", code: "zeichen" }]);
+  assert.deepEqual(b.maengel, []);
+  assert.deepEqual(b.freiwillig, [{ feld: "ort", code: "zeichen" }]);
   assert.deepEqual(b.aenderungen, {});
 });
 
@@ -167,7 +176,9 @@ test("Handy: deutsche Belege → sicher (E.164), Rest vorschlag oder offen", () 
     const b = bewerte(AKTIV, daten({ handynummer: roh }));
     assert.equal(b.status.handynummer, "offen", String(roh));
     assert.deepEqual(b.aenderungen, {}, String(roh));
-    const m = b.maengel.find((x) => x.feld === "handynummer");
+    // Handy freiwillig: ungültig ist kein Mangel, nur eine ungültige freiwillige Angabe (Klickrunde 20.11.2026).
+    assert.deepEqual(b.maengel, [], String(roh));
+    const m = b.freiwillig.find((x) => x.feld === "handynummer");
     assert.ok(m, String(roh));
     if (code) assert.equal(m.code, code, String(roh));
   }
@@ -183,14 +194,13 @@ test("BIC: weder geprüft noch gezählt noch geändert (Reparatur „leeren“ e
   }
 });
 
-test("Handy und Anschrift: Mangel nur, wenn angegeben und falsch oder Pflicht wegen IBAN außerhalb des EWR", () => {
+test("Handy und Anschrift: Mangel nur, wenn Pflicht wegen IBAN außerhalb des EWR; sonst freiwillig gezählt", () => {
   const ohne = { handynummer: null, strasse: null, hausnummer: null, plz: null, ort: null, land: null };
   assert.deepEqual(bewerte(AKTIV, daten(ohne)).maengel, []);
-  // Teilweise Anschrift: der Rest fehlt.
-  assert.deepEqual(
-    bewerte(AKTIV, daten({ ...ohne, plz: "93047" })).maengel.map((m) => `${m.feld}:${m.code}`),
-    ["strasse:fehlt", "hausnummer:fehlt", "ort:fehlt"]
-  );
+  // Teilweise Anschrift: der Rest fehlt, aber nur als freiwillige Angabe (blockiert nicht).
+  const teilweise = bewerte(AKTIV, daten({ ...ohne, plz: "93047" }));
+  assert.deepEqual(teilweise.maengel, []);
+  assert.deepEqual(teilweise.freiwillig.map((m) => `${m.feld}:${m.code}`), ["strasse:fehlt", "hausnummer:fehlt", "ort:fehlt"]);
   // IBAN außerhalb des EWR ohne Anschrift: Anschrift fehlt (nicht bei Alumni).
   const ch = daten({ ...ohne, iban: "CH9300762011623852957" });
   assert.deepEqual(
@@ -236,6 +246,8 @@ test("Alumni: IBAN/BIC nie Mangel (auch alte Status-Schreibweise)", () => {
     assert.deepEqual(b.maengel, []);
     const falsch = bewerte(profil, daten({ iban: IBAN_DE_FALSCH }));
     assert.deepEqual(falsch.maengel, []);
+    // Gezählt als ungültige freiwillige Angabe, aber nicht „offen“ (Alumni korrigieren nichts an der Bank).
+    assert.deepEqual(falsch.freiwillig, [{ feld: "iban", code: "pruefziffer" }]);
     assert.equal(falsch.status.iban, "gueltig");
   }
 });
@@ -350,16 +362,22 @@ test("Zählungen der Stichprobe", () => {
   assert.equal(z.alumni, 1);
   assert.equal(z.gekuendigt, 1);
   assert.equal(z.antragOffen, 1);
-  assert.equal(z.nichtBetroffenMitMangel, 2);
+  // ID 7 (Geburtsdatum fehlt); das ungültige Handy von ID 6 ist freiwillig, kein Mangel.
+  assert.equal(z.nichtBetroffenMitMangel, 1);
   assert.equal(z.ohneZeileAktiv, 1);
   assert.equal(z.ohneZeileGesamt, 1);
   assert.equal(z.nichtLesbar, 1);
-  assert.equal(z.maengel.handynummer.kein_mobil, 1);
-  // Handy freiwillig: das leere Handy von ID 8 ist kein Mangel mehr.
-  assert.equal(z.maengel.handynummer.fehlt, undefined);
+  // Handy und Anschrift freiwillig (Klickrunde 20.11.2026): ungültig nur in der eigenen Zählung, kein Mangel.
+  assert.equal(z.maengel.handynummer, undefined);
+  assert.equal(z.freiwillig.handynummer.kein_mobil, 1);
   assert.equal(z.maengel.iban.pruefziffer, 1);
-  assert.equal(z.maengel.plz.format, 1);
-  assert.equal(z.maengel.strasse.hausnummer_in_strasse, 1);
+  assert.equal(z.maengel.plz, undefined);
+  assert.equal(z.freiwillig.plz.format, 1);
+  assert.equal(z.freiwillig.strasse.hausnummer_in_strasse, 1);
+  // ID 3 (PLZ, Straße) und ID 4 (Handy).
+  assert.equal(z.aktivMitFreiwillig, 2);
+  // ID 4 (IBAN) und ID 8 (ohne Zeile: IBAN, Geburtsdatum).
+  assert.equal(z.aktivMitMangel, 2);
   // Seit 19.11.2026 ist „17698765432“ (ID 2) sicher statt Vorschlag, ohne Hinweis.
   assert.equal(z.hinweise.handynummer?.vorwahl_ergaenzt ?? 0, 0);
   assert.equal(z.status.handynummer.sicher, 2);
@@ -390,8 +408,10 @@ test("Ausgaben enthalten keine Werte und keine Profil-IDs", () => {
   const tsv = listeTsv(eintraege);
   ohneKlartext(tsv, { idsErlaubt: true });
   const zeilen = tsv.trim().split("\n");
-  assert.equal(zeilen[0], "profil_id\tgruppe\tzeile\tmaengel\thinweise\tvorschlaege\tautomatisch");
-  assert.ok(zeilen.some((l) => l.startsWith(`${ID(4)}\taktiv\tja\thandynummer:kein_mobil,iban:pruefziffer`)));
+  assert.equal(zeilen[0], "profil_id\tgruppe\tzeile\tmaengel\thinweise\tvorschlaege\tautomatisch\tfreiwillig");
+  assert.ok(zeilen.some((l) => l.startsWith(`${ID(4)}\taktiv\tja\tiban:pruefziffer\t`) && l.endsWith("\thandynummer:kein_mobil")));
+  const pruefung = formatierePruefung(z);
+  assert.match(pruefung, /ungültiger freiwilliger Angabe \(blockiert nicht\)\s+2/);
   assert.ok(zeilen.some((l) => l.startsWith(`${ID(9)}\taktiv\tnicht_lesbar`)));
   assert.ok(!zeilen.some((l) => l.startsWith(ID(5))), "Alumni ohne Bankdaten hat keinen Befund");
 });

@@ -84,8 +84,10 @@ export function istBestaetigungOffen({
  * Felder, deren Mängel (`pruefeBestand`, ohne handyLand, Alumni ohne Bankmangel) die Daten „ungültig“ machen:
  * die verschlüsselten Felder ohne BIC (seit 20.11.2026 weder abgefragt noch geprüft, Entscheidung Hannes). Name
  * und E-Mail zählen nicht als Bestandsmangel (gleiche Liste in Abfrage-Fenster, Vorstandsübersicht und
- * Skript-Zählung). Handy und Anschrift sind freiwillig: Mangel nur, wenn angegeben und falsch bzw. wenn die
- * Anschrift wegen einer IBAN außerhalb des EWR Pflicht ist oder nur teilweise angegeben.
+ * Skript-Zählung). Ein Mangel entsteht nur an Pflichtfeldern (`istPflichtImBestand` in lib/member-rules.ts,
+ * Klickrunde 20.11.2026): Handy nie, Anschrift nur, wenn sie wegen einer IBAN außerhalb des EWR Pflicht ist.
+ * Handy und Anschrift stehen trotzdem in der Liste: für den Querbezug (IBAN ↔ Anschrift), den Hinweis
+ * `vorwahl_ergaenzt` und die Zählung ungültiger freiwilliger Angaben im Skript.
  */
 export const BESTANDS_FELDER = [
   "iban",

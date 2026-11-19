@@ -777,16 +777,48 @@ export function pruefeFormular(daten: Mitgliederdaten, kontext: Kontext): Pruefe
 }
 
 /**
+ * Ist das Feld im GESPEICHERTEN Bestand Pflicht? Nur dann kann es ein Mangel sein (Klickrunde 20.11.2026, Hannes:
+ * „Unvollständig oder ungültig“ nur für Pflichtfelder):
+ *   Geburtsdatum, Vorname, Nachname, E-Mail  immer
+ *   IBAN                                     außer bei Alumni (Entscheidung Hannes 3)
+ *   Anschrift (Straße, Hausnummer, PLZ, Ort, Land)  nur, wenn sie wegen einer IBAN außerhalb des EWR Pflicht ist
+ *                                            (nicht Alumni, nicht Vorstand); dann zählt die Anschrift als Ganzes,
+ *                                            jeder ihrer Mängel (auch PLZ-Format oder unbekanntes Land)
+ *   Handynummer                              nie
+ * Eine halb oder falsch angegebene freiwillige Anschrift (Grund „angegeben“) und eine ungültige Handynummer sind
+ * im Bestand KEIN Mangel; `pruefeBestand` liefert sie getrennt als `freiwillig`. Wer ein freiwilliges Feld im
+ * Formular ändert, wird weiter voll geprüft (`pruefeFormular`): Neu speichern lässt sich nichts Ungültiges.
+ */
+export function istPflichtImBestand(feld: Feld, daten: Mitgliederdaten, kontext: Kontext): boolean {
+  if (feld === "handynummer") return false;
+  if (feld === "iban") return kontext.alumni !== true;
+  if (ANSCHRIFT_FELDER.includes(feld)) {
+    return kontext.wer !== "vorstand" && kontext.alumni !== true && nichtEwrIbanLand(daten.iban) !== null;
+  }
+  return true;
+}
+
+/** Ergebnis der Bestandsprüfung: `maengel` nur an Pflichtfeldern, ungültige freiwillige Angaben in `freiwillig`. */
+export type Bestandsergebnis = Pruefergebnis & {
+  /** Mängel freiwilliger Felder (Handy, freiwillige Anschrift, IBAN bei Alumni): blockieren nie, nur gezählt. */
+  freiwillig: Mangel[];
+};
+
+/**
  * Mängel des GESPEICHERTEN Bestands (`{ feld, code }`) – Abfrage-Fenster (gültig/ungültig),
- * Vorstandsübersicht (Feldnamen), Skript (Zählungen). Bei Alumni ist die IBAN nie ein Mangel, auch nicht
- * eine ungültig gespeicherte (Entscheidung Hannes 3).
+ * Vorstandsübersicht (Feldnamen), Skript (Zählungen). Nur Pflichtfelder (`istPflichtImBestand`): Bei Alumni ist
+ * die IBAN nie ein Mangel, auch nicht eine ungültig gespeicherte (Entscheidung Hannes 3); Handy und freiwillige
+ * Anschrift ebenso nie (Klickrunde 20.11.2026).
  */
 export function pruefeMitgliederdaten(daten: Mitgliederdaten, kontext: Kontext): Mangel[] {
   return pruefeBestand(daten, kontext).maengel;
 }
 
-/** Wie `pruefeMitgliederdaten`, aber mit Werten und Hinweisen (Skript zählt Hinweise, PR 4 zeigt sie). */
-export function pruefeBestand(daten: Mitgliederdaten, kontext: Kontext): Pruefergebnis {
+/**
+ * Wie `pruefeMitgliederdaten`, aber mit Werten, Hinweisen (Skript zählt Hinweise, PR 4 zeigt sie) und den
+ * ungültigen freiwilligen Angaben (`freiwillig`, Skript zählt sie in einer eigenen Zeile).
+ */
+export function pruefeBestand(daten: Mitgliederdaten, kontext: Kontext): Bestandsergebnis {
   const r = pruefeFormular(daten, kontext);
   // `vorwahl_ergaenzt` nur im Bestand: dort gibt es kein ausdrücklich gewähltes Handy-Land. Im Formular hat
   // das Mitglied das Land gewählt, dann ist nichts angenommen (Gegenprüfung G2/N2).
@@ -802,13 +834,15 @@ export function pruefeBestand(daten: Mitgliederdaten, kontext: Kontext): Pruefer
   ) {
     r.hinweise = [{ feld: "handynummer", code: "vorwahl_ergaenzt" }, ...r.hinweise];
   }
-  if (kontext.alumni !== true) return r;
-  const bank = (feld: Feld) => feld === "iban";
-  const maengel = r.maengel.filter((m) => !bank(m.feld));
-  const fehler = { ...r.fehler };
-  delete fehler.iban;
+  const pflicht = (feld: Feld) => istPflichtImBestand(feld, sauber, kontext);
+  const maengel = r.maengel.filter((m) => pflicht(m.feld));
+  const freiwillig = r.maengel.filter((m) => !pflicht(m.feld));
+  const fehler: Partial<Record<Feld, string>> = {};
+  for (const m of maengel) if (r.fehler[m.feld] !== undefined) fehler[m.feld] = r.fehler[m.feld];
   const ersterFehler = FELD_REIHENFOLGE.map((f) => fehler[f]).find((f) => f !== undefined) ?? null;
-  return { ...r, maengel, fehler, ersterFehler, hinweise: r.hinweise.filter((h) => !bank(h.feld)), gueltig: maengel.length === 0 };
+  // Alumni: auch keine Hinweise an der IBAN (es gibt dort derzeit keine, Absicherung wie bisher).
+  const hinweise = kontext.alumni === true ? r.hinweise.filter((h) => h.feld !== "iban") : r.hinweise;
+  return { ...r, maengel, freiwillig, fehler, ersterFehler, hinweise, gueltig: maengel.length === 0 };
 }
 
 /**

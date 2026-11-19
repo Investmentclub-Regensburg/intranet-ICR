@@ -60,13 +60,25 @@ export function gruppeVon(profil) {
  *   werte     entschlüsselte Felder (MemberSecretValues) oder "unreadable"
  *   hatZeile  gibt es eine member_secrets-Zeile?
  *   heute     YYYY-MM-DD (nur Tests)
- * Liefert Gruppe, Mängel, Hinweise, Status je Feld und die Änderungen, die `reparieren` schreiben darf
- * (`aenderungen`, nur bei Gruppe „aktiv“, nur SCHREIBBARE_FELDER mit Status „sicher“).
+ * Liefert Gruppe, Mängel (nur Pflichtfelder), ungültige freiwillige Angaben (`freiwillig`: Handy, freiwillige
+ * Anschrift, IBAN bei Alumni; blockieren nicht, Klickrunde 20.11.2026), Hinweise, Status je Feld und die
+ * Änderungen, die `reparieren` schreiben darf (`aenderungen`, nur bei Gruppe „aktiv“, nur SCHREIBBARE_FELDER
+ * mit Status „sicher“).
  */
 export function bewerteProfil({ profil, werte, hatZeile, heute }) {
   const gruppe = gruppeVon(profil);
   const alumni = isAlumniProfile(profil);
-  const basis = { gruppe, alumni, hatZeile: Boolean(hatZeile), lesbar: true, maengel: [], hinweise: [], status: {}, aenderungen: {} };
+  const basis = {
+    gruppe,
+    alumni,
+    hatZeile: Boolean(hatZeile),
+    lesbar: true,
+    maengel: [],
+    freiwillig: [],
+    hinweise: [],
+    status: {},
+    aenderungen: {},
+  };
   if (werte === "unreadable") return { ...basis, lesbar: false };
 
   const daten = {};
@@ -77,7 +89,11 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
   const pruefung = pruefeBestand(daten, kontext);
   const reparatur = repariereMitgliederdaten(daten, kontext);
   const maengel = eindeutigeMaengel(pruefung.maengel);
-  const mangelFelder = new Set(maengel.map((m) => m.feld));
+  const freiwillig = eindeutigeMaengel(pruefung.freiwillig);
+  // Status „offen“ auch für ungültige freiwillige Angaben: Die Statustabelle sagt, was zu korrigieren wäre, nicht,
+  // was blockiert. Ausnahme wie bisher: die IBAN eines Alumnus (an der Bank korrigiert niemand etwas).
+  const offenFelder = [...maengel, ...freiwillig.filter((m) => !(alumni && m.feld === "iban"))];
+  const mangelFelder = new Set(offenFelder.map((m) => m.feld));
 
   // Kandidaten: SCHREIBBARE_FELDER mit Reparatur „sicher“, deren Wert sich wirklich ändert. Straße und
   // Hausnummer kommen aus einer Reparatur (Abtrennen oder nur Bereinigen, Regelwerk K2).
@@ -89,10 +105,12 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
     if (typeof wert === "string" && wert !== (daten[feld] ?? "")) kandidaten[feld] = wert;
   }
 
-  // Gegenprobe: Jedes geänderte Feld muss danach mangelfrei sein. Straße und Hausnummer nur gemeinsam
-  // (Review P4): hat eines danach einen Mangel, wird keines von beiden geschrieben.
-  const verworfen = Object.keys(kandidaten).length
-    ? gegenprobe(kandidaten, new Set(pruefeBestand({ ...daten, ...kandidaten }, kontext).maengel.map((m) => m.feld)))
+  // Gegenprobe: Jedes geänderte Feld muss danach mangelfrei sein, auch ein freiwilliges (das Skript schreibt nie
+  // etwas Ungültiges). Straße und Hausnummer nur gemeinsam (Review P4): hat eines danach einen Mangel, wird
+  // keines von beiden geschrieben.
+  const danach = Object.keys(kandidaten).length ? pruefeBestand({ ...daten, ...kandidaten }, kontext) : null;
+  const verworfen = danach
+    ? gegenprobe(kandidaten, new Set([...danach.maengel, ...danach.freiwillig].map((m) => m.feld)))
     : new Set();
 
   const status = {};
@@ -117,7 +135,7 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
     handyHerkunft = angenommen ? "angenommen" : "belegt";
   }
 
-  return { ...basis, maengel, hinweise: pruefung.hinweise, status, aenderungen, handyHerkunft };
+  return { ...basis, maengel, freiwillig, hinweise: pruefung.hinweise, status, aenderungen, handyHerkunft };
 }
 
 /**
@@ -163,9 +181,13 @@ export function neueZaehlung() {
     nichtLesbar: 0,
     aktivMitMangel: 0,
     aktivMitHinweis: 0,
+    /** betroffene Profile mit ungültiger freiwilliger Angabe (blockiert nicht) */
+    aktivMitFreiwillig: 0,
     nichtBetroffenMitMangel: 0,
     /** feld → code → Anzahl (nur aktive Profile) */
     maengel: {},
+    /** feld → code → Anzahl ungültiger freiwilliger Angaben (nur aktive Profile, blockieren nicht) */
+    freiwillig: {},
     /** feld → code → Anzahl (nur aktive Profile) */
     hinweise: {},
     /** feld → Status → Anzahl (nur aktive, lesbare Profile) */
@@ -204,7 +226,9 @@ export function zaehle(z, b) {
   }
   if (b.maengel.length) z.aktivMitMangel++;
   if (b.hinweise.length) z.aktivMitHinweis++;
+  if (b.freiwillig?.length) z.aktivMitFreiwillig++;
   for (const m of eindeutigeMaengel(b.maengel)) erhoehe(z.maengel, m.feld, m.code);
+  for (const m of eindeutigeMaengel(b.freiwillig ?? [])) erhoehe(z.freiwillig, m.feld, m.code);
   for (const h of b.hinweise) erhoehe(z.hinweise, h.feld, h.code);
   for (const feld of AUSGABE_FELDER) z.status[feld][b.status[feld]]++;
   if (b.handyHerkunft === "angenommen") z.handyAngenommen++;
@@ -262,9 +286,13 @@ export function formatierePruefung(z) {
     ...kopf(z),
     zeile("betroffene Profile mit mindestens einem Mangel", z.aktivMitMangel),
     zeile("betroffene Profile mit Hinweis", z.aktivMitHinweis),
+    zeile("betroffene Profile mit ungültiger freiwilliger Angabe (blockiert nicht)", z.aktivMitFreiwillig, 72),
     "",
-    "Mängel je Feld und Code (betroffene Profile)",
+    "Mängel je Feld und Code (betroffene Profile, nur Pflichtfelder)",
     ...codeTabelle(z.maengel, MANGEL_CODES),
+    "",
+    "Ungültige freiwillige Angaben je Feld und Code (Handy, freiwillige Anschrift, IBAN bei Alumni; blockieren nicht)",
+    ...codeTabelle(z.freiwillig, MANGEL_CODES),
     "",
     "Hinweise je Feld (blockieren nicht)",
     ...codeTabelle(z.hinweise, HINWEIS_CODES),
@@ -327,14 +355,17 @@ export function formatiereReparatur(r) {
 
 /**
  * TSV für `--liste`: Profil-ID, Gruppe, Zeile (ja/nein/nicht_lesbar), Mängel (feld:code), Hinweise,
- * Vorschläge (Feldnamen), automatisch (Feldnamen). Keine Werte. Nur Profile mit Befund.
+ * Vorschläge (Feldnamen), automatisch (Feldnamen), ungültige freiwillige Angaben (feld:code, blockieren nicht).
+ * Keine Werte. Nur Profile mit Befund.
  */
 export function listeTsv(eintraege) {
-  const zeilen = [["profil_id", "gruppe", "zeile", "maengel", "hinweise", "vorschlaege", "automatisch"].join("\t")];
+  const zeilen = [["profil_id", "gruppe", "zeile", "maengel", "hinweise", "vorschlaege", "automatisch", "freiwillig"].join("\t")];
   for (const { id, bewertung: b } of eintraege) {
     const vorschlaege = Object.keys(b.status).filter((f) => b.status[f] === "vorschlag");
     const automatisch = Object.keys(b.aenderungen);
-    const befund = !b.lesbar || !b.hatZeile || b.maengel.length || b.hinweise.length || vorschlaege.length || automatisch.length;
+    const freiwillig = b.freiwillig ?? [];
+    const befund =
+      !b.lesbar || !b.hatZeile || b.maengel.length || b.hinweise.length || vorschlaege.length || automatisch.length || freiwillig.length;
     if (!befund) continue;
     zeilen.push(
       [
@@ -345,6 +376,7 @@ export function listeTsv(eintraege) {
         b.hinweise.map((h) => `${h.feld}:${h.code}`).join(","),
         vorschlaege.join(","),
         automatisch.join(","),
+        freiwillig.map((m) => `${m.feld}:${m.code}`).join(","),
       ].join("\t")
     );
   }

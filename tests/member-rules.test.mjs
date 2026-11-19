@@ -22,6 +22,7 @@ import {
   pruefeFormular,
   pruefeMitgliederdaten,
   pruefeBestand,
+  istPflichtImBestand,
   pruefeVorstandskorrektur,
   HINWEIS_CODES,
   repariereHandy,
@@ -67,6 +68,9 @@ const IBAN_NO = "NO9386011117947";
 const IBAN_BR = "BR1800360305000010009795493C1";
 
 /** Gültiger, vollständiger Datensatz (erfunden). */
+/** Mängel der Formularprüfung (Feldregeln): Im Bestand zählen davon nur Pflichtfelder (`pruefeBestand`). */
+const formularMaengel = (daten, kontext) => pruefeFormular(daten, kontext).maengel;
+
 const GUT = Object.freeze({
   strasse: "Hauptstraße",
   hausnummer: "12a",
@@ -389,8 +393,8 @@ test("Anschrift teilweise angegeben: dann vollständig (Straße, Ort; Hausnummer
   ]);
   assert.equal(r.fehler.ort, "Bitte trag den Ort ein.");
   // Nur Hausnummer, nur Straße, nur Ort: jeweils Rest fehlt.
-  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ...LEER_ANSCHRIFT, ort: "Regensburg" }, MITGLIED).map((m) => m.feld), ["strasse", "hausnummer", "plz"]);
-  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ...LEER_ANSCHRIFT, hausnummer: "3" }, MITGLIED).map((m) => m.feld), ["strasse", "plz", "ort"]);
+  assert.deepEqual(formularMaengel({ ...GUT, ...LEER_ANSCHRIFT, ort: "Regensburg" }, MITGLIED).map((m) => m.feld), ["strasse", "hausnummer", "plz"]);
+  assert.deepEqual(formularMaengel({ ...GUT, ...LEER_ANSCHRIFT, hausnummer: "3" }, MITGLIED).map((m) => m.feld), ["strasse", "plz", "ort"]);
   // Ausland ohne PLZ-Muster: Straße + Ort genügen.
   assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ...LEER_ANSCHRIFT, land: "HK", strasse: "Queen's Road", ort: "Hongkong" }, MITGLIED), []);
   // Nur harmlose/leere Zeichen sind keine Angabe.
@@ -506,7 +510,7 @@ test("Gesamtprüfung: Altformat, Codes und erste Meldung (BIC ohne Hinweis)", ()
 test("Gesamtprüfung: Auslandsadresse mit Land-Feld, Hausnummer optional", () => {
   const at = { ...GUT, land: "AT", plz: "1010", ort: "Wien", hausnummer: "", strasse: "Stephansplatz" };
   assert.deepEqual(pruefeMitgliederdaten(at, MITGLIED), []);
-  assert.deepEqual(pruefeMitgliederdaten({ ...at, plz: "93047" }, MITGLIED), [{ feld: "plz", code: "format" }]);
+  assert.deepEqual(formularMaengel({ ...at, plz: "93047" }, MITGLIED), [{ feld: "plz", code: "format" }]);
 });
 
 test("Gesamtprüfung: Vorname/Nachname/E-Mail nur, wenn übergeben", () => {
@@ -518,8 +522,8 @@ test("Gesamtprüfung: Vorname/Nachname/E-Mail nur, wenn übergeben", () => {
 });
 
 test("Gesamtprüfung: Handy-Land getrennt vom Land der Anschrift", () => {
-  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, handynummer: "0664 1234567", handyLand: "AT" }, MITGLIED), []);
-  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, handynummer: "0664 1234567" }, MITGLIED), [
+  assert.deepEqual(formularMaengel({ ...GUT, handynummer: "0664 1234567", handyLand: "AT" }, MITGLIED), []);
+  assert.deepEqual(formularMaengel({ ...GUT, handynummer: "0664 1234567" }, MITGLIED), [
     { feld: "handynummer", code: "kein_mobil" },
   ]);
 });
@@ -935,10 +939,11 @@ test("F5: Alumni – IBAN im Bestand nie ein Mangel, im Formular geprüft (BIC n
   assert.deepEqual(pruefeMitgliederdaten(alt, MITGLIED), [{ feld: "iban", code: "pruefziffer" }]);
   // Formular: eingegebene IBAN eines Alumnus wird geprüft.
   assert.deepEqual(pruefeFormular(alt, ALUMNI).maengel, [{ feld: "iban", code: "pruefziffer" }]);
-  // Andere Mängel bleiben auch bei Alumni.
-  const ohneOrt = pruefeBestand({ ...alt, ort: "" }, ALUMNI);
-  assert.deepEqual(ohneOrt.maengel, [{ feld: "ort", code: "fehlt" }]);
-  assert.equal(ohneOrt.ersterFehler, "Bitte trag den Ort ein.");
+  // Andere Mängel bleiben auch bei Alumni (Pflichtfeld Geburtsdatum); die IBAN zählt nur als freiwillig.
+  const ohneDatum = pruefeBestand({ ...alt, geburtsdatum: "" }, ALUMNI);
+  assert.deepEqual(ohneDatum.maengel, [{ feld: "geburtsdatum", code: "fehlt" }]);
+  assert.deepEqual(ohneDatum.freiwillig, [{ feld: "iban", code: "pruefziffer" }]);
+  assert.equal(ohneDatum.ersterFehler, "Bitte trag dein Geburtsdatum ein.");
   // Reparatur: ungültige Alumni-IBAN wird nicht als „offen“ gemeldet.
   assert.equal(repariereMitgliederdaten(alt, ALUMNI).status.iban, undefined);
   assert.equal(repariereMitgliederdaten(alt, MITGLIED).status.iban, "offen");
@@ -1033,8 +1038,14 @@ test("R4: Nicht-Strings sind immer `format`, nie „leer“", () => {
   assert.equal(pruefeStrasse(undefined, "", MITGLIED_ANSCHRIFT).code, "fehlt");
   assert.ok(ok(pruefeStrasse(undefined, "", MITGLIED)));
   // Gesamtprüfung: Datei im Feld → Mangel format (bei Alumni ist die IBAN kein Bestandsmangel).
-  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ort: datei, iban: 42 }, ALUMNI), [{ feld: "ort", code: "format" }]);
-  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ort: datei, iban: 42 }, MITGLIED), [
+  assert.deepEqual(formularMaengel({ ...GUT, ort: datei, iban: 42 }, MITGLIED), [
+    { feld: "ort", code: "format" },
+    { feld: "iban", code: "format" },
+  ]);
+  // Bestand: freiwilliger Ort ist kein Mangel, die IBAN nur für Nicht-Alumni.
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ort: datei, iban: 42 }, ALUMNI), []);
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, ort: datei, iban: 42 }, MITGLIED), [{ feld: "iban", code: "format" }]);
+  assert.deepEqual(pruefeBestand({ ...GUT, ort: datei, iban: 42 }, ALUMNI).freiwillig, [
     { feld: "ort", code: "format" },
     { feld: "iban", code: "format" },
   ]);
@@ -1079,7 +1090,7 @@ test("R6: Vorstandskorrektur übernimmt nur bekannte, eigene Feldnamen", () => {
   assert.deepEqual(pruefeVorstandskorrektur({ plz: "1234" }, bestand, HEUTE).maengel, [{ feld: "plz", code: "format" }]);
   // Gesamtprüfung ebenso: __proto__.land wirkt nicht.
   const mitProto = JSON.parse(`{"__proto__":{"land":"AT"},${JSON.stringify({ ...GUT, land: undefined, plz: "1234" }).slice(1)}`);
-  assert.deepEqual(pruefeMitgliederdaten(mitProto, MITGLIED), [{ feld: "plz", code: "format" }]);
+  assert.deepEqual(formularMaengel(mitProto, MITGLIED), [{ feld: "plz", code: "format" }]);
 });
 
 test("R7: Vorstand darf E-Mail und Namen nicht leeren", () => {
@@ -1116,7 +1127,7 @@ test("G1/N1, H2/M2: Land mit Regex-Zeichen wirft nicht, nur `land` ist land_unbe
       assert.equal(pruefePlz("", land, kontext).code, null, land);
     }
     assert.equal(pruefePlz("XYZ-93047", land, MITGLIED).wert, "XYZ-93047", land);
-    assert.deepEqual(pruefeMitgliederdaten({ ...GUT, land, plz: "" }, MITGLIED), [{ feld: "land", code: "land_unbekannt" }], land);
+    assert.deepEqual(formularMaengel({ ...GUT, land, plz: "" }, MITGLIED), [{ feld: "land", code: "land_unbekannt" }], land);
     assert.doesNotThrow(() => pruefeFormular({ ...GUT, land, plz: "1" }, MITGLIED), land);
     assert.doesNotThrow(() => pruefeVorstandskorrektur({ plz: "1234" }, { land }, HEUTE), land);
     assert.doesNotThrow(() => pruefeHandy("0176 12345678", land, MITGLIED), land);
@@ -1362,4 +1373,61 @@ test("Handy: führendes Hochkomma aus Excel ist harmlos (Klickrunde 20.11.2026)"
   assert.equal(pruefeHandy("'", "DE", MITGLIED).code, null);
   // Eingabehilfe im Browser formatiert wie ohne Hochkomma.
   assert.deepEqual(formatiereHandyEingabe("'017612345678", "DE"), { land: "DE", nummer: "176 12345678" });
+});
+
+test("Bestand: Mangel nur an Pflichtfeldern, ungültige freiwillige Angaben getrennt (Klickrunde 20.11.2026)", () => {
+  // Handy: nie Pflicht, auch angegeben und ungültig (Festnetz, falsches Format) kein Mangel.
+  for (const handynummer of ["0941 123456", "max@example.org", "0176 123"]) {
+    const r = pruefeBestand({ ...GUT, handynummer }, MITGLIED);
+    assert.deepEqual(r.maengel, [], handynummer);
+    assert.equal(r.gueltig, true, handynummer);
+    assert.equal(r.freiwillig.length, 1, handynummer);
+    assert.equal(r.freiwillig[0].feld, "handynummer");
+    assert.deepEqual(r.fehler, {}, handynummer);
+    assert.equal(r.ersterFehler, null, handynummer);
+  }
+  // Anschrift freiwillig: halb angegeben oder ungültig → kein Mangel, nur `freiwillig`.
+  const halb = pruefeBestand({ ...GUT, ...LEER_ANSCHRIFT, plz: "93047" }, MITGLIED);
+  assert.deepEqual(halb.maengel, []);
+  assert.deepEqual(halb.freiwillig.map((m) => m.feld), ["strasse", "hausnummer", "ort"]);
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, plz: "9304" }, MITGLIED), []);
+  assert.deepEqual(pruefeBestand({ ...GUT, plz: "9304" }, MITGLIED).freiwillig, [{ feld: "plz", code: "format" }]);
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, land: "XX" }, MITGLIED), []);
+  // Anschrift Pflicht wegen IBAN außerhalb des EWR: dann zählt jeder Mangel der Anschrift.
+  const ch = { ...GUT, iban: IBAN_CH, land: "CH", strasse: "Bahnhofstrasse", hausnummer: "1", plz: "8001", ort: "Zürich" };
+  assert.deepEqual(pruefeMitgliederdaten(ch, MITGLIED), []);
+  assert.deepEqual(pruefeMitgliederdaten({ ...ch, plz: "80" }, MITGLIED), [{ feld: "plz", code: "format" }]);
+  assert.deepEqual(pruefeMitgliederdaten({ ...ch, ort: "" }, MITGLIED), [{ feld: "ort", code: "fehlt" }]);
+  // ... nicht bei Alumni (kein Einzug) und nicht für den Vorstand.
+  assert.deepEqual(pruefeMitgliederdaten({ ...ch, ort: "" }, ALUMNI), []);
+  assert.deepEqual(pruefeMitgliederdaten({ ...ch, ort: "" }, VORSTAND), []);
+  // Pflichtfelder bleiben Mängel.
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, geburtsdatum: "" }, MITGLIED), [{ feld: "geburtsdatum", code: "fehlt" }]);
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, iban: "" }, MITGLIED), [{ feld: "iban", code: "fehlt" }]);
+  assert.deepEqual(pruefeMitgliederdaten({ ...GUT, email: "kaputt" }, MITGLIED), [{ feld: "email", code: "format" }]);
+  // Gemischt: Pflichtmangel blockiert, die freiwillige Angabe steht daneben und hat keine Meldung.
+  const beides = pruefeBestand({ ...GUT, iban: "", handynummer: "0941 123456" }, MITGLIED);
+  assert.deepEqual(beides.maengel, [{ feld: "iban", code: "fehlt" }]);
+  assert.deepEqual(beides.freiwillig, [{ feld: "handynummer", code: "kein_mobil" }]);
+  assert.deepEqual(Object.keys(beides.fehler), ["iban"]);
+  // Das Formular prüft eine angegebene freiwillige Angabe weiter voll (nichts Ungültiges neu speichern).
+  assert.deepEqual(pruefeFormular({ ...GUT, handynummer: "0941 123456" }, MITGLIED).maengel, [
+    { feld: "handynummer", code: "kein_mobil" },
+  ]);
+  assert.equal(pruefeFormular({ ...GUT, plz: "9304" }, MITGLIED).gueltig, false);
+});
+
+test("istPflichtImBestand: Handy nie, Anschrift nur wegen IBAN außerhalb des EWR", () => {
+  assert.equal(istPflichtImBestand("handynummer", GUT, MITGLIED), false);
+  for (const feld of ["strasse", "hausnummer", "plz", "ort", "land"]) {
+    assert.equal(istPflichtImBestand(feld, GUT, MITGLIED), false, feld);
+    assert.equal(istPflichtImBestand(feld, { ...GUT, iban: IBAN_CH }, MITGLIED), true, feld);
+    assert.equal(istPflichtImBestand(feld, { ...GUT, iban: IBAN_CH }, ALUMNI), false, feld);
+    assert.equal(istPflichtImBestand(feld, { ...GUT, iban: IBAN_CH }, VORSTAND), false, feld);
+  }
+  assert.equal(istPflichtImBestand("iban", GUT, MITGLIED), true);
+  assert.equal(istPflichtImBestand("iban", GUT, ALUMNI), false);
+  for (const feld of ["geburtsdatum", "vorname", "nachname", "email"]) {
+    assert.equal(istPflichtImBestand(feld, GUT, ALUMNI), true, feld);
+  }
 });

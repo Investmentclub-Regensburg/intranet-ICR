@@ -52,7 +52,9 @@ export const ANSCHRIFT_FELDER = ["strasse", "hausnummer", "plz", "ort"] as const
  * Felder, die die Formularprüfung (`pruefeProfil`) bei unverändertem gespeichertem Wert NICHT neu bewertet
  * (Handy, Geburtsdatum; Name ist nie ein Bestandsmangel). Nur deren Mängel aus der ersten Bewertung bleiben stehen,
  * wenn der Server nur Formularfehler meldet. Alle anderen Felder bewertet das Formular immer selbst
- * (Gegenprobe in tests/member-data-check.test.mjs).
+ * (Gegenprobe in tests/member-data-check.test.mjs). Seit der Klickrunde 20.11.2026 hat das Handy im Bestand nie
+ * einen Mangel (bleibt als Absicherung in der Liste); eine unveränderte freiwillige Anschrift mit Altmangel bewertet
+ * das Formular ebenfalls nicht neu, sie ist im Bestand aber auch kein Mangel (also nie markiert).
  */
 export const NUR_IM_BESTAND_GEPRUEFT: readonly string[] = ["handynummer", "geburtsdatum"];
 

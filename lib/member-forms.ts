@@ -11,6 +11,7 @@ import { normalizeIban } from "./member-crypto";
 import {
   ANSCHRIFT_TEILE,
   formatiereHandyAnzeige,
+  istPflichtImBestand,
   nichtEwrIbanLand,
   pruefeFormular,
   pruefeHandy,
@@ -315,6 +316,20 @@ const ABSCHNITT_FELDER: Record<ProfilAbschnitt, readonly Feld[]> = {
   bank: ["iban"],
 };
 
+/** Felder der Anschrift inkl. Land (eine Einheit: geändert wird die Anschrift als Ganzes geprüft). */
+const ANSCHRIFT_MIT_LAND: readonly Feld[] = [...ANSCHRIFT_TEILE, "land"];
+
+/**
+ * Steht die Anschrift im Formular noch genau so wie im Bestand (Leerraum außen egal; ein leeres Land gilt wie die
+ * Anzeige als Deutschland)? Dann hat das Mitglied sie nicht angefasst.
+ */
+function anschriftUnveraendert(eingabe: Record<string, unknown>, bestand: Partial<MemberSecretValues>): boolean {
+  if (ANSCHRIFT_TEILE.some((feld) => text(eingabe[feld]).trim() !== text(bestand[feld as keyof MemberSecretValues]).trim())) {
+    return false;
+  }
+  return (text(eingabe.land).trim().toUpperCase() || DEFAULT_COUNTRY) === landAusBestand(bestand.land);
+}
+
 /**
  * Profil speichern (Mitglied, Kontext `mitglied`): geprüft und gespeichert werden nur die Felder des
  * bearbeiteten Abschnitts, mit vollen Regeln (Pflichtfelder lassen sich nicht leeren). Fehler in Feldern
@@ -324,7 +339,10 @@ const ABSCHNITT_FELDER: Record<ProfilAbschnitt, readonly Feld[]> = {
  *  - Alumni: die IBAN wird nur geprüft und gespeichert, wenn sie geändert wurde (eine alte ungültige IBAN
  *    blockiert sonst das Speichern; Alumni haben nie einen Bank-Mangel). Leeren ist erlaubt.
  *  - Anschrift: freiwillig; Pflicht, wenn ein Teil angegeben ist oder die IBAN (gespeichert bzw. im Abschnitt
- *    Bank neu) aus einem SEPA-Land außerhalb des EWR kommt. Im Abschnitt Bank meldet das die IBAN
+ *    Bank neu) aus einem SEPA-Land außerhalb des EWR kommt. Eine UNVERÄNDERTE gespeicherte Anschrift mit Mangel
+ *    blockiert nicht, solange sie nicht wegen der IBAN Pflicht ist (Klickrunde 20.11.2026: freiwillige Altwerte
+ *    sind nie ein Mangel); sie wird dann weder geprüft noch gespeichert. Wer ein Feld der Anschrift ändert, dem
+ *    wird die ganze Anschrift geprüft (nichts Ungültiges neu speichern). Im Abschnitt Bank meldet das die IBAN
  *    (ANSCHRIFT_FEHLT_PROFIL), solange `anschriftAusBestand` gilt; das Abfrage-Fenster schaltet es ab, weil es
  *    die Anschrift im selben Formular hat und den Bestand danach selbst bewertet.
  *  - BIC: wird nicht mehr abgefragt; eine gespeicherte BIC wird bei einem Kontowechsel mitgeleert.
@@ -344,7 +362,7 @@ export function pruefeProfil(
   // Name (Klartext in profiles) gehört zu „Persönliches“, wenn das Formular ihn schickt (Entscheidung 11).
   const namensFelder: Feld[] =
     abschnitt === "personal" ? (["vorname", "nachname"] as const).filter((f) => f in eingabe) : [];
-  const felder = [...namensFelder, ...ABSCHNITT_FELDER[abschnitt]].filter((feld) => {
+  let felder = [...namensFelder, ...ABSCHNITT_FELDER[abschnitt]].filter((feld) => {
     // Name und Geburtsdatum: ein unveränderter gespeicherter Wert wird nicht neu bewertet (Altdaten aus dem
     // Import sollen das Speichern der Adresse nicht blockieren); leer ist immer ein Fehler (Pflicht).
     if (feld === "vorname" || feld === "nachname" || feld === "geburtsdatum") {
@@ -360,15 +378,29 @@ export function pruefeProfil(
     return true;
   });
 
-  const daten: Mitgliederdaten = {};
-  for (const feld of felder) daten[feld] = eingabe[feld] ?? null;
-  if (felder.includes("handynummer")) daten.handyLand = text(eingabe.handyLand) || DEFAULT_COUNTRY;
-  // Querbezüge (Land für PLZ/Hausnummer/Ort, IBAN für die Pflicht-Anschrift) aus dem Abschnitt bzw. dem Bestand.
-  if (!felder.includes("land")) daten.land = bestand.land ?? "";
-  if (!felder.includes("iban")) daten.iban = bestand.iban ?? "";
-
-  const r = pruefeFormular(daten, { alumni: istAlumni, wer: "mitglied", heute });
-  const fehler = fehlerJeFeld(r, daten.land, felder);
+  const kontext = { alumni: istAlumni, wer: "mitglied" as const, heute };
+  const pruefe = (mit: readonly Feld[]) => {
+    const daten: Mitgliederdaten = {};
+    for (const feld of mit) daten[feld] = eingabe[feld] ?? null;
+    if (mit.includes("handynummer")) daten.handyLand = text(eingabe.handyLand) || DEFAULT_COUNTRY;
+    // Querbezüge (Land für PLZ/Hausnummer/Ort, IBAN für die Pflicht-Anschrift) aus dem Abschnitt bzw. dem Bestand.
+    if (!mit.includes("land")) daten.land = bestand.land ?? "";
+    if (!mit.includes("iban")) daten.iban = bestand.iban ?? "";
+    const r = pruefeFormular(daten, kontext);
+    return { daten, r, fehler: fehlerJeFeld(r, daten.land, mit) };
+  };
+  let p = pruefe(felder);
+  // Unveränderte freiwillige Anschrift mit Altmangel: nicht blockieren, nicht anfassen (siehe oben).
+  if (
+    abschnitt === "personal" &&
+    ANSCHRIFT_MIT_LAND.some((feld) => p.fehler[feld] !== undefined) &&
+    anschriftUnveraendert(eingabe, bestand) &&
+    !istPflichtImBestand("strasse", p.daten, kontext)
+  ) {
+    felder = felder.filter((feld) => !ANSCHRIFT_MIT_LAND.includes(feld));
+    p = pruefe(felder);
+  }
+  const { daten, r, fehler } = p;
   if (
     abschnitt === "bank" &&
     anschriftAusBestand &&

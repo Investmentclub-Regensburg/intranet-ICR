@@ -154,11 +154,16 @@ function alsDaten(b: DatenBestand): Mitgliederdaten {
 }
 
 /**
- * Gespeicherten Bestand bewerten (`pruefeBestand`, ohne `handyLand`). Alumni: IBAN nie ein Mangel
- * (Entscheidung 3). Hinweise (`vorwahl_ergaenzt`) blockieren nie. Die BIC wird nicht bewertet.
+ * Gespeicherten Bestand bewerten (`pruefeBestand`, ohne `handyLand`). Mängel nur an Pflichtfeldern
+ * (`istPflichtImBestand`, Klickrunde 20.11.2026): Handy, freiwillige Anschrift und bei Alumni die IBAN
+ * (Entscheidung 3) sind nie ein Mangel, auch nicht ungültig gespeichert; sie werden weder markiert noch gezählt,
+ * und „Stimmt alles“ schreibt sie nicht um (ihre Werte fehlen in `werte`). Hinweise (`vorwahl_ergaenzt`) blockieren
+ * nie. Die BIC wird nicht bewertet.
  */
 export function bewerteBestand(bestand: DatenBestand, alumni: boolean, heute?: string): BestandsBewertung {
   const r = pruefeBestand(alsDaten(bestand), { alumni: alumni === true, wer: "mitglied", heute });
+  const werte = { ...r.werte };
+  for (const m of r.freiwillig) delete werte[m.feld];
   const land = landAusBestand(bestand.land);
   const fehler: FeldFehler = {};
   for (const m of r.maengel) {
@@ -173,7 +178,7 @@ export function bewerteBestand(bestand: DatenBestand, alumni: boolean, heute?: s
     if (fehler[h.feld] !== undefined) continue;
     if (h.code === "vorwahl_ergaenzt") hinweise[h.feld] = HINWEIS_VORWAHL;
   }
-  return { gueltig: Object.keys(fehler).length === 0, fehler, hinweise, werte: r.werte };
+  return { gueltig: Object.keys(fehler).length === 0, fehler, hinweise, werte };
 }
 
 function istBestandsFeld(feld: Feld): boolean {
@@ -399,8 +404,9 @@ export const AENDERN_FELDER = [
 
 /**
  * „Ändern“ prüfen: dieselben Regeln wie das Profil (`pruefeProfil` für beide Abschnitte, Kontext `mitglied`),
- * danach der Bestand, wie er nach dem Speichern wäre (`bewerteBestand`): Ein unverändertes fehlerhaftes Feld
- * (z. B. alte Handynummer) muss ebenfalls korrigiert werden, sonst gilt nichts als bestätigt. Gespeichert werden
+ * danach der Bestand, wie er nach dem Speichern wäre (`bewerteBestand`): Ein unverändertes fehlerhaftes
+ * Pflichtfeld (z. B. alte IBAN) muss ebenfalls korrigiert werden, sonst gilt nichts als bestätigt. Unveränderte
+ * ungültige freiwillige Angaben (Handy, freiwillige Anschrift) blockieren nicht (Klickrunde 20.11.2026). Gespeichert werden
  * die Änderungen des Formulars plus die normalisierten Werte des Rests (wie „Stimmt alles“). Alles oder nichts.
  */
 export function pruefeDatenCheckAenderung(
