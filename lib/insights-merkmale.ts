@@ -36,11 +36,15 @@ export function phpSerialisiertAuspacken(raw: string): string {
 }
 
 const UNI = /^(uni|universit(ä|ae|a)t|university)( (of )?regensburg)?$/;
-const OTH = /^(oth|ostbayerische technische hochschule)( regensburg)?$/;
+// Die OTH hieß früher Hochschule (bzw. Fachhochschule) Regensburg; ohne „Regensburg“ zählen diese alten
+// Namen nicht, weil „Hochschule“ allein jede Hochschule sein kann.
+const OTH = /^((oth|ostbayerische technische hochschule)( regensburg)?|(hochschule|hs|fh|fachhochschule) regensburg)$/;
 
 /** Hochschule vereinheitlichen. Leer → null (ohne Angabe), Unbekanntes → „Sonstige“. */
 export function normalizeHochschule(raw: string | null | undefined): Hochschule | null {
   const v = schluessel(phpSerialisiertAuspacken(String(raw ?? "")))
+    // Klammerzusatz weg: „Universität Regensburg (UR)“, „OTH Regensburg (Ostbayerische …)“.
+    .replace(/\([^)]*\)?/g, " ")
     .replace(/[-–]/g, " ")
     .replace(/[.,;]+$/, "")
     .replace(/\s+/g, " ")
@@ -51,32 +55,54 @@ export function normalizeHochschule(raw: string | null | undefined): Hochschule 
   return "Sonstige";
 }
 
-/** Levenshtein-Abstand (kurze Wörter, für Tippfehler wie „Bachlor“). */
+/**
+ * Abstand zweier kurzer Wörter (Levenshtein mit Vertauschung benachbarter Buchstaben als ein Schritt), für
+ * Tippfehler wie „Bachlor“ oder „Matser“.
+ */
 function abstand(a: string, b: string): number {
-  const zeile = Array.from({ length: b.length + 1 }, (_, j) => j);
+  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
   for (let i = 1; i <= a.length; i++) {
-    let vorher = zeile[0];
-    zeile[0] = i;
     for (let j = 1; j <= b.length; j++) {
-      const merk = zeile[j];
-      zeile[j] = Math.min(zeile[j] + 1, zeile[j - 1] + 1, vorher + (a[i - 1] === b[j - 1] ? 0 : 1));
-      vorher = merk;
+      const kosten = a[i - 1] === b[j - 1] ? 0 : 1;
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + kosten);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+      }
     }
   }
-  return zeile[b.length];
+  return d[a.length][b.length];
 }
 
-/** Abschluss vereinheitlichen: Bachelor-/Master-Varianten und Tippfehler, Staatsexamen, sonst „Sonstige“. */
+const BACHELOR_KURZ = new Set(["ba", "bsc", "beng", "bed", "llb", "bba"]);
+const MASTER_KURZ = new Set(["ma", "msc", "meng", "med", "llm", "mba"]);
+
+function abschlussWort(wort: string): "Bachelor" | "Master" | null {
+  if (BACHELOR_KURZ.has(wort)) return "Bachelor";
+  if (MASTER_KURZ.has(wort)) return "Master";
+  if (!/^[a-zäöüß]+$/.test(wort)) return null;
+  if (wort.startsWith("bachel") || (wort.length >= 6 && abstand(wort, "bachelor") <= 2)) return "Bachelor";
+  // Höchstens ein Schritt: „Matser“, „Mster“, aber nicht „Meister“.
+  if (wort.startsWith("master") || (wort.length >= 5 && abstand(wort, "master") <= 1)) return "Master";
+  return null;
+}
+
+/**
+ * Abschluss vereinheitlichen: Bachelor-/Master-Varianten, Kürzel (B.Sc., M.A., LL.B., LL.M. …) und Tippfehler
+ * an beliebiger Stelle („BWL Bachelor“, „B.Sc. Wirtschaftsinformatik“), Staatsexamen, PHP-serialisierte
+ * Altwerte; sonst „Sonstige“. Das erste erkannte Wort entscheidet.
+ */
 export function normalizeAbschluss(raw: string | null | undefined): Abschluss | null {
-  const v = schluessel(raw);
+  const v = schluessel(phpSerialisiertAuspacken(String(raw ?? "")));
   if (!v) return null;
   if (/staats\s?ex/.test(v)) return "Staatsexamen";
-  const kompakt = v.replace(/[\s.]/g, "");
-  if (/^b(a|sc|eng|ed)$/.test(kompakt)) return "Bachelor";
-  if (/^m(a|sc|eng|ed)$/.test(kompakt)) return "Master";
-  const wort = v.split(/[^a-zäöüß]+/).find(Boolean) ?? "";
-  if (wort.startsWith("bachel") || (wort.length >= 6 && abstand(wort, "bachelor") <= 2)) return "Bachelor";
-  if (wort.startsWith("master") || (wort.length >= 5 && abstand(wort, "master") <= 1)) return "Master";
+  const ganz = abschlussWort(v.replace(/[\s.]/g, ""));
+  if (ganz) return ganz;
+  for (const teil of v.split(/[\s,;/()+&-]+/)) {
+    const treffer = abschlussWort(teil.replace(/\./g, ""));
+    if (treffer) return treffer;
+  }
   return "Sonstige";
 }
 

@@ -40,6 +40,12 @@ test("Hochschule: Altwerte vereinheitlichen", () => {
   ]) {
     assert.equal(normalizeHochschule(v), "OTH Regensburg", v);
   }
+  for (const v of ["Hochschule Regensburg", "HS Regensburg", "FH Regensburg", "Fachhochschule Regensburg", "OTH Regensburg (Ostbayerische Technische Hochschule)"]) {
+    assert.equal(normalizeHochschule(v), "OTH Regensburg", v);
+  }
+  assert.equal(normalizeHochschule("Universität Regensburg (UR)"), "Universität Regensburg");
+  assert.equal(normalizeHochschule("Hochschule"), "Sonstige"); // ohne Ort nicht eindeutig
+  assert.equal(normalizeHochschule("Hochschule München"), "Sonstige");
   assert.equal(normalizeHochschule("sonstige"), "Sonstige");
   assert.equal(normalizeHochschule("TU München"), "Sonstige");
   assert.equal(normalizeHochschule(""), null);
@@ -60,6 +66,15 @@ test("Abschluss: Varianten und Tippfehler", () => {
   for (const v of ["Staatsexamen", "staatsexamen", "Erstes Staatsexamen", "Lehramt (Staatsexamen)", "Staats Examen"]) {
     assert.equal(normalizeAbschluss(v), "Staatsexamen", v);
   }
+  for (const v of ["B.Sc. Wirtschaftsinformatik", "BWL Bachelor", "B. Sc.", "LL.B.", "a:1:{i:0;s:8:\"Bachelor\";}", "Bachelor/Master"]) {
+    assert.equal(normalizeAbschluss(v), "Bachelor", v);
+  }
+  for (const v of ["Matser", "LL.M.", "M.Sc. Finance", "MBA", "BWL Master", 'a:1:{i:0;s:6:"Master";}']) {
+    assert.equal(normalizeAbschluss(v), "Master", v);
+  }
+  assert.equal(normalizeAbschluss("Meister"), "Sonstige");
+  assert.equal(normalizeAbschluss("Mathematik"), "Sonstige");
+  assert.equal(normalizeAbschluss("Lehramt"), "Sonstige");
   assert.equal(normalizeAbschluss("Diplom"), "Sonstige");
   assert.equal(normalizeAbschluss("Promotion"), "Sonstige");
   assert.equal(normalizeAbschluss(""), null);
