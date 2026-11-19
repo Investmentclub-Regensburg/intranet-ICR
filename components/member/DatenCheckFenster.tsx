@@ -40,6 +40,8 @@ type Fehler = Partial<Record<string, string>>;
  * Fenster offen ist, ist sie `inert` + `aria-hidden` – schon im Server-HTML, also auch vor der Hydration. Das Fenster
  * wird ohne Portal gerendert und steht damit ebenfalls im Server-HTML: kein Aufblitzen der Seite, und ohne
  * JavaScript sieht man das Fenster mit dem Hinweis und „Abmelden“ statt einer bedienbaren Seite (Review A1/B1).
+ * Das gilt bewusst auch bei gültigen Daten (Entscheidung G2): `inert` lässt sich per noscript nicht aufheben, und
+ * `inert` erst nach der Hydration machte die Seite davor kurz bedienbar.
  */
 export function DatenCheckFenster({
   ansicht,
@@ -187,21 +189,30 @@ export function DatenCheckFenster({
       )}
     <DialogPrimitive.Root open={offen}>
       {offen && (
-        <DialogPrimitive.Overlay className="data-[state=open]:animate-in data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-ink/20 backdrop-blur-sm dark:bg-black/50" />
+        // Ohne Einblenden: ab dem ersten Bild deckend, damit die Seite darunter nie kurz ohne Fenster zu sehen ist
+        // (Gegenprüfung G1, Chromium malt vor der Hydration).
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-ink/20 backdrop-blur-sm dark:bg-black/50" />
       )}
       <DialogPrimitive.Content
         aria-describedby={undefined}
         // Nicht wegklickbar: Escape und Klick daneben schließen nie (Schließen nur über „Später“ bzw. nach dem Haken).
         onEscapeKeyDown={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-        className="bg-card text-card-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid max-h-[92dvh] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-0 overflow-x-hidden overflow-y-auto rounded-2xl border p-5 shadow-card duration-200 sm:max-w-md sm:p-6"
+        // Einblenden nur ohne „Bewegung reduzieren“; per CSS-Medienabfrage, damit es schon vor der Hydration gilt
+        // (useReducedMotionSafe liefert beim ersten Rendern false).
+        className="bg-card text-card-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 motion-reduce:animate-none! fixed top-[50%] left-[50%] z-50 grid max-h-[92dvh] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-0 overflow-x-hidden overflow-y-auto rounded-2xl border p-5 shadow-card duration-200 sm:max-w-md sm:p-6"
       >
         <DialogTitle className="text-xl">Stimmen deine Daten noch?</DialogTitle>
         {/* Ohne JavaScript funktionieren die Knöpfe nicht: Hinweis und Abmelden (Server-Action als Formular). */}
         <noscript>
           {/* Knöpfe, die nur mit JavaScript gehen, ausblenden. */}
           <style>{"[data-nur-mit-js]{display:none!important}"}</style>
-          <p className="mt-3 text-sm">Bitte aktiviere JavaScript, um deine Daten zu aktualisieren.</p>
+          {/* Auch bei gültigen Daten gesperrt (Entscheidung G2): `inert` lässt sich ohne JS nicht aufheben. */}
+          <p className="mt-3 text-sm">
+            {ansicht.gueltig
+              ? "Bitte aktiviere JavaScript, um deine Daten zu bestätigen."
+              : "Bitte aktiviere JavaScript, um deine Daten zu aktualisieren."}
+          </p>
           <form action={logoutAction} className="mt-2">
             <button type="submit" className="text-sm font-medium text-primary underline underline-offset-4">
               Abmelden

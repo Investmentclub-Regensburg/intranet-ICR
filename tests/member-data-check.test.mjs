@@ -379,6 +379,18 @@ test("A1/B1: Layout-Modus – Mängel → Weiterleitung, gültig → Fenster üb
   assert.doesNotMatch(fenster, /DialogPrimitive\.Portal|<DialogPortal|<DialogContent/);
   assert.match(fenster, /inert=\{offen\}/);
   assert.match(fenster, /<noscript>[\s\S]*Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\.[\s\S]*action=\{logoutAction\}/);
+  // G2: bei gültigen Daten „… zu bestätigen.“, bei Mängeln „… zu aktualisieren.“ (Intranet ohne JS in beiden Fällen gesperrt).
+  assert.match(
+    fenster,
+    /ansicht\.gueltig\s*\?\s*"Bitte aktiviere JavaScript, um deine Daten zu bestätigen\."\s*:\s*"Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\."/,
+  );
+  // G1: Overlay ohne Einblenden (ab dem ersten Bild deckend), Fenster bei reduzierter Bewegung ohne Einblenden.
+  const overlay = /<DialogPrimitive\.Overlay className="([^"]*)"/.exec(fenster);
+  assert.ok(overlay);
+  assert.doesNotMatch(overlay[1], /animate-in|fade-in/);
+  const inhalt = /<DialogPrimitive\.Content[\s\S]*?className="([^"]*)"/.exec(fenster);
+  assert.ok(inhalt);
+  assert.match(inhalt[1], /(^| )motion-reduce:animate-none!( |$)/);
   assert.match(fenster, /\[data-nur-mit-js\]\{display:none!important\}/);
 });
 
