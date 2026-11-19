@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ListFilter, Search, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,9 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
   // Zeilen, damit es offen bleibt, wenn die Zeile nach dem Speichern aus dem Filter fällt (z. B. ausgetreten).
   const [bearbeiten, setBearbeiten] = useState<{ member: AdminMemberRow; n: number } | null>(null);
   const [fensterOffen, setFensterOffen] = useState(false);
+  // Fokus nach dem Schließen (Review N5): zurück auf den Stift, oder aufs Suchfeld, wenn die Zeile weg ist.
+  const ausloeser = useRef<HTMLElement | null>(null);
+  const suchfeld = useRef<HTMLInputElement>(null);
 
   const rollenOptionen = useMemo(
     () => ROLLEN.map((key) => ({ key, label: ROLLEN_LABEL[key], count: members.filter((m) => rolleVon(m) === key).length })),
@@ -123,6 +126,7 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
   const abweichungen = filterAbweichungen(wirksamerFilter);
 
   function oeffneBearbeiten(member: AdminMemberRow) {
+    ausloeser.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setBearbeiten((alt) => ({ member, n: (alt?.n ?? 0) + 1 }));
     setFensterOffen(true);
   }
@@ -136,6 +140,7 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
             aria-hidden
           />
           <Input
+            ref={suchfeld}
             type="search"
             placeholder="Name oder E-Mail suchen"
             value={query}
@@ -287,6 +292,13 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
           member={bearbeiten.member}
           open={fensterOffen}
           onOpenChange={setFensterOffen}
+          onCloseAutoFocus={(e) => {
+            // Radix setzt den Fokus auf den Stift zurück; fiel die Zeile aus dem Filter (z. B. Austritt), gibt es ihn
+            // nicht mehr und der Fokus landete auf body.
+            if (ausloeser.current?.isConnected) return;
+            e.preventDefault();
+            suchfeld.current?.focus();
+          }}
         />
       )}
     </div>

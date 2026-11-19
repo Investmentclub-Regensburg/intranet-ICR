@@ -83,10 +83,13 @@ export function MemberCorrectionDialog({
   member,
   open,
   onOpenChange,
+  onCloseAutoFocus,
 }: {
   member: Pick<AdminMemberRow, "id" | "name" | "email" | "rolle" | "status">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Fokus nach dem Schließen (Radix); preventDefault, um ihn selbst zu setzen. */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   const router = useRouter();
   const [data, setData] = useState<MemberCorrectionData | null>(null);
@@ -252,6 +255,7 @@ export function MemberCorrectionDialog({
       <DialogContent
         // Im Haken-Zustand ohne Beschreibung (der Haken meldet sich selbst als Status).
         {...(saved ? { "aria-describedby": undefined } : {})}
+        onCloseAutoFocus={onCloseAutoFocus}
         className="block max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto rounded-[18px] p-0 sm:max-w-[600px]">
         {saved ? (
           <div className="px-6 py-12">
