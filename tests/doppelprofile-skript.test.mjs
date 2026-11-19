@@ -1,10 +1,12 @@
 // Tests für scripts/lib/doppelprofile.mjs (Doppelprofile zusammenführen). Alle Daten sind erfunden.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
+  BEHANDELTE_SPALTEN,
   CAS_SPALTEN,
   emailSchluessel,
   erwarteterStand,
@@ -12,6 +14,7 @@ import {
   formatiereErgebnis,
   formatierePruefung,
   formatiereProbelauf,
+  gesetzt,
   kontoGesperrt,
   leseDoppelArgumente,
   listeTsv,
@@ -19,8 +22,29 @@ import {
   schreibePaar,
   secretsKurz,
   stufeEin,
+  weitereDatenVonA,
   zaehleAlle,
 } from "../scripts/lib/doppelprofile.mjs";
+
+const MIG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "supabase", "migrations");
+const MERGE_SQL = readFileSync(path.join(MIG, "20261121100000_member_doppelprofil_merge.sql"), "utf8");
+
+/** Spalten von public.profiles laut Migrationen (Basis-CREATE TABLE + spätere „add column“). */
+function profilSpaltenAusSchema() {
+  const spalten = new Set();
+  for (const f of readdirSync(MIG).filter((d) => /^\d{14}_[a-z0-9_]+\.sql$/.test(d)).sort()) {
+    const sql = readFileSync(path.join(MIG, f), "utf8");
+    const create = sql.match(/CREATE TABLE IF NOT EXISTS "public"\."profiles" \(([\s\S]*?)\n\);/);
+    if (create) {
+      for (const m of create[1].matchAll(/^\s+"([^"]+)" /gm)) spalten.add(m[1]);
+    }
+    for (const stmt of sql.matchAll(/alter table (?:only )?"?public"?\."?profiles"?\s+([\s\S]*?);/gi)) {
+      for (const m of stmt[1].matchAll(/add column if not exists\s+"?([^"\s,]+)"?/gi)) spalten.add(m[1]);
+      for (const m of stmt[1].matchAll(/drop column (?:if exists )?"?([^"\s,;]+)"?/gi)) spalten.delete(m[1]);
+    }
+  }
+  return spalten;
+}
 
 const UUID_A = "aaaaaaaa-0000-4000-a000-000000000001";
 const UUID_B = "bbbbbbbb-0000-4000-a000-000000000001";
@@ -63,11 +87,19 @@ const importProfil = (extra = {}) => ({
 
 const secretsMitIban = (hash = "h1.k1.aaa") => ({ daten: true, iban: true, ibanHash: hash });
 
-function kontext({ a = kontoProfil(), b = importProfil(), konto = {}, secrets = {}, registrierungen = [] } = {}) {
+function kontext({
+  a = kontoProfil(),
+  b = importProfil(),
+  konto = {},
+  secrets = {},
+  registrierungen = [],
+  kuendigungen = [UUID_A],
+} = {}) {
   return {
     secrets: new Map([[String(b.id), secretsMitIban()], ...Object.entries(secrets)]),
-    konten: new Map([[String(a.user_id), { email: "max.krause@example.org", gesperrt: false, ...konto }]]),
+    konten: new Map([[String(a.user_id), { email: "max.krause@example.org", gesperrt: false, bestaetigt: true, ...konto }]]),
     registrierungen: new Set(registrierungen),
+    kuendigungen: new Set(kuendigungen),
   };
 }
 
@@ -108,17 +140,40 @@ test("Muster: aktiv/aktiv → zusammenführen, gekündigt/gekündigt → zusamme
   assert.equal(r.eintraege[0].einstufung, "zusammenfuehren");
 });
 
-test("Muster: nur A gekündigt → Kündigung übernehmen", () => {
+test("Muster: nur A gekündigt → Kündigung übernehmen, nur mit Selbstkündigung (Review M1)", () => {
   const a = kontoProfil({ Status: "cancelled", "Datum_Kündigung": "2026-09-15" });
   const r = stufeEin(a, importProfil(), kontext({ a, konto: { gesperrt: true } }));
   assert.deepEqual(r, { einstufung: "kuendigung", gruende: [] });
-  // ohne Datum oder bei Vorstand: prüfen
+  // ohne Grund-Eintrag in membership_cancellations (z. B. vom Vorstand auf „ausgetreten“ gesetzt): prüfen
+  assert.deepEqual(stufeEin(a, importProfil(), kontext({ a, konto: { gesperrt: true }, kuendigungen: [] })).gruende, [
+    "kuendigung_ohne_nachweis",
+  ]);
+  // Grund-Eintrag zu einem anderen Profil zählt nicht
+  assert.deepEqual(
+    stufeEin(a, importProfil(), kontext({ a, konto: { gesperrt: true }, kuendigungen: [UUID_B] })).gruende,
+    ["kuendigung_ohne_nachweis"]
+  );
+  // ohne Datum: prüfen
   const ohneDatum = kontoProfil({ Status: "cancelled" });
   assert.deepEqual(stufeEin(ohneDatum, importProfil(), kontext({ a: ohneDatum, konto: { gesperrt: true } })).gruende, [
     "kuendigung_ohne_datum",
   ]);
-  const b = importProfil({ Rolle: "board" });
-  assert.deepEqual(stufeEin(a, b, kontext({ a, b, konto: { gesperrt: true } })).gruende, ["kuendigung_vorstand"]);
+  // beide gekündigt: kein Nachweis nötig (Status von B ändert sich nicht)
+  const b = importProfil({ Status: "cancelled", "Datum_Kündigung": "2026-08-01" });
+  assert.equal(stufeEin(a, b, kontext({ a, b, konto: { gesperrt: true }, kuendigungen: [] })).einstufung, "zusammenfuehren");
+});
+
+test("Prüfen: B mit Rolle board/admin immer (Review M2)", () => {
+  for (const rolle of ["board", "admin"]) {
+    const b = importProfil({ Rolle: rolle });
+    assert.deepEqual(stufeEin(kontoProfil(), b, kontext({ b })).gruende, ["rolle_b_vorstand"], rolle);
+    const a = kontoProfil({ Rolle: rolle });
+    assert.deepEqual(stufeEin(a, b, kontext({ a, b })).gruende, ["rolle_b_vorstand"], `${rolle} beide`);
+    const ak = kontoProfil({ Status: "cancelled", "Datum_Kündigung": "2026-09-15" });
+    assert.deepEqual(stufeEin(ak, b, kontext({ a: ak, b, konto: { gesperrt: true } })).gruende, ["rolle_b_vorstand"]);
+  }
+  const alumni = importProfil({ Rolle: "alumni" });
+  assert.equal(stufeEin(kontoProfil(), alumni, kontext({ b: alumni })).einstufung, "zusammenfuehren");
 });
 
 test("Prüfen: jede Abweichung vom Muster einzeln", () => {
@@ -132,8 +187,16 @@ test("Prüfen: jede Abweichung vom Muster einzeln", () => {
     ["a_hat_stammdaten", { a: kontoProfil({ Mitgliedsnummer: "7" }) }],
     ["a_hat_stammdaten", { a: kontoProfil({ Datum_Mandat: "2026-02-23" }) }],
     ["b_ohne_iban", { secrets: { [UUID_B]: { daten: true, iban: false, ibanHash: null } } }],
-    ["antrag_offen", { a: kontoProfil({ Status: "applicant" }) }],
-    ["antrag_offen", { b: importProfil({ Status: " Applicant" }) }],
+    ["a_hat_weitere_daten", { a: kontoProfil({ "Studiengang / Fach": "Informatik" }) }],
+    ["a_hat_weitere_daten", { a: kontoProfil({ "Sepa-Bestätigung": true }), b: importProfil({ "Sepa-Bestätigung": false }) }],
+    ["a_hat_weitere_daten", { a: kontoProfil({ daten_bestaetigt_am: "2026-11-19T10:00:00+00:00" }) }],
+    ["a_hat_weitere_daten", { a: kontoProfil({ Semester: 0 }) }],
+    ["status_unklar", { a: kontoProfil({ Status: "applicant" }) }],
+    ["status_unklar", { b: importProfil({ Status: " Applicant" }) }],
+    ["status_unklar", { a: kontoProfil({ Status: "alumni" }) }],
+    ["status_unklar", { b: importProfil({ Status: "alumni" }) }],
+    ["status_unklar", { b: importProfil({ Status: null }) }],
+    ["konto_unbestaetigt", { konto: { bestaetigt: false } }],
     ["b_gekuendigt", { b: importProfil({ Status: "cancelled", "Datum_Kündigung": "2025-09-30" }) }],
     ["rolle", { a: kontoProfil({ Rolle: "admin" }) }],
     ["reihenfolge", { b: importProfil({ created_at: "2026-03-01T00:00:00+00:00" }) }],
@@ -160,6 +223,51 @@ test("Prüfen: jede Abweichung vom Muster einzeln", () => {
   // Rolle null bei A ist die Vorgabe
   const an = kontoProfil({ Rolle: null });
   assert.equal(stufeEin(an, importProfil(), kontext({ a: an })).einstufung, "zusammenfuehren");
+  // Status mit Großschreibung/Leerzeichen ist in Ordnung
+  const as = kontoProfil({ Status: " Active " });
+  assert.equal(stufeEin(as, importProfil(), kontext({ a: as })).einstufung, "zusammenfuehren");
+  // Weitere Daten: gleicher Wert bei B, leer oder false bei A → in Ordnung
+  const gleich = { "Studiengang / Fach": "BWL", "Sepa-Bestätigung": true, Anrede: " ", Abschluss: null, "Vereinsatzung-Bestätigung": false };
+  const ag = kontoProfil(gleich);
+  const bg = importProfil({ "Studiengang / Fach": "BWL", "Sepa-Bestätigung": true });
+  assert.equal(stufeEin(ag, bg, kontext({ a: ag, b: bg })).einstufung, "zusammenfuehren");
+  // Datum_Antrag von A (Anlagetag) wird bewusst nicht übernommen und blockiert nicht
+  const aa = kontoProfil({ Datum_Antrag: "2026-02-23" });
+  assert.equal(stufeEin(aa, importProfil({ Datum_Antrag: "2019-10-01" }), kontext({ a: aa })).einstufung, "zusammenfuehren");
+});
+
+test("Weitere Daten von A: Spalten aus dem Schema abgeleitet, Liste in DB und Skript gleich (Review N2)", () => {
+  const schema = profilSpaltenAusSchema();
+  assert.ok(schema.size >= 30, `nur ${schema.size} Spalten erkannt`);
+  for (const s of ["Studiengang / Fach", "Sepa-Bestätigung", "Vereinsatzung-Bestätigung", "daten_bestaetigt_am", "daten_erinnern_ab"]) {
+    assert.ok(schema.has(s), s);
+  }
+  // Jede behandelte Spalte gibt es wirklich (kein Tippfehler, der still eine Spalte durchlässt).
+  for (const s of BEHANDELTE_SPALTEN) assert.ok(schema.has(s), s);
+  // Alle übrigen Spalten des Schemas gelten als „weitere Daten“.
+  const a = Object.fromEntries([...schema].map((s) => [s, "x"]));
+  const erwartet = [...schema].filter((s) => !BEHANDELTE_SPALTEN.includes(s)).sort();
+  assert.deepEqual(weitereDatenVonA(a, {}), erwartet);
+  assert.ok(erwartet.includes("Studiengang / Fach") && erwartet.includes("daten_bestaetigt_am") && erwartet.includes("Anrede"));
+  // Dieselbe Liste in merge_member_doppelprofil.
+  const m = MERGE_SQL.match(/w\.k <> all \(array\[([^\]]+)\]\)/);
+  assert.ok(m, "Liste in der DB-Funktion nicht gefunden");
+  const sqlListe = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  assert.deepEqual([...sqlListe].sort(), [...BEHANDELTE_SPALTEN].sort());
+  // gesetzt: wie in SQL (null, leerer Text und false zählen nicht)
+  for (const w of [null, undefined, false, "", "  \t"]) assert.equal(gesetzt(w), false, JSON.stringify(w));
+  for (const w of [true, 0, 3, "x", "2026-01-01"]) assert.equal(gesetzt(w), true, JSON.stringify(w));
+});
+
+test("DB-Funktion prüft dieselben neuen Regeln (Review M1, M2, N1, N3, N4)", () => {
+  assert.match(MERGE_SQL, /not exists \(select 1 from public\.membership_cancellations mc where mc\.profile_id = a\.id\)/);
+  assert.match(MERGE_SQL, /or b\."Rolle"::text in \('board', 'admin'\)/);
+  assert.match(MERGE_SQL, /lower\(btrim\(coalesce\(a\."Status", ''\)\)\) not in \('active', 'cancelled'\)/);
+  assert.match(MERGE_SQL, /lower\(btrim\(coalesce\(b\."Status", ''\)\)\) not in \('active', 'cancelled'\)/);
+  assert.match(MERGE_SQL, /from public\.member_secrets ms\s+where ms\.profile_id in \(p_konto_profil, p_import_profil\) order by ms\.profile_id for update/);
+  assert.match(MERGE_SQL, /or u\.email_confirmed_at is null/);
+  // Sperren vor der Musterprüfung
+  assert.ok(MERGE_SQL.indexOf("ms.profile_id for update") < MERGE_SQL.indexOf("-- ---- Muster"));
 });
 
 test("Prüfen: IBAN-Fingerabdruck auch bei einem dritten Profil", () => {
@@ -210,11 +318,12 @@ test("Zählung, Ausgaben ohne IDs/Adressen/Namen", () => {
       ["ffffffff-0000-4000-a000-000000000001", secretsMitIban("h1.k1.3")],
     ]),
     konten: new Map([
-      [UUID_A, { email: "max.krause@example.org", gesperrt: false }],
-      [a2.id, { email: "erika.beispiel@example.org", gesperrt: true }],
-      [a3.id, { email: "lena.probe@example.org", gesperrt: false }],
+      [UUID_A, { email: "max.krause@example.org", gesperrt: false, bestaetigt: true }],
+      [a2.id, { email: "erika.beispiel@example.org", gesperrt: true, bestaetigt: true }],
+      [a3.id, { email: "lena.probe@example.org", gesperrt: false, bestaetigt: true }],
     ]),
     registrierungen: new Set(),
+    kuendigungen: new Set([a2.id]),
   };
   const ergebnis = findePaare(profile, ctx);
   const z = zaehleAlle(profile, ergebnis);

@@ -13,7 +13,8 @@
 -- 2) enqueue_member_cancelled(): keine Vorstandsmail, wenn die Kündigung beim Zusammenführen von A nach B
 --    übernommen wird (die Mail zur Kündigung ging schon, als A gekündigt hat).
 -- 3) provision_profile_for_auth_user(): E-Mail-Vergleich zusätzlich ohne Leerzeichen am Rand (lower(btrim())),
---    passend zum neuen Unique-Index auf lower(btrim("E-Mail")) (Migration 20261121110000).
+--    passend zum Unique-Index auf lower(btrim("E-Mail")) (eigener PR feat/email-index, Migration 20261121110000,
+--    erst NACH dem Zusammenführen einspielen).
 --
 -- Rückgabe von merge_member_doppelprofil (nie Werte, nur Codes):
 --   zusammengefuehrt             Konto an B, A gelöscht
@@ -100,6 +101,10 @@ begin
 
   -- Beide Profile sperren (feste Reihenfolge gegen Deadlocks), dann lesen.
   perform 1 from public.profiles p where p.id in (p_konto_profil, p_import_profil) order by p.id for update;
+  -- Auch die verschlüsselten Daten sperren: Sonst könnte zwischen Prüfung und Löschen von A eine IBAN in die
+  -- (leere) Zeile von A geschrieben und von der Kaskade gelöscht werden.
+  perform 1 from public.member_secrets ms
+   where ms.profile_id in (p_konto_profil, p_import_profil) order by ms.profile_id for update;
   select * into a from public.profiles where id = p_konto_profil;
   if not found then return 'fehlt'; end if;
   select * into b from public.profiles where id = p_import_profil;
@@ -128,6 +133,17 @@ begin
      or coalesce(a."IBAN", '') !~ '^\s*$'
      or coalesce(a."Mitgliedsnummer", '') !~ '^\s*$'
      or a."Datum_Mandat" is not null
+     -- A hat in keiner anderen Spalte einen Wert, den B nicht genauso hat (Spalten zur Laufzeit; die Liste der
+     -- behandelten Spalten ist gleich BEHANDELTE_SPALTEN in scripts/lib/doppelprofile.mjs)
+     or exists (
+          select 1 from jsonb_each(to_jsonb(a)) as w(k, v)
+           where w.k <> all (array['id', 'user_id', 'E-Mail', 'Status', 'Rolle', 'Vorname', 'Nachname',
+                                   'Mitgliedsnummer', 'Datum_Kündigung', 'Datum_Mandat', 'Datum_Antrag', 'IBAN',
+                                   'letzter_news_aufruf', 'created_at'])
+             and w.v <> 'null'::jsonb
+             and w.v <> 'false'::jsonb
+             and not (jsonb_typeof(w.v) = 'string' and (w.v #>> '{}') ~ '^\s*$')
+             and w.v is distinct from coalesce(to_jsonb(b) -> w.k, 'null'::jsonb))
      or exists (
           select 1 from public.member_secrets ms
            where ms.profile_id = a.id
@@ -136,12 +152,15 @@ begin
                   or ms.handynummer is not null or ms.land is not null))
      -- B mit IBAN
      or not exists (select 1 from public.member_secrets ms where ms.profile_id = b.id and ms.iban is not null)
-     -- Status: kein Antrag offen; B gekündigt nur, wenn A auch gekündigt hat
-     or lower(btrim(coalesce(a."Status", ''))) = 'applicant'
-     or lower(btrim(coalesce(b."Status", ''))) = 'applicant'
+     -- Status beider Profile nur active oder cancelled; B gekündigt nur, wenn A auch gekündigt hat
+     or lower(btrim(coalesce(a."Status", ''))) not in ('active', 'cancelled')
+     or lower(btrim(coalesce(b."Status", ''))) not in ('active', 'cancelled')
      or (v_b_cancel and not v_a_cancel)
-     -- Kündigung übernehmen nur mit Datum und nicht für Vorstand/Admin
-     or (v_kuendigung and (a."Datum_Kündigung" is null or b."Rolle"::text in ('board', 'admin')))
+     -- Kündigung übernehmen nur mit Datum und nur bei einer Selbstkündigung (Grund-Eintrag zu A)
+     or (v_kuendigung and (a."Datum_Kündigung" is null
+                           or not exists (select 1 from public.membership_cancellations mc where mc.profile_id = a.id)))
+     -- nie automatisch Vorstands- oder Adminrechte an ein Konto hängen
+     or b."Rolle"::text in ('board', 'admin')
      -- Rolle von A: Vorgabe (member) oder gleich B
      or (a."Rolle" is not null and a."Rolle"::text <> 'member' and a."Rolle" is distinct from b."Rolle")
      -- B ist das ältere Profil (Import vor Kontoanlage)
@@ -160,10 +179,12 @@ begin
     return 'muster';
   end if;
 
-  -- Konto: gleiche Adresse, Sperre passt zu A (gekündigt ⇔ gesperrt). Dann ändert der Trigger
+  -- Konto: bestätigt, gleiche Adresse, Sperre passt zu A (gekündigt ⇔ gesperrt). Dann ändert der Trigger
   -- profiles_sync_auth_ban beim Umhängen nichts: B bekommt denselben Status-Zustand wie A.
-  select usr.id, usr.email, usr.banned_until into u from auth.users usr where usr.id = a.user_id for update;
+  select usr.id, usr.email, usr.banned_until, usr.email_confirmed_at into u
+    from auth.users usr where usr.id = a.user_id for update;
   if not found
+     or u.email_confirmed_at is null
      or lower(btrim(coalesce(u.email, ''))) is distinct from v_key
      or coalesce(u.banned_until >= '2999-12-31 00:00:00+00'::timestamptz, false) is distinct from v_a_cancel then
     return 'muster';

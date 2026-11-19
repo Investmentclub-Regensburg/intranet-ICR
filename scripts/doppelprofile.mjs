@@ -22,8 +22,9 @@
 // Ziele wie scripts/datenqualitaet.mjs (gleiche Argumente und Sicherungen): lokal nur Loopback und Testdatenbank,
 // prod nur mit ausdrücklichem --url. Laut RAHMEN.md werden Cloud-Projekte nicht angefasst.
 //
-// Reihenfolge am Umzugsabend: Migration 20261121100000 → dieses Skript → Migration 20261121110000 (Unique-Index auf
-// lower(btrim("E-Mail")); bricht ab, solange noch Adressen mehrfach vorkommen) → scripts/namen.mjs.
+// Reihenfolge am Umzugsabend: Migration 20261121100000 → dieses Skript → „prüfen“-Fälle von Hand → Migration
+// 20261121110000 (Unique-Index auf lower(btrim("E-Mail")), eigener PR feat/email-index; bricht ab, solange noch
+// Adressen mehrfach vorkommen) → scripts/namen.mjs.
 //
 // Ausgabe nur Zahlen – nie Namen, E-Mails oder Profil-IDs, auch nicht bei Fehlern.
 import { writeFileSync } from "node:fs";
@@ -154,7 +155,11 @@ async function main() {
       const { data, error } = await admin.auth.admin.listUsers({ page: seite, perPage: 200 });
       if (error || !data) throw new Error("Konten nicht lesbar");
       for (const u of data.users) {
-        konten.set(String(u.id), { email: emailSchluessel(u.email), gesperrt: kontoGesperrt(u.banned_until) });
+        konten.set(String(u.id), {
+          email: emailSchluessel(u.email),
+          gesperrt: kontoGesperrt(u.banned_until),
+          bestaetigt: Boolean(u.email_confirmed_at),
+        });
       }
       if (data.users.length < 200) break;
       if (seite >= 100) throw new Error("Zu viele Konten");
@@ -185,8 +190,15 @@ async function main() {
       "Registrierungen"
     );
     const registrierungen = new Set(offen.map((r) => String(r.user_id)));
+    // Selbstkündigungen (Grund-Eintrag): nur damit wird eine Kündigung von A automatisch übernommen.
+    const gruende = await ladeAlle(
+      (von, bis) =>
+        admin.from("membership_cancellations").select("id, profile_id", { count: "exact" }).order("id").range(von, bis),
+      "Kündigungen"
+    );
+    const kuendigungen = new Set(gruende.map((r) => String(r.profile_id)));
     const konten = await ladeKonten();
-    const ergebnis = findePaare(profile, { secrets, konten, registrierungen });
+    const ergebnis = findePaare(profile, { secrets, konten, registrierungen, kuendigungen });
     return { profile, ergebnis };
   }
 

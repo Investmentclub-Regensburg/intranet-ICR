@@ -7,13 +7,15 @@
 //
 // Muster, das automatisch zusammengeführt wird (alles andere ist „pruefen“ und wird NIE angefasst):
 //   A = Profil mit Login-Konto, id = user_id, ohne Vor- und Nachnamen, ohne verschlüsselte Daten, ohne
-//       Klartext-IBAN, ohne Mitgliedsnummer, ohne Mandatsdatum, Rolle member (oder gleich B), jünger als B
+//       Klartext-IBAN, ohne Mitgliedsnummer, ohne Mandatsdatum, Rolle member (oder gleich B), jünger als B, und in
+//       keiner anderen Spalte (alle außer BEHANDELTE_SPALTEN) ein Wert, den B nicht genauso hat
 //   B = Profil ohne Konto mit Vor- und Nachnamen und IBAN in member_secrets, IBAN-Fingerabdruck bei keinem
-//       anderen Profil
-//   genau diese zwei Profile haben die Adresse; das Konto hat dieselbe Adresse, keine offene Registrierung, und
-//   seine Sperre passt zum Status von A (gekündigt ⇔ gesperrt)
-//   Status: beide aktiv oder beide gekündigt → „zusammenfuehren“; nur A gekündigt (mit Datum, B nicht Vorstand/
-//   Admin) → „kuendigung“ (Kündigung wird übernommen); B gekündigt, A aktiv → prüfen; Antrag offen → prüfen
+//       anderen Profil, Rolle nicht board/admin (nie automatisch Rechte an ein Konto hängen)
+//   genau diese zwei Profile haben die Adresse; das Konto ist bestätigt, hat dieselbe Adresse, keine offene
+//   Registrierung, und seine Sperre passt zum Status von A (gekündigt ⇔ gesperrt)
+//   Status beider Profile in {active, cancelled}: beide aktiv oder beide gekündigt → „zusammenfuehren“; nur A
+//   gekündigt → „kuendigung“ (Kündigung wird übernommen), aber nur mit Datum UND Selbstkündigung (Zeile in
+//   membership_cancellations); B gekündigt, A aktiv → prüfen
 // Die Datenbankfunktion merge_member_doppelprofil prüft dieselben Kriterien ein zweites Mal.
 //
 // Grundsatz wie bei datenqualitaet: Ausgaben enthalten nur Zahlen und Codes – nie Namen, E-Mails oder Profil-IDs.
@@ -41,10 +43,35 @@ export const SECRET_SPALTEN = Object.freeze([
   "land",
 ]);
 
-/** Spalten, die das Skript aus profiles liest. */
-export const PROFIL_SPALTEN =
-  'id, user_id, "E-Mail", "Status", "Rolle", "Vorname", "Nachname", "Mitgliedsnummer", "Datum_Kündigung", ' +
-  '"Datum_Mandat", "IBAN", letzter_news_aufruf, created_at';
+/**
+ * Spalten, die das Skript aus profiles liest: alle, damit auch künftige Spalten in die Prüfung „A hat weitere
+ * Daten“ eingehen (wie in der DB-Funktion, die die Spalten zur Laufzeit aus to_jsonb nimmt). Werte bleiben im
+ * Speicher und erscheinen nie in einer Ausgabe.
+ */
+export const PROFIL_SPALTEN = "*";
+
+/**
+ * Spalten von profiles, die die Einstufung ausdrücklich behandelt (eigene Regel oder bewusst nicht übernommen:
+ * Datum_Antrag von A ist nur der Anlagetag, created_at zählt nur für die Reihenfolge). Jede ANDERE Spalte gilt als
+ * „weitere Daten“: Hat A dort einen Wert (nicht leer, nicht false), den B nicht genauso hat → prüfen.
+ * Muss gleich sein mit der Liste in merge_member_doppelprofil (Test tests/doppelprofile-skript.test.mjs).
+ */
+export const BEHANDELTE_SPALTEN = Object.freeze([
+  "id",
+  "user_id",
+  "E-Mail",
+  "Status",
+  "Rolle",
+  "Vorname",
+  "Nachname",
+  "Mitgliedsnummer",
+  "Datum_Kündigung",
+  "Datum_Mandat",
+  "Datum_Antrag",
+  "IBAN",
+  "letzter_news_aufruf",
+  "created_at",
+]);
 
 /** Compare-and-set: diese Spalten müssen beim Schreiben noch dem gelesenen Stand entsprechen (merge_member_doppelprofil_stand). */
 export const CAS_SPALTEN = Object.freeze([
@@ -72,15 +99,18 @@ export const GRUENDE = Object.freeze([
   "b_ohne_namen",
   "a_hat_daten",
   "a_hat_stammdaten",
+  "a_hat_weitere_daten",
   "b_ohne_iban",
   "iban_gruppe",
-  "antrag_offen",
+  "status_unklar",
   "b_gekuendigt",
   "kuendigung_ohne_datum",
-  "kuendigung_vorstand",
+  "kuendigung_ohne_nachweis",
+  "rolle_b_vorstand",
   "rolle",
   "reihenfolge",
   "konto_fehlt",
+  "konto_unbestaetigt",
   "konto_email",
   "konto_sperre",
   "registrierung_offen",
@@ -95,15 +125,18 @@ export const GRUND_TEXT = Object.freeze({
   b_ohne_namen: "Import-Profil ohne Vor- oder Nachnamen",
   a_hat_daten: "Konto-Profil hat Daten (verschlüsselt oder IBAN)",
   a_hat_stammdaten: "Konto-Profil hat Mitgliedsnummer oder Mandat",
+  a_hat_weitere_daten: "Konto-Profil hat weitere Daten, die das Import-Profil nicht hat",
   b_ohne_iban: "Import-Profil ohne IBAN",
   iban_gruppe: "IBAN auch bei einem anderen Profil",
-  antrag_offen: "Antrag offen",
+  status_unklar: "Status nicht active/cancelled",
   b_gekuendigt: "Import-Profil gekündigt, Konto-Profil aktiv",
   kuendigung_ohne_datum: "Kündigung ohne Datum",
-  kuendigung_vorstand: "Kündigung übernehmen bei Vorstand/Admin",
+  kuendigung_ohne_nachweis: "Kündigung ohne Selbstkündigung (kein Grund-Eintrag)",
+  rolle_b_vorstand: "Import-Profil ist Vorstand/Admin",
   rolle: "verschiedene Rollen",
   reihenfolge: "Import-Profil jünger als Konto-Profil",
   konto_fehlt: "Login-Konto nicht gefunden",
+  konto_unbestaetigt: "Login-Konto nicht bestätigt",
   konto_email: "Konto hat eine andere Adresse",
   konto_sperre: "Kontosperre passt nicht zum Status",
   registrierung_offen: "offene Registrierung zum Konto",
@@ -129,6 +162,24 @@ export function kontoGesperrt(bannedUntil) {
   return Number.isFinite(t) && t >= SPERRE_BIS;
 }
 
+/** Hat ein Wert Inhalt? (nicht null, kein leerer Text, nicht false) – wie in merge_member_doppelprofil. */
+export function gesetzt(wert) {
+  if (wert === null || wert === undefined || wert === false) return false;
+  if (typeof wert === "string") return !/^\s*$/.test(wert);
+  return true;
+}
+
+/**
+ * Spalten, in denen A einen Wert hat, den B nicht genauso hat (alle Spalten außer BEHANDELTE_SPALTEN). Liefert
+ * nur Spaltennamen, nie Werte.
+ */
+export function weitereDatenVonA(a, b) {
+  return Object.keys(a ?? {})
+    .filter((k) => !BEHANDELTE_SPALTEN.includes(k))
+    .filter((k) => gesetzt(a[k]) && JSON.stringify(a[k]) !== JSON.stringify(b?.[k] ?? null))
+    .sort();
+}
+
 /** member_secrets-Zeile → { daten, iban, ibanHash } (Werte werden sofort verworfen). */
 export function secretsKurz(zeile) {
   const daten = SECRET_SPALTEN.some((s) => zeile?.[s] !== null && zeile?.[s] !== undefined);
@@ -142,12 +193,19 @@ export function secretsKurz(zeile) {
 /**
  * Ein Paar einstufen.
  *   a, b     Profile (A mit Konto, B ohne – die Zuordnung macht findePaare)
- *   kontext  { secrets: Map<profilId, secretsKurz>, konten: Map<userId, { email, gesperrt }>,
- *              registrierungen: Set<userId>, ibanAnzahl: Map<ibanHash, Anzahl Profile> }
+ *   kontext  { secrets: Map<profilId, secretsKurz>, konten: Map<userId, { email, gesperrt, bestaetigt }>,
+ *              registrierungen: Set<userId>, kuendigungen: Set<profilId> (Zeilen in membership_cancellations),
+ *              ibanAnzahl: Map<ibanHash, Anzahl Profile> }
  * Liefert { einstufung, gruende }.
  */
 export function stufeEin(a, b, kontext) {
-  const { secrets = new Map(), konten = new Map(), registrierungen = new Set(), ibanAnzahl = new Map() } = kontext ?? {};
+  const {
+    secrets = new Map(),
+    konten = new Map(),
+    registrierungen = new Set(),
+    kuendigungen = new Set(),
+    ibanAnzahl = new Map(),
+  } = kontext ?? {};
   const g = [];
   const key = emailSchluessel(a?.["E-Mail"]);
   const sa = secrets.get(String(a.id)) ?? { daten: false, iban: false, ibanHash: null };
@@ -161,19 +219,22 @@ export function stufeEin(a, b, kontext) {
   if (istLeer(b.Vorname) || istLeer(b.Nachname)) g.push("b_ohne_namen");
   if (sa.daten || !istLeer(a.IBAN)) g.push("a_hat_daten");
   if (!istLeer(a.Mitgliedsnummer) || (a.Datum_Mandat !== null && a.Datum_Mandat !== undefined)) g.push("a_hat_stammdaten");
+  if (weitereDatenVonA(a, b).length) g.push("a_hat_weitere_daten");
   if (!sb.iban) g.push("b_ohne_iban");
   // Fingerabdruck auch bei einem dritten Profil (A hat ohne IBAN keinen).
   if (sb.ibanHash && (ibanAnzahl.get(sb.ibanHash) ?? 0) - (sa.ibanHash === sb.ibanHash ? 2 : 1) > 0) g.push("iban_gruppe");
-  if (status(a) === "applicant" || status(b) === "applicant") g.push("antrag_offen");
+  if (![status(a), status(b)].every((s) => s === "active" || s === "cancelled")) g.push("status_unklar");
   if (bGek && !aGek) g.push("b_gekuendigt");
   if (kuendigung && (a.Datum_Kündigung === null || a.Datum_Kündigung === undefined)) g.push("kuendigung_ohne_datum");
-  if (kuendigung && ["board", "admin"].includes(rolle(b) ?? "")) g.push("kuendigung_vorstand");
+  if (kuendigung && !kuendigungen.has(String(a.id))) g.push("kuendigung_ohne_nachweis");
+  if (["board", "admin"].includes(rolle(b) ?? "")) g.push("rolle_b_vorstand");
   if (rolle(a) !== null && rolle(a) !== "member" && rolle(a) !== rolle(b)) g.push("rolle");
   if (Date.parse(b.created_at) > Date.parse(a.created_at)) g.push("reihenfolge");
 
   const konto = konten.get(String(a.user_id));
   if (!konto) g.push("konto_fehlt");
   else {
+    if (!konto.bestaetigt) g.push("konto_unbestaetigt");
     if (emailSchluessel(konto.email) !== key) g.push("konto_email");
     if (Boolean(konto.gesperrt) !== aGek) g.push("konto_sperre");
   }
