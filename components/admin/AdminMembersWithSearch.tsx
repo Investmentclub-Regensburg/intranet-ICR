@@ -10,12 +10,13 @@ import { SELECT_CLASS } from "@/components/member/MemberInputs";
 import { cn } from "@/lib/utils";
 import { AdminMembersTable } from "./AdminMembersTable";
 import { MemberCorrectionDialog } from "./MemberCorrectionDialog";
-import { datenLesbarkeit, passtDatenFilter, statusGroup, type DatenFilter } from "./format";
+import { datenLesbarkeit, passtDatenFilter, type DatenFilter } from "./format";
 import {
   ROLLEN,
   STANDARD_SORTIERUNG,
   STATUS_GRUPPEN,
   filterAbweichungen,
+  filterStatus,
   filtereMitglieder,
   naechsteSortierung,
   rolleVon,
@@ -39,12 +40,12 @@ type Props = {
 
 const ROLLEN_LABEL: Record<(typeof ROLLEN)[number], string> = {
   member: "Mitglied",
-  admin: "Admin",
+  admin: "Engagierte",
   board: "Vorstand",
   alumni: "Alumni",
 };
 
-const STATUS_LABEL = { active: "Aktiv", applicant: "Antrag offen", cancelled: "Ausgetreten" } as const;
+const STATUS_LABEL = { active: "Aktiv", cancelled: "Ausgetreten" } as const;
 
 const DATEN_LABEL: Record<DatenFilter, string> = {
   all: "Alle",
@@ -88,7 +89,7 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
       STATUS_GRUPPEN.map((key) => ({
         key,
         label: STATUS_LABEL[key],
-        count: members.filter((m) => statusGroup(m) === key).length,
+        count: members.filter((m) => filterStatus(m) === key).length,
       })),
     [members],
   );

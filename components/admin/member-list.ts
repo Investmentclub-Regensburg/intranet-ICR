@@ -7,7 +7,14 @@ export const ROLLEN = ["member", "admin", "board", "alumni"] as const;
 export type Rolle = (typeof ROLLEN)[number];
 
 export type StatusGruppe = "active" | "applicant" | "cancelled";
-export const STATUS_GRUPPEN: readonly StatusGruppe[] = ["active", "applicant", "cancelled"];
+/** Status in der Filter-Leiste: „Antrag offen“ gibt es dort nicht mehr (Altprofile zählen als Aktiv, siehe filterStatus). */
+export type FilterStatus = "active" | "cancelled";
+export const STATUS_GRUPPEN: readonly FilterStatus[] = ["active", "cancelled"];
+
+/** Status für den Filter: ein Altprofil mit Status „applicant“ zählt wie Aktiv, damit es nicht unsichtbar wird. */
+export function filterStatus(m: { status: string }): FilterStatus {
+  return statusGroup(m) === "cancelled" ? "cancelled" : "active";
+}
 
 /** Rolle für Filter und Auswahl: unbekannte oder leere Werte zählen wie auf dem Server (roleOf) als Mitglied. */
 export function rolleVon(m: { rolle: string }): Rolle {
@@ -17,13 +24,13 @@ export function rolleVon(m: { rolle: string }): Rolle {
 
 export type MitgliederFilter = {
   rollen: readonly Rolle[];
-  status: readonly StatusGruppe[];
+  status: readonly FilterStatus[];
   daten: DatenFilter;
 };
 
-/** Standard: alle Rollen, Status Aktiv + Antrag offen (Ausgetretene ausgeblendet), Daten „Alle“. */
+/** Standard: alle Rollen, Status nur Aktiv (Ausgetretene ausgeblendet), Daten „Alle“. */
 export function standardFilter(): MitgliederFilter {
-  return { rollen: [...ROLLEN], status: ["active", "applicant"], daten: "all" };
+  return { rollen: [...ROLLEN], status: ["active"], daten: "all" };
 }
 
 function gleicheMenge<T>(a: readonly T[], b: readonly T[]): boolean {
@@ -61,7 +68,7 @@ export function filtereMitglieder<T extends FilterZeile>(rows: readonly T[], suc
     (m) =>
       (!q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)) &&
       f.rollen.includes(rolleVon(m)) &&
-      f.status.includes(statusGroup(m)) &&
+      f.status.includes(filterStatus(m)) &&
       passtDatenFilter(m, f.daten),
   );
 }

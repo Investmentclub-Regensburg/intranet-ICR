@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 /*
  * Bausteine der Profil-Seiten nach Skizze Profil.dc.html (Design-Runde 19.11.2026):
  * - TileIcon: rotes Symbol auf Rosé (40 px, Mitgliedskarte 48 px).
- * - ProfileCard: Kachel mit Symbol, Titel und Stift; gleich hoch, wenn das Raster streckt (h-full).
+ * - ProfileCard: Kachel mit Symbol, Titel und Stift; gleich hoch, wenn das Raster streckt (Standard-Stretch, kein h-full).
  * - Rows/Row: Lesesicht als Liste, Beschriftung links, Wert rechts, feine Linie zwischen den Zeilen.
  * Bewusst lokal statt components/kit/ReadSection: das Layout (Beschriftung links) gilt bisher nur hier.
  */
@@ -43,7 +43,7 @@ export function ProfileCard({
     <section
       id={id}
       aria-labelledby={headingId}
-      className="h-full rounded-2xl border border-border bg-card px-5 pt-5 pb-6 sm:px-[1.375rem] sm:pt-[1.375rem]"
+      className="rounded-2xl border border-border bg-card px-5 pt-5 pb-6 sm:px-[1.375rem] sm:pt-[1.375rem]"
     >
       <div className="mb-5 flex min-h-10 items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">

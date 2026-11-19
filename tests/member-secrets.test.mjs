@@ -26,6 +26,7 @@ const {
   emptySecretValues,
   readMemberSecrets,
   readMemberSecretsMany,
+  readMemberSecretFieldMany,
   MemberSecretsConflictError,
   PLAIN_COLUMNS,
   PLAIN_SECRET_FIELDS,
@@ -221,4 +222,22 @@ test("G1: ohne land gelesene Zeile → ohne land speichern, auch wenn der Rückf
   const { readMemberSecretsWithMeta } = await import("../lib/member-secrets-server.ts");
   assert.equal((await readMemberSecretsWithMeta(fakeAdmin(stored), ALICE)).landBekannt, false);
   assert.equal((await readMemberSecretsWithMeta(fakeAdmin(row({ land: "AT" })), ALICE)).landBekannt, true);
+});
+
+test("Nur ein Feld lesen: Abfrage ohne andere Felder, nur dieses Feld entschlüsselt", async () => {
+  _resetLandSpalte();
+  const stored = row({ geburtsdatum: "2003-04-05", iban: "DE89370400440532013000", ort: "Regensburg" });
+  const admin = fakeAdmin(stored);
+  const werte = await readMemberSecretFieldMany(admin, [ALICE, "00000000-0000-4000-a000-000000000099"], "geburtsdatum");
+  assert.equal(werte.get(ALICE), "2003-04-05");
+  assert.equal(werte.get("00000000-0000-4000-a000-000000000099"), null); // ohne Zeile
+  assert.equal(admin.selects.at(-1), "profile_id, wrapped_dek, geburtsdatum");
+  assert.ok(!/iban|ort|handynummer/.test(admin.selects.at(-1)));
+});
+
+test("Nur ein Feld lesen: manipulierte Zeile → unreadable, keine Werte", async () => {
+  const stored = row({ geburtsdatum: "2003-04-05" });
+  stored.geburtsdatum = "e1.kaputt";
+  const werte = await readMemberSecretFieldMany(fakeAdmin(stored), [ALICE], "geburtsdatum");
+  assert.equal(werte.get(ALICE), "unreadable");
 });

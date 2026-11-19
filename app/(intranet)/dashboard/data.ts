@@ -6,6 +6,8 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { getEvents } from "@/app/(intranet)/events/actions";
 import { EVENT_TIME_ZONE, eventImageSrc, formatEventDate, formatEventDateRange, formatEventTimes, isEventPast, isMultiDay, registrationPhase } from "@/lib/events";
 import type { AdminCounts, DashboardEvent, DashboardNewsItem } from "@/components/dashboard/types";
+import { berlinToday as berlinTag } from "@/lib/berlin-date";
+import { eintritteImSemester, mitgliedsart, periodLabel, periodOf } from "@/lib/insights";
 
 /*
  * Daten der Übersicht (/dashboard).
@@ -59,15 +61,6 @@ function relativeLabel(days: number): string {
 }
 
 const stripDot = (s: string) => s.replace(/\.$/, "");
-
-/** Laufendes Semester wie in Insights: Wintersemester ab 1. Oktober, Sommersemester ab 1. April. */
-function currentSemester(today: Ymd): { start: string; label: string } {
-  const yy = (n: number) => String(n % 100).padStart(2, "0");
-  const { y, m } = today;
-  if (m >= 10) return { start: `${y}-10-01`, label: `WiSe ${yy(y)}/${yy(y + 1)}` };
-  if (m >= 4) return { start: `${y}-04-01`, label: `SoSe ${yy(y)}` };
-  return { start: `${y - 1}-10-01`, label: `WiSe ${yy(y - 1)}/${yy(y)}` };
-}
 
 /** „Donnerstag, 8. Oktober“ */
 export function todayLabel(): string {
@@ -246,7 +239,8 @@ export async function getAdminCounts(): Promise<AdminCounts | null> {
   if (!auth.ok) return null;
 
   const admin = createServiceClient();
-  const semester = currentSemester(berlinToday());
+  // Semester, „Aktive Mitglieder“ und „Neuzugänge“ nach denselben Regeln wie Insights (lib/insights.ts).
+  const heute = berlinTag();
 
   const [profilesRes, alumniRes, bvhRes] = await Promise.all([
     // Nur die drei Spalten, die gezählt werden: keine Namen, Kontakt- oder Bankdaten.
@@ -260,27 +254,25 @@ export async function getAdminCounts(): Promise<AdminCounts | null> {
     return null;
   }
 
-  let activeMembers = 0;
-  let newThisSemester = 0;
-  for (const row of profilesRes.data ?? []) {
+  const profile = (profilesRes.data ?? []).map((row) => {
     const raw = row as Record<string, unknown>;
-    const status = String(raw["Status"] ?? "").trim().toLowerCase();
-    const role = String(raw["Rolle"] ?? "").trim().toLowerCase();
-    const isAlumni = role === "alumni" || status === "alumni";
-
-    if (status === "cancelled" || status === "applicant") continue;
-    // „Aktiv“ wie in Insights: Status active, Alumni nicht mitgezählt.
-    if (status === "active" && !isAlumni) activeMembers++;
-    // Neuzugang: Antrag ab Semesterbeginn und freigegeben (nicht offen, nicht ausgetreten).
-    const antrag = String(raw["Datum_Antrag"] ?? "").slice(0, 10);
-    if (antrag && antrag >= semester.start) newThisSemester++;
-  }
+    return {
+      status: String(raw["Status"] ?? ""),
+      rolle: String(raw["Rolle"] ?? ""),
+      datumAntrag: raw["Datum_Antrag"] ? String(raw["Datum_Antrag"]) : null,
+    };
+  });
+  // Aktiv: Mitglieder ohne Alumni (wie Insights „Aktive Mitglieder“).
+  const activeMembers = profile.filter((p) => mitgliedsart(p) === "studierend").length;
+  // Neuzugänge = Insights „Eintritte“ im laufenden Semester: Antrag ab Semesterbeginn, ohne offene Anträge,
+  // inzwischen Ausgetretene zählen mit.
+  const newThisSemester = eintritteImSemester(profile, heute);
 
   return {
     alumniRequests: alumniRes.count ?? 0,
     bvhRequests: bvhRes.count ?? 0,
     activeMembers,
     newThisSemester,
-    semesterLabel: semester.label,
+    semesterLabel: periodLabel(periodOf(heute)),
   };
 }

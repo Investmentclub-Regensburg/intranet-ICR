@@ -70,14 +70,14 @@ export type ProfileContactData = {
 type Fehler = Partial<Record<string, string>>;
 
 /**
- * Persönliche Daten und Bankverbindung als zwei gleich breite, gleich hohe Kacheln (Skizze Profil.dc.html):
+ * Persönliche Daten und Bankverbindung als zwei gleich breite Kacheln (in der Lesesicht gleich hoch, im Bearbeiten behält jede ihre Höhe) (Skizze Profil.dc.html):
  * erst Lesesicht, der Stift öffnet das Formular im Abschnitt selbst. Gespeichert wird über updateProfile; der
  * Server prüft nach lib/member-rules.ts nur die Felder des Abschnitts (`section`) und meldet Fehler je Feld.
  * Nach dem Speichern zeichnet sich ein Haken.
  */
 export function ProfileDataSections({ profile }: { profile: ProfileContactData }) {
   return (
-    <div className="grid items-stretch gap-4 lg:grid-cols-2">
+    <div className="grid items-stretch gap-4 lg:grid-cols-2 lg:has-[form]:items-start">
       <PersonalSection profile={profile} />
       <BankSection profile={profile} />
     </div>

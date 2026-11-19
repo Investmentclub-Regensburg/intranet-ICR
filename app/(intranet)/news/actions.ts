@@ -177,7 +177,7 @@ export async function checkUnreadNews(lastReadAt: string | null): Promise<boolea
 }
 
 export async function deleteNews(id: string): Promise<{ error: string }> {
-  const auth = await requireRole(["admin", "board"], "Nur Admins/Vorstand dürfen News entfernen.");
+  const auth = await requireRole(["admin", "board"], "Nur Engagierte/Vorstand dürfen News entfernen.");
   if (!auth.ok) return { error: auth.error };
   if (!isSafeId(id)) return { error: "Ungültige Auswahl." };
 

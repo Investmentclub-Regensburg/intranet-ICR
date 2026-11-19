@@ -6,7 +6,6 @@ import { CalendarCheck2, ChevronRight, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tile, TileGrid } from "@/components/kit/Tile";
 import { staggerProps } from "@/components/kit/Reveal";
-import { EmptyState } from "@/components/kit/PageHeader";
 import { eventPath } from "@/lib/events";
 import { UnregisterEventButton } from "./UnregisterEventButton";
 
@@ -24,24 +23,21 @@ export function MyEventsList({ upcoming, past }: { upcoming: MyEventView[]; past
 
   return (
     <div className="space-y-10">
-      <section aria-labelledby="my-events-upcoming" className="space-y-4">
-        <h2 id="my-events-upcoming" className="text-base font-bold tracking-[-0.02em]">
-          Angemeldet
-          {upcoming.length > 0 && (
+      <section aria-labelledby={upcoming.length > 0 ? "my-events-upcoming" : undefined} className="space-y-4">
+        {upcoming.length > 0 && (
+          <h2 id="my-events-upcoming" className="text-base font-bold tracking-[-0.02em]">
+            Angemeldet
             <span className="ml-2 font-semibold text-muted-foreground tabular-nums">{upcoming.length}</span>
-          )}
-        </h2>
+          </h2>
+        )}
 
         {upcoming.length === 0 ? (
-          <EmptyState
-            className="py-10"
-            title="Keine Anmeldungen"
-            action={
-              <Button asChild variant="outline">
-                <Link href="/events">Veranstaltungen ansehen</Link>
-              </Button>
-            }
-          />
+          <div className="flex flex-col items-start gap-4">
+            <p className="text-sm text-muted-foreground">Du bist noch für keine Veranstaltung angemeldet.</p>
+            <Button asChild variant="outline">
+              <Link href="/events">Veranstaltungen ansehen</Link>
+            </Button>
+          </div>
         ) : (
           <TileGrid delay={0.05}>
             {upcoming.map((event) => (

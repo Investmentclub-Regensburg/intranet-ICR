@@ -8,7 +8,7 @@ import { berlinToday } from "@/lib/berlin-date";
 const TIME_ZONE = "Europe/Berlin";
 
 export const ROLE_LABELS: Record<string, string> = {
-  admin: "Admin",
+  admin: "Engagierte",
   alumni: "Alumni",
   board: "Vorstand",
   member: "Mitglied",
