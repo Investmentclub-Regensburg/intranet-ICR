@@ -2,6 +2,7 @@ import { getAnnouncementRecipientCount, getEvents, type EventListItem } from "@/
 import { requireUser } from "@/utils/supabase/guards";
 import { splitUpcomingPast } from "@/lib/events";
 import { EventsHub, type AdminEventTile } from "@/components/admin/EventsHub";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 type Props = {
   searchParams: Promise<{ ansicht?: string }>;
@@ -26,6 +27,7 @@ function toTile(e: EventListItem): AdminEventTile {
 }
 
 export default async function AdminEventsPage({ searchParams }: Props) {
+  await sperreBeiDatenmaengeln();
   const { ansicht } = await searchParams;
   const [events, memberCount, auth] = await Promise.all([
     getEvents(),

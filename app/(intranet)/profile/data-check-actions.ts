@@ -16,6 +16,7 @@ import type { FeldFehler } from "@/lib/member-forms";
 import { istAbfrageFaellig, spaeterBis } from "@/lib/member-data-check";
 import {
   AENDERN_FELDER,
+  bestaetigeStand,
   bestaetigungsAenderungen,
   bewerteBestand,
   datenCheckEinstellungen,
@@ -121,9 +122,12 @@ async function speichereUndBestaetige(
   secrets: Partial<MemberSecretValues>,
   namen: { vorname?: string; nachname?: string },
 ): Promise<DatenCheckState> {
+  // Version nach dem eigenen Speichern: save_member_secrets erhöht sie um genau 1 (neue Zeile = 1).
+  let erwartet = g.version;
   if (Object.keys(secrets).length > 0) {
     try {
       await saveMemberSecrets(admin, g.id, secrets, { erwarteteVersion: g.version });
+      erwartet = g.version + 1;
     } catch (err) {
       if (err instanceof MemberSecretsConflictError) return { success: false, error: GEAENDERT_MELDUNG };
       console.error("Datenabfrage: speichern", err instanceof Error ? err.message : "unbekannt");
@@ -134,14 +138,10 @@ async function speichereUndBestaetige(
   if (ergebnis === "konflikt") return { success: false, error: GEAENDERT_MELDUNG };
   if (ergebnis === "fehler") return { success: false, error: "Dein Name konnte nicht gespeichert werden." };
 
-  const { error } = await admin
-    .from("profiles")
-    .update({ daten_bestaetigt_am: new Date().toISOString(), daten_erinnern_ab: null })
-    .eq("id", g.id);
-  if (error) {
-    console.error("Datenabfrage: bestätigen", error.code);
-    return { success: false, error: "Die Bestätigung konnte nicht gespeichert werden." };
-  }
+  // Bestätigung nur für genau den geprüften Stand (Review A2): sonst „inzwischen geändert“.
+  const bestaetigt = await bestaetigeStand(admin, g.id, erwartet);
+  if (bestaetigt === "konflikt") return { success: false, error: GEAENDERT_MELDUNG };
+  if (bestaetigt === "fehler") return { success: false, error: "Die Bestätigung konnte nicht gespeichert werden." };
   return { success: true, error: "" };
 }
 
@@ -190,7 +190,8 @@ export async function saveMemberDataCheck(formData: FormData): Promise<DatenChec
 
   const eingabe: Record<string, unknown> = {};
   for (const key of AENDERN_FELDER) eingabe[key] = formData.get(key);
-  const landUnbekannt = formData.get("landUnbekannt") === "1" || !g.landBekannt;
+  // Land unbekannt bestimmt nur der Server (gelesen ohne Spalte land), nie das Formular (Review A3).
+  const landUnbekannt = !g.landBekannt;
   const r = pruefeDatenCheckAenderung(eingabe, g.bestand, g.alumni, landUnbekannt);
   if (!r.gueltig) return { success: false, error: r.ersterFehler ?? MAENGEL_MELDUNG, fehler: r.fehler };
   return speichereUndBestaetige(admin, g, auth.user.id, r.secrets, r.namen);

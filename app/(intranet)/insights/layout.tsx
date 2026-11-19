@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { VerwaltungHeader } from "@/components/admin/VerwaltungHeader";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 // Insights gehört zum Bereich „Verwaltung“ (gleicher Kopf wie /admin/**). Die Rollen-
 // prüfung (nur board) bleibt auf der Seite selbst.
 export default async function InsightsLayout({ children }: { children: ReactNode }) {
+  await sperreBeiDatenmaengeln();
   const { profile } = await getCachedAuth();
   const role = ((profile?.["Rolle"] as string) ?? "member").trim().toLowerCase();
 

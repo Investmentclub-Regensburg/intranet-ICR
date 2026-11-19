@@ -224,3 +224,19 @@ export type DatenCheckAnsicht = {
   /** Mängel je Formularfeld (beim Wechsel zu „Ändern“ gleich am Feld). */
   formularFehler: Partial<Record<string, string>>;
 };
+
+/** Eigene Seite für die Abfrage bei Mängeln (außerhalb des Intranet-Layouts, in middleware.ts geschützt). */
+export const DATEN_CHECK_PFAD = "/daten-bestaetigen";
+
+/**
+ * Was das Intranet-Layout tut (Review A1/B1): nicht fällig → Seite; fällig und gültig → Seite unter dem Fenster
+ * (inert, „Später“ möglich); fällig mit Mängeln → Weiterleitung auf DATEN_CHECK_PFAD. Die Weiterleitung im Layout
+ * allein hält den Seiteninhalt nicht aus der Antwort: Next rendert und überträgt die Seite eines Segments parallel
+ * zum Layout (eigener Eintrag im RSC-Payload, auch nach `redirect()` im Layout), und bei einer Navigation unter
+ * demselben Layout läuft das Layout gar nicht. Deshalb ruft jede Intranet-Seite zuerst `sperreBeiDatenmaengeln()`
+ * auf (lib/member-data-check-sperre.ts, Gegenprüfung S-G1).
+ */
+export function layoutModus(datenCheck: Pick<DatenCheckAnsicht, "gueltig"> | null): "seite" | "fenster-ueber-seite" | "umleiten" {
+  if (!datenCheck) return "seite";
+  return datenCheck.gueltig ? "fenster-ueber-seite" : "umleiten";
+}

@@ -2,10 +2,12 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { VerwaltungHeader } from "@/components/admin/VerwaltungHeader";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function AdminLayout({
   children,
 }: { children: ReactNode }) {
+  await sperreBeiDatenmaengeln();
   const { user, profile } = await getCachedAuth();
 
   if (!user) {

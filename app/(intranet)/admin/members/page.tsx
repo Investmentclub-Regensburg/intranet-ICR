@@ -5,8 +5,10 @@ import { AdminMembersWithSearch } from "@/components/admin/AdminMembersWithSearc
 import { CancellationsOverview } from "@/components/admin/CancellationsOverview";
 import { MembersViewSwitch } from "@/components/admin/MembersViewSwitch";
 import { handyAnzeige } from "@/lib/member-forms";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function AdminMembersPage() {
+  await sperreBeiDatenmaengeln();
   const { profile } = await getCachedAuth();
   const role = roleOf(profile as Record<string, unknown> | null);
   const isBoard = role === "board";
