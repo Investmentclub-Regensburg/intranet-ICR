@@ -492,6 +492,8 @@ export function Sidebar({ profile }: { profile: Profile }) {
                         onClick={() => toggle(item.href)}
                         aria-expanded={expanded}
                         aria-controls={expanded ? subId : undefined}
+                        // Zugeklappt trägt der Bereich die aktuelle Seite (aufgeklappt der Unterpunkt mit "page").
+                        aria-current={active && !expanded ? "true" : undefined}
                         className="block w-full rounded-lg text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
                       >
                         {row}
@@ -554,6 +556,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
             title="Mein Profil"
             aria-expanded={profileOpen}
             aria-controls={profileOpen ? subId : undefined}
+            aria-current={profileActive && !profileOpen ? "true" : undefined}
             className={cn(
               "group relative flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-2 text-left transition-colors outline-none hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:ring-[3px] focus-visible:ring-ring/40",
               profileActive && "bg-sidebar-accent",
