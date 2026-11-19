@@ -507,6 +507,39 @@ test("Reparatur Handy: ohne Vorwahl nur 15/16/17 als deutsch „sicher“ (Entsc
   for (const eingabe of ["13812345678", "18812345678"]) assert.equal(repariereHandy(eingabe).status, "offen", eingabe);
 });
 
+test("Reparatur Handy: Grenzen der 15/16/17-Regel (Review 19.11.2026)", () => {
+  // Standardland AT: ohne Präfix bleibt offen, +49-Zweig nur Vorschlag.
+  assert.equal(repariereHandy("17612345678", "AT").status, "offen");
+  assert.equal(repariereHandy("+49 176 12345678", "AT").status, "vorschlag");
+  // Klammern und Trenner im +49- bzw. Ohne-Präfix-Zweig.
+  for (const eingabe of ["+49 (151) 12345678", "(+49) 176 12345678", "+49-176-12345678", "+49/176/12345678", "+ 49 176 12345678", "(176) 12345678"]) {
+    const r = repariereHandy(eingabe);
+    assert.equal(r.status, "sicher", eingabe);
+    assert.match(r.wert, /^\+4915|^\+4917/, eingabe);
+  }
+  // 10-stellige 15er sind keine gültige deutsche Mobilnummer; 11-stellige schon.
+  assert.equal(repariereHandy("1512345678").status, "offen");
+  assert.equal(repariereHandy("15112345678").status, "sicher");
+  // Pager (168) ist nicht MOBILE.
+  assert.equal(repariereHandy("16812345678").status, "offen");
+  assert.equal(repariereHandy("+49 168 1234567").status, "offen");
+  // Festnetz und Sonderrufnummern nach +49 ohne 0.
+  assert.equal(repariereHandy("+49 30 1234567").status, "offen");
+  assert.equal(repariereHandy("+49 800 1234567").status, "offen");
+  // „49“ ohne + darf nicht sicher werden.
+  assert.equal(repariereHandy("49 176 12345678").status, "offen");
+  assert.equal(repariereHandy("4917612345678").status, "offen");
+});
+
+test("Reparatur Handy: akzeptiertes Restrisiko USA/Kanada und China (Entscheidung Hannes 19.11.2026)", () => {
+  // Dokumentiertes Verhalten, keine Wunschlösung: Nummern mit Vorwahl 1 ohne „+“ bzw. hinter „+49“ und
+  // chinesische Mobilnummern sehen wie deutsche aus und werden „sicher“ als deutsche Nummer umgeschrieben.
+  assert.deepEqual(repariereHandy("1 602 555 1234"), { status: "sicher", wert: "+4916025551234", code: null });
+  assert.equal(repariereHandy("1-702-555-1234").status, "sicher");
+  assert.equal(repariereHandy("+49 1 602 555 1234").status, "sicher");
+  assert.equal(repariereHandy("15112345678").status, "sicher"); // China 15x
+});
+
 test("Reparatur IBAN, BIC, Straße", () => {
   assert.deepEqual(repariereIban("de89 3704 0044 0532 0130 00"), { status: "sicher", wert: IBAN_DE, code: null });
   assert.deepEqual(repariereIban(IBAN_DE), { status: "gueltig", wert: IBAN_DE, code: null });
@@ -757,7 +790,7 @@ test("F2: weitere echte Hausnummern gültig, Halbgeviertstrich normalisiert", ()
   assert.equal(pruefeStrasse("Hauptstraße 12½", "", MITGLIED).code, "hausnummer_in_strasse");
 });
 
-test("F3/R2: Handy-Reparatur „sicher“ nur mit deutschem Beleg", () => {
+test("F3/R2: Handy-Reparatur „sicher“ mit deutschem Beleg oder 15/16/17 ohne 0; 00-Nummern und Ausland nur Vorschlag", () => {
   const tabelle = [
     ["+49 15112345678", "sicher"], // seit 19.11.2026 (Mobilvorwahl 15/16/17)
     ["+49 17612345678", "sicher"],
@@ -785,7 +818,7 @@ test("F3/R2: Handy-Reparatur „sicher“ nur mit deutschem Beleg", () => {
   }
 });
 
-test("F4: Hinweis vorwahl_ergaenzt im Bestand für nur angenommene deutsche Vorwahl (nicht blockierend)", () => {
+test("F4: Hinweis vorwahl_ergaenzt tritt bei deutschen Nummern nicht mehr auf (Code bleibt, Abwärtskompatibilität)", () => {
   assert.deepEqual(HINWEIS_CODES, ["vorwahl_ergaenzt", "bic_land"]);
   // Seit 19.11.2026 werden 15/16/17 ohne 0 sicher korrigiert → kein Hinweis mehr (Hinweis ⇔ Vorschlag).
   for (const handy of ["17612345678", "176 12345678", "+49 15112345678"]) {

@@ -29,17 +29,21 @@ npm run datenqualitaet -- reparieren             --projekt <…> --vorstand <Pro
 
 - **Betroffen** sind aktive Profile inklusive Vorstand und Alumni. Gekündigte Profile und offene Anträge werden
   nur gezählt, nie geändert. Bei Alumni sind IBAN und BIC nie ein Mangel.
-- **`pruefen`**: Zählungen je Feld und Mängel-Code, die Hinweise (`vorwahl_ergaenzt`, `bic_land`), Profile ohne
+- **`pruefen`**: Zählungen je Feld und Mängel-Code, die Hinweise (`vorwahl_ergaenzt`, `bic_land`; `vorwahl_ergaenzt` kommt bei deutschen Nummern praktisch nicht mehr vor, siehe oben), Profile ohne
   `member_secrets`-Zeile und nicht lesbare Zeilen.
 - **`reparieren --probelauf`**: je Feld, wie viele Profile `gueltig`, `sicher` (wird automatisch korrigiert),
   `vorschlag` (bestätigt das Mitglied in der Abfrage) oder `offen` (Mitglied oder Vorstand korrigiert) sind.
 - **`reparieren`** schreibt **nur „sicher“**:
   - Handy mit deutschem Beleg (führende 0, `0049`, `+49 0`) → E.164 (auch nur Leerraum/harmlose Zeichen),
+  - Handy 15/16/17 ohne 0 und `+49 1[567]…` ohne 0 → E.164 (Entscheidung Hannes 19.11.2026). Akzeptiertes
+    Restrisiko: Chinesische Mobilnummern (15x/17x) und nordamerikanische Nummern ohne `+1` (z. B. `1 602 555 1234`)
+    sehen genauso aus und werden als deutsch umgeschrieben. Der Probelauf zählt diese „nur angenommen deutschen“
+    Handys getrennt von den belegten (nur Zahlen),
   - Straße mit Hausnummer bei leerer Hausnummer → abgetrennt; Straße/Hausnummer mit harmlosen Format-Zeichen
     (weiches Trennzeichen, Zero-Width, NFD) → bereinigt,
   - BIC mit falschem Format → geleert (BIC ist optional, auch bei Alumni); nur Schreibweise → normalisiert.
 
-  Vorschläge (z. B. Handy ohne Vorwahl und ohne 0) und alles andere bleiben unangetastet, auch die IBAN.
+  Vorschläge (z. B. Handy aus einem anderen Land als dem Standardland) und alles andere bleiben unangetastet, auch die IBAN.
   Vorher gibt das Skript den Probelauf aus und verlangt „REPARIEREN <projekt-ref bzw. adresse> <anzahl>“
   (Anzahl der zu ändernden Profile). Strg+C während des Schreibens beendet nach dem laufenden Profil und
   zeigt den Zwischenstand; ein zweites Strg+C beendet sofort (jedes Speichern ist für sich vollständig).

@@ -295,6 +295,16 @@ const STICHPROBE = [
   { id: ID(8), profil: AKTIV, werte: Object.fromEntries(SECRET_FIELDS.map((f) => [f, null])), hatZeile: false },
   { id: ID(9), profil: AKTIV, werte: "unreadable" },
 ];
+test("Handy-Herkunft: angenommen deutsch vs. belegt (nur Zählung)", () => {
+  const h = (handynummer) => bewerte(AKTIV, daten({ handynummer })).handyHerkunft;
+  assert.equal(h("17612345678"), "angenommen");
+  assert.equal(h("+49 176 12345678"), "angenommen");
+  assert.equal(h("+49 0176 12345678"), "belegt");
+  assert.equal(h("0176 12345678"), "belegt");
+  assert.equal(h("+4917612345678"), "belegt");
+  assert.equal(h("0941 123456"), null);
+});
+
 const KLARTEXTE = new Set();
 for (const s of STICHPROBE) {
   if (s.werte === "unreadable") continue;
@@ -344,6 +354,9 @@ test("Zählungen der Stichprobe", () => {
   assert.equal(z.hinweise.handynummer?.vorwahl_ergaenzt ?? 0, 0);
   assert.equal(z.status.handynummer.sicher, 2);
   assert.equal(z.status.handynummer.vorschlag ?? 0, 0);
+  // Herkunft: ID 2 (ohne Präfix) nur angenommen; ID 1 (+49 0…) belegt; ID 5/7 ohne eigenes Handy-Muster belegt/leer.
+  assert.equal(z.handyAngenommen, 1);
+  assert.ok(z.handyBelegt >= 1);
   assert.equal(z.status.bic.sicher, 1);
   assert.equal(z.status.strasse.sicher, 1);
   assert.equal(z.zuAendern, 3);

@@ -245,7 +245,7 @@ test("Handy ohne Vorwahl (15/16/17): seit 19.11.2026 ohne Rückfrage, Anzeige E.
   const handy = a.zeilen.find((zl) => zl.key === "handy");
   assert.deepEqual(handy.wert, ["+49 176 12345678"]);
   assert.equal(handy.hinweis, undefined);
-  assert.equal(typeof HINWEIS_VORWAHL, "string"); // Text bleibt für echte Vorschläge erhalten
+  assert.equal(typeof HINWEIS_VORWAHL, "string"); // Konstante bleibt (Abwärtskompatibilität); bei deutschen Nummern erscheint der Hinweis praktisch nicht mehr
   const b = bewerteBestand(bestand, false, HEUTE);
   assert.deepEqual(bestaetigungsAenderungen(bestand, b.werte, false).secrets, { handynummer: "+4917612345678" });
 });

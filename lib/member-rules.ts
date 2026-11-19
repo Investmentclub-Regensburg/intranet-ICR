@@ -99,9 +99,11 @@ export const MANGEL_CODES: readonly MangelCode[] = [
 
 /**
  * Stabile Hinweis-Codes (blockieren nie; Skript zählt sie, das Abfrage-Fenster zeigt sie am Feld).
- *   vorwahl_ergaenzt  Handy wurde nur per Annahme „deutsche Nummer“ zu E.164 (ohne Vorwahl und ohne 0, oder
- *                     „+49“ direkt vor 15x/16x/17x aus der alten Vorauswahl). Nur `pruefeBestand` ohne
- *                     gewähltes Handy-Land, nie im Formular. „Stimmt alles“ bestätigt ihn.
+ *   vorwahl_ergaenzt  Handy wurde nur per Annahme „deutsche Nummer“ zu E.164. Seit 19.11.2026 werden
+ *                     15/16/17 ohne 0 und „+49 1[567]…“ ohne 0 als „sicher“ korrigiert; der Hinweis kommt
+ *                     bei deutschen Nummern praktisch nicht mehr vor (nur noch Code, kein echter Fall).
+ *                     Bleibt aus Abwärtskompatibilität bestehen. Nur `pruefeBestand` ohne gewähltes
+ *                     Handy-Land, nie im Formular.
  *   bic_land          BIC-Land (Stellen 5–6) weicht vom Land der IBAN ab (z. B. Neobanken). Kein Fehler.
  */
 export type HinweisCode = "vorwahl_ergaenzt" | "bic_land";
@@ -287,8 +289,12 @@ export type HandyErgebnis = RegelErgebnis & {
 /**
  * Wurde die Nummer nur per Annahme „deutsch“ zu E.164? Ohne Vorwahl und ohne 0 (`176 1234…`) oder „+49“
  * direkt vor der Nummer ohne 0 (`+49 151…`, typisch aus der alten Vorauswahl der Registrierung), solange
- * die Eingabe nicht schon genau die E.164-Form ist. Chinesische Mobilnummern sehen genauso aus.
- * Deckt sich mit `repariereHandy` → „vorschlag“ für deutsche Nummern.
+ * die Eingabe nicht schon genau die E.164-Form ist.
+ * Seit 19.11.2026 liefert `repariereHandy` für diese deutschen Fälle „sicher“, nicht „vorschlag“; der
+ * Hinweis ist daher bei deutschen Nummern praktisch nicht mehr erreichbar (Code bleibt, s. HinweisCode).
+ * Akzeptiertes Restrisiko (Entscheidung Hannes 19.11.2026): Chinesische Mobilnummern (15x/17x, 11 Stellen)
+ * und nordamerikanische Nummern ohne „+“ bzw. hinter „+49“ (`1 602 555 1234`) sehen genauso aus und werden
+ * als deutsche Nummer „sicher“ umgeschrieben.
  */
 function vorwahlNurAngenommen(roh: string, e164: string): boolean {
   const t = roh.trim();
@@ -845,6 +851,7 @@ export function repariereHandy(
   if (ohnePraefix) {
     // Nur reine Ziffern, 10–11 Stellen, deutsche Mobilvorwahl ohne 0. Seit 19.11.2026 „sicher“
     // (Entscheidung Hannes: deutsche Handynummern mit 15/16/17 korrigiert der Verein selbst).
+    // Restrisiko akzeptiert (Entscheidung Hannes 19.11.2026): China 15x/17x, USA/Kanada ohne +1.
     if (standardLand === "DE" && /^1[567]\d{8,9}$/.test(kompakt)) {
       const r = pruefeHandy(`0${kompakt}`, "DE", kontext);
       if (!r.code && r.land === "DE") return { status: "sicher", wert: r.wert, code: null };
