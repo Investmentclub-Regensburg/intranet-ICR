@@ -5,8 +5,7 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/kit/PageHeader";
 import { staggerProps } from "@/components/kit/Reveal";
-import type { MemberRow } from "@/app/(intranet)/members/actions";
-import { filtereVerzeichnis, initialen } from "./directory";
+import { filtereVerzeichnis, initialen, type MemberRow } from "./directory";
 
 function MemberTile({ member }: { member: MemberRow }) {
   return (
