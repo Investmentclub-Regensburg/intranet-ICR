@@ -369,7 +369,7 @@ export function DatenCheckFenster({
           </WizardStep>
 
           <WizardStep stepKey="fertig" active={schritt === "fertig"} direction={richtung}>
-            {schritt === "fertig" && <GespeichertHaken text="Danke, deine Daten sind bestätigt" onFertig={fertig} startNach={HAKEN_START_MS} />}
+            {schritt === "fertig" && <GespeichertHaken text="Danke, deine Daten sind bestätigt" onFertig={fertig} />}
           </WizardStep>
         </div>
       </DialogPrimitive.Content>
@@ -414,9 +414,6 @@ function Meldung({ children }: { children?: ReactNode }) {
     </p>
   );
 }
-
-/** Haken erst nach dem Einfliegen des Schritts (.wizard-step > *: 0,7 s), sonst ist er kaum zu sehen (Rundgang R1). */
-const HAKEN_START_MS = 650;
 
 function Feld({
   id,
