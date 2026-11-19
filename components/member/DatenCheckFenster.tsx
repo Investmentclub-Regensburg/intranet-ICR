@@ -272,9 +272,10 @@ export function DatenCheckFenster({
                 <Feld id={`${id}-strasse`} label="Straße" fehler={fehler.strasse}>
                   <Input id={`${id}-strasse`} name="strasse" defaultValue={f.strasse} autoComplete="address-line1" {...ungueltig(`${id}-strasse`, fehler.strasse)} onInput={() => clear("strasse")} />
                 </Feld>
-                <Feld id={`${id}-hausnummer`} label="Hausnr." fehler={fehler.hausnummer}>
+                <Feld id={`${id}-hausnummer`} label="Hausnr." fehler={fehler.hausnummer} fehlerUnterDerZeile>
                   <Input id={`${id}-hausnummer`} name="hausnummer" defaultValue={f.hausnummer} {...ungueltig(`${id}-hausnummer`, fehler.hausnummer)} onInput={() => clear("hausnummer")} />
                 </Feld>
+                <ZeilenFehler id={`${id}-hausnummer`} fehler={fehler.hausnummer} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-land`} className="text-xs font-medium text-muted-foreground">
@@ -291,12 +292,13 @@ export function DatenCheckFenster({
                 />
               </div>
               <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3">
-                <Feld id={`${id}-plz`} label="PLZ" fehler={fehler.plz}>
+                <Feld id={`${id}-plz`} label="PLZ" fehler={fehler.plz} fehlerUnterDerZeile>
                   <Input id={`${id}-plz`} name="plz" defaultValue={f.plz} autoComplete="postal-code" inputMode={plzInputMode(land)} {...ungueltig(`${id}-plz`, fehler.plz)} onInput={() => clear("plz")} />
                 </Feld>
                 <Feld id={`${id}-ort`} label="Ort" fehler={fehler.ort}>
                   <Input id={`${id}-ort`} name="ort" defaultValue={f.ort} autoComplete="address-level2" {...ungueltig(`${id}-ort`, fehler.ort)} onInput={() => clear("ort")} />
                 </Feld>
+                <ZeilenFehler id={`${id}-plz`} fehler={fehler.plz} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${id}-handy`} className="text-xs font-medium text-muted-foreground">
@@ -367,7 +369,7 @@ export function DatenCheckFenster({
           </WizardStep>
 
           <WizardStep stepKey="fertig" active={schritt === "fertig"} direction={richtung}>
-            {schritt === "fertig" && <GespeichertHaken text="Danke, deine Daten sind bestätigt" onFertig={fertig} />}
+            {schritt === "fertig" && <GespeichertHaken text="Danke, deine Daten sind bestätigt" onFertig={fertig} startNach={HAKEN_START_MS} />}
           </WizardStep>
         </div>
       </DialogPrimitive.Content>
@@ -413,13 +415,39 @@ function Meldung({ children }: { children?: ReactNode }) {
   );
 }
 
-function Feld({ id, label, fehler, children }: { id: string; label: string; fehler?: string; children: ReactNode }) {
+/** Haken erst nach dem Einfliegen des Schritts (.wizard-step > *: 0,7 s), sonst ist er kaum zu sehen (Rundgang R1). */
+const HAKEN_START_MS = 650;
+
+function Feld({
+  id,
+  label,
+  fehler,
+  fehlerUnterDerZeile = false,
+  children,
+}: {
+  id: string;
+  label: string;
+  fehler?: string;
+  /** Schmale Spalte (PLZ, Hausnr.): Meldung steht als ZeilenFehler unter der ganzen Zeile (Rundgang R2). */
+  fehlerUnterDerZeile?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="min-w-0 space-y-1.5">
       <Label htmlFor={id} className="text-xs font-medium text-muted-foreground">
         {label}
       </Label>
       {children}
+      {!fehlerUnterDerZeile && <FeldFehler id={`${id}-fehler`}>{fehler}</FeldFehler>}
+    </div>
+  );
+}
+
+/** Meldung eines schmalen Felds über die volle Breite der Zeile (im Raster, beide Spalten). */
+function ZeilenFehler({ id, fehler }: { id: string; fehler?: string }) {
+  if (!fehler) return null;
+  return (
+    <div className="col-span-2 -mt-1.5">
       <FeldFehler id={`${id}-fehler`}>{fehler}</FeldFehler>
     </div>
   );

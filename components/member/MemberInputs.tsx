@@ -236,9 +236,18 @@ export function IbanEingabe({
 
 /**
  * Nach dem Speichern: Haken zeichnet sich, Leiste füllt sich, danach `onFertig` (Formular/Fenster schließen).
- * Bei „Bewegung reduzieren“ ohne Animation, kurz stehen lassen.
+ * Bei „Bewegung reduzieren“ ohne Animation, kurz stehen lassen. `startNach` (ms): Haken und Leiste erst starten, wenn
+ * der Inhalt fertig eingeflogen ist (z. B. nach einem Wizard-Schritt); gilt nicht bei „Bewegung reduzieren“.
  */
-export function GespeichertHaken({ text = "Gespeichert", onFertig }: { text?: string; onFertig: () => void }) {
+export function GespeichertHaken({
+  text = "Gespeichert",
+  onFertig,
+  startNach = 0,
+}: {
+  text?: string;
+  onFertig: () => void;
+  startNach?: number;
+}) {
   const reduziert = useReducedMotionSafe();
   const [voll, setVoll] = useState(false);
   const fertig = useRef(onFertig);
@@ -246,13 +255,18 @@ export function GespeichertHaken({ text = "Gespeichert", onFertig }: { text?: st
     fertig.current = onFertig;
   }, [onFertig]);
   useEffect(() => {
-    const start = window.requestAnimationFrame(() => setVoll(true));
-    const ende = window.setTimeout(() => fertig.current(), reduziert ? 700 : 1100);
+    const warten = reduziert ? 0 : startNach;
+    let bild = 0;
+    const start = window.setTimeout(() => {
+      bild = window.requestAnimationFrame(() => setVoll(true));
+    }, warten);
+    const ende = window.setTimeout(() => fertig.current(), warten + (reduziert ? 700 : 1100));
     return () => {
-      window.cancelAnimationFrame(start);
+      window.clearTimeout(start);
+      window.cancelAnimationFrame(bild);
       window.clearTimeout(ende);
     };
-  }, [reduziert]);
+  }, [reduziert, startNach]);
   return (
     <div role="status" className="flex flex-col items-center gap-3 py-6 text-center">
       <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint text-primary">
