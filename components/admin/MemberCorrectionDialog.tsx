@@ -33,10 +33,11 @@ import {
   datenGeaendert,
   mitgliedschaftAufruf,
   mitgliedschaftGesperrt,
-  mitgliedschaftNachAufruf,
+  mitgliedschaftFehlerText,
   mitgliedschaftVon,
   rolleGesperrt,
   rolleVon,
+  speichereBearbeitung,
   type Mitgliedschaft,
 } from "./member-list";
 
@@ -189,59 +190,38 @@ export function MemberCorrectionDialog({
     setFehler({});
     setDatenFehler("");
     setMsFehler("");
-    let ok = true;
-    let geaendert = false;
-    let datenGespeichert = false;
     try {
-      if (eingabe && data) {
-        try {
-          const result = await correctMemberData(member.id, eingabe, data);
-          if (result.fehler && Object.keys(result.fehler).length > 0) {
-            setFehler(result.fehler);
-            ok = false;
-          } else if (result.error) {
-            setDatenFehler(result.error);
-            ok = false;
-          } else if (!result.unchanged) {
-            geaendert = true;
-            datenGespeichert = true;
-          }
-        } catch {
-          setDatenFehler("Korrektur konnte nicht gespeichert werden.");
-          ok = false;
-        }
-      }
-
-      if (aufruf) {
-        try {
-          const result = await updateMemberRole(member.id, aufruf);
-          if (result.error) {
-            setMsFehler(result.error);
-            ok = false;
-          } else {
-            // Neue Ausgangswerte: erneutes Speichern sendet die Mitgliedschaft nicht doppelt.
-            const neu = mitgliedschaftNachAufruf(aufruf);
-            setBasisMs(neu);
-            setAuswahlMs(neu);
-            geaendert = true;
-          }
-        } catch {
-          setMsFehler("Änderung konnte nicht gespeichert werden.");
-          ok = false;
-        }
-      }
-
+      // Erst die Daten, nur wenn die durch sind die Mitgliedschaft (speichereBearbeitung).
+      const daten = data;
+      const ergebnis = await speichereBearbeitung(eingabe, aufruf, {
+        daten: (e) => correctMemberData(member.id, e, daten as MemberCorrectionData),
+        mitgliedschaft: (wert) => updateMemberRole(member.id, wert),
+      });
       if (!aktiv.current) return;
-      if (ok) {
-        if (geaendert) setSaved(true);
+      if (ergebnis.art === "datenFehler") {
+        if (Object.keys(ergebnis.fehler).length > 0) setFehler(ergebnis.fehler);
+        else setDatenFehler(ergebnis.meldung);
+      } else if (ergebnis.art === "mitgliedschaftFehler") {
+        const text = mitgliedschaftFehlerText(ergebnis.meldung, ergebnis.datenGespeichert);
+        if (ergebnis.datenGespeichert) {
+          // Teilerfolg: deutlich unten am Speichern-Knopf melden und die Daten neu laden, sonst meldet der
+          // nächste Versuch „inzwischen geändert“.
+          setDatenFehler(text);
+          await lade();
+        } else {
+          setMsFehler(text);
+        }
+      } else if (ergebnis.art === "ok") {
+        if (ergebnis.mitgliedschaft) {
+          // Neue Ausgangswerte: erneutes Speichern sendet die Mitgliedschaft nicht doppelt.
+          setBasisMs(ergebnis.mitgliedschaft);
+          setAuswahlMs(ergebnis.mitgliedschaft);
+        }
+        if (ergebnis.geaendert) setSaved(true);
         else {
           toast.success("Keine Änderungen.");
           schliessen();
         }
-      } else if (datenGespeichert) {
-        // Daten gespeichert, Mitgliedschaft nicht: Ausgangswerte neu laden, sonst meldet der nächste
-        // Versuch „inzwischen geändert“.
-        await lade();
       }
     } finally {
       setSaving(false);

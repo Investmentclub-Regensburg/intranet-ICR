@@ -169,6 +169,66 @@ export function mitgliedschaftNachAufruf(wert: string): Mitgliedschaft {
   return { rolle: rolleVon({ rolle: wert }), status: "active" };
 }
 
+export type DatenAntwort = { error: string; unchanged?: boolean; fehler?: Partial<Record<string, string>> };
+export type MitgliedschaftAntwort = { error: string };
+
+export type SpeicherErgebnis =
+  /** Nichts zu senden. */
+  | { art: "nichts" }
+  /** Alles durch; `geaendert` = mindestens ein Teil hat wirklich etwas gespeichert. */
+  | { art: "ok"; geaendert: boolean; mitgliedschaft: Mitgliedschaft | null }
+  /** Datenteil abgelehnt: nichts gespeichert, die Mitgliedschaft wurde gar nicht erst gesendet. */
+  | { art: "datenFehler"; meldung: string; fehler: Partial<Record<string, string>> }
+  /** Mitgliedschaft abgelehnt; `datenGespeichert` = der Datenteil davor ist schon gespeichert. */
+  | { art: "mitgliedschaftFehler"; meldung: string; datenGespeichert: boolean };
+
+/**
+ * Speichern im Bearbeiten-Fenster, Reihenfolge fest: erst die Datenfelder, und nur wenn die ohne Fehler durch
+ * sind, die Mitgliedschaft. So läuft z. B. ein Austritt nie an einer Tippfehler-PLZ vorbei.
+ */
+export async function speichereBearbeitung<E>(
+  eingabe: E | null,
+  aufruf: string | null,
+  wege: {
+    daten: (eingabe: E) => Promise<DatenAntwort>;
+    mitgliedschaft: (wert: string) => Promise<MitgliedschaftAntwort>;
+  },
+): Promise<SpeicherErgebnis> {
+  if (eingabe === null && aufruf === null) return { art: "nichts" };
+
+  let datenGespeichert = false;
+  if (eingabe !== null) {
+    let antwort: DatenAntwort;
+    try {
+      antwort = await wege.daten(eingabe);
+    } catch {
+      return { art: "datenFehler", meldung: "Korrektur konnte nicht gespeichert werden.", fehler: {} };
+    }
+    const fehler = antwort.fehler ?? {};
+    if (Object.keys(fehler).length > 0 || antwort.error) {
+      return { art: "datenFehler", meldung: antwort.error, fehler };
+    }
+    datenGespeichert = !antwort.unchanged;
+  }
+
+  if (aufruf !== null) {
+    let antwort: MitgliedschaftAntwort;
+    try {
+      antwort = await wege.mitgliedschaft(aufruf);
+    } catch {
+      return { art: "mitgliedschaftFehler", meldung: "Änderung konnte nicht gespeichert werden.", datenGespeichert };
+    }
+    if (antwort.error) return { art: "mitgliedschaftFehler", meldung: antwort.error, datenGespeichert };
+    return { art: "ok", geaendert: true, mitgliedschaft: mitgliedschaftNachAufruf(aufruf) };
+  }
+  return { art: "ok", geaendert: datenGespeichert, mitgliedschaft: null };
+}
+
+/** Meldung im Fenster, wenn die Mitgliedschaft scheitert (bei schon gespeicherten Daten ausdrücklich gesagt). */
+export function mitgliedschaftFehlerText(meldung: string, datenGespeichert: boolean): string {
+  return datenGespeichert ? `Daten gespeichert, Rolle/Status nicht: ${meldung}` : meldung;
+}
+
 /** Datenfelder des Korrekturteils (Vergleich mit den Werten beim Öffnen, nur Rohtext). */
 export function datenGeaendert<K extends string>(
   eingabe: Readonly<Record<K, string>> & { iban: string },

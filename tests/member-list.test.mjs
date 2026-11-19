@@ -16,6 +16,8 @@ import {
   rolleGesperrt,
   rolleVon,
   sortiereMitglieder,
+  speichereBearbeitung,
+  mitgliedschaftFehlerText,
   standardFilter,
   STANDARD_SORTIERUNG,
   umschalten,
@@ -207,4 +209,86 @@ test("datenGeaendert: nur Rolle geändert → Datenfelder laufen nicht mit", () 
   assert.equal(datenGeaendert({ vorname: "Lena", plz: "93053", iban: "  " }, basis, felder), false);
   assert.equal(datenGeaendert({ vorname: "Lea", plz: "93053", iban: "" }, basis, felder), true);
   assert.equal(datenGeaendert({ vorname: "Lena", plz: "93053", iban: "DE89 3704" }, basis, felder), true);
+});
+
+/** Wege mit Protokoll: welche Teile in welcher Reihenfolge liefen. */
+function wege(datenAntwort, msAntwort) {
+  const log = [];
+  return {
+    log,
+    wege: {
+      daten: async (e) => {
+        log.push(["daten", e]);
+        if (datenAntwort instanceof Error) throw datenAntwort;
+        return datenAntwort;
+      },
+      mitgliedschaft: async (wert) => {
+        log.push(["mitgliedschaft", wert]);
+        if (msAntwort instanceof Error) throw msAntwort;
+        return msAntwort;
+      },
+    },
+  };
+}
+
+test("Speichern: erst Daten, dann Mitgliedschaft", async () => {
+  const { log, wege: w } = wege({ error: "" }, { error: "" });
+  const r = await speichereBearbeitung({ plz: "93053" }, "cancelled", w);
+  assert.deepEqual(log.map(([teil]) => teil), ["daten", "mitgliedschaft"]);
+  assert.deepEqual(r, { art: "ok", geaendert: true, mitgliedschaft: { rolle: "member", status: "cancelled" } });
+});
+
+test("Speichern: Datenfehler → Mitgliedschaft wird nicht gesendet (kein Austritt an Tippfehler-PLZ vorbei)", async () => {
+  const { log, wege: w } = wege({ error: "PLZ falsch", fehler: { plz: "PLZ falsch" } }, { error: "" });
+  const r = await speichereBearbeitung({ plz: "12" }, "cancelled", w);
+  assert.deepEqual(log.map(([teil]) => teil), ["daten"]);
+  assert.equal(r.art, "datenFehler");
+  assert.deepEqual(r.fehler, { plz: "PLZ falsch" });
+
+  const allgemein = wege({ error: "Die Daten wurden inzwischen geändert." }, { error: "" });
+  const r2 = await speichereBearbeitung({ plz: "1" }, "board", allgemein.wege);
+  assert.deepEqual(allgemein.log.map(([teil]) => teil), ["daten"]);
+  assert.deepEqual(r2, { art: "datenFehler", meldung: "Die Daten wurden inzwischen geändert.", fehler: {} });
+
+  const wurf = wege(new Error("Netz"), { error: "" });
+  const r3 = await speichereBearbeitung({ plz: "1" }, "board", wurf.wege);
+  assert.equal(r3.art, "datenFehler");
+  assert.deepEqual(wurf.log.map(([teil]) => teil), ["daten"]);
+});
+
+test("Speichern: Daten gespeichert, Mitgliedschaft abgelehnt → Teilerfolg ausdrücklich", async () => {
+  const { wege: w } = wege({ error: "" }, { error: "Es muss mindestens ein Vorstandsmitglied bleiben." });
+  const r = await speichereBearbeitung({ plz: "93053" }, "cancelled", w);
+  assert.deepEqual(r, {
+    art: "mitgliedschaftFehler",
+    meldung: "Es muss mindestens ein Vorstandsmitglied bleiben.",
+    datenGespeichert: true,
+  });
+  assert.equal(
+    mitgliedschaftFehlerText(r.meldung, r.datenGespeichert),
+    "Daten gespeichert, Rolle/Status nicht: Es muss mindestens ein Vorstandsmitglied bleiben.",
+  );
+  // Daten unverändert (Server: unchanged) → kein Teilerfolg, nur die Meldung.
+  const u = wege({ error: "", unchanged: true }, new Error("Netz"));
+  const r2 = await speichereBearbeitung({ plz: "93053" }, "admin", u.wege);
+  assert.deepEqual(r2, { art: "mitgliedschaftFehler", meldung: "Änderung konnte nicht gespeichert werden.", datenGespeichert: false });
+  assert.equal(mitgliedschaftFehlerText(r2.meldung, r2.datenGespeichert), "Änderung konnte nicht gespeichert werden.");
+});
+
+test("Speichern: nur ein Teil oder nichts", async () => {
+  const nurRolle = wege({ error: "" }, { error: "" });
+  assert.deepEqual(await speichereBearbeitung(null, "admin", nurRolle.wege), {
+    art: "ok",
+    geaendert: true,
+    mitgliedschaft: { rolle: "admin", status: "active" },
+  });
+  assert.deepEqual(nurRolle.log.map(([teil]) => teil), ["mitgliedschaft"]);
+
+  const nurDaten = wege({ error: "", unchanged: true }, { error: "" });
+  assert.deepEqual(await speichereBearbeitung({ plz: "1" }, null, nurDaten.wege), { art: "ok", geaendert: false, mitgliedschaft: null });
+  assert.deepEqual(nurDaten.log.map(([teil]) => teil), ["daten"]);
+
+  const nichts = wege({ error: "" }, { error: "" });
+  assert.deepEqual(await speichereBearbeitung(null, null, nichts.wege), { art: "nichts" });
+  assert.equal(nichts.log.length, 0);
 });
