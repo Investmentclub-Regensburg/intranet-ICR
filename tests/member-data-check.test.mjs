@@ -9,7 +9,9 @@ import {
   istAbfrageFaellig,
   istBestaetigungOffen,
   DATEN_CHECK_PFAD,
-  layoutModus,
+  RUECKKEHR_HEADER,
+  datenCheckAdresse,
+  rueckkehrZiel,
   leseDatenCheckEinstellungen,
   letzterStichtag,
   spaeterBis,
@@ -23,6 +25,8 @@ import {
   datenCheckEinstellungen,
   bestaetigungsAenderungen,
   bewerteBestand,
+  eingabeMitBestand,
+  formularAusBestand,
   ibanMaskiert,
   pruefeDatenCheckAenderung,
   HINWEIS_VORWAHL,
@@ -231,8 +235,10 @@ test("Leere Pflichtfelder (keine Daten) → ungültig nur wegen IBAN und Geburts
   assert.deepEqual(Object.keys(a.formularFehler).sort(), ["geburtsdatum", "iban"]);
   // Mit IBAN und Geburtsdatum ist ein Bestand ohne Handy und Anschrift gültig.
   assert.equal(ansicht({ ...leer, iban: IBAN_DE, geburtsdatum: "2001-04-12" }).gueltig, true);
-  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  assert.match(fenster, /zeile\.fehler \? "Fehlt" : "Keine Angabe"/);
+  // Seite: Anschrift und Handy als optional beschriftet.
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.match(seite, /<Abschnitt titel="Anschrift" optional \/>/);
+  assert.match(seite, /Handynummer <span className="[^"]*">\(optional\)<\/span>/);
 });
 
 test("Handy angegeben, aber falsch → Mangel; Anschrift teilweise → Mangel", () => {
@@ -389,11 +395,11 @@ test("Ändern: IBAN außerhalb des EWR – Anschrift im selben Formular zählt, 
   assert.equal(a.zeilen.find((zl) => zl.key === "anschrift").fehler, ANSCHRIFT_FEHLT);
 });
 
-test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .env.example", () => {
+test("Ort im Code: Sperre im Layout, nie in middleware.ts; Schalter steht in .env.example", () => {
   const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
   assert.doesNotMatch(middleware, /member-data-check|member-crypto/);
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  assert.match(layout, /eigenerDatenCheck/);
+  assert.match(layout, /await sperreBeiDatenmaengeln\(\);/);
   const env = readFileSync(new URL("../.env.example", import.meta.url), "utf8");
   assert.match(env, /^DATA_CHECK_ENABLED=\r?$/m);
   assert.match(env, /^DATA_CHECK_START=\r?$/m);
@@ -403,41 +409,111 @@ test("Ort im Code: Fenster im Layout, nie in middleware.ts; Schalter steht in .e
 // Fixrunde (Reviews A1–A4, B1–B3)
 // ---------------------------------------------------------------------------------------------------
 
-test("A1/B1: Layout-Modus – Mängel → Weiterleitung, gültig → Fenster über der Seite, nicht fällig → Seite", () => {
-  assert.equal(layoutModus(null), "seite");
-  assert.equal(layoutModus({ gueltig: true }), "fenster-ueber-seite");
-  assert.equal(layoutModus({ gueltig: false }), "umleiten");
+test("A1/B1 (Design-Runde 19.11.): jede fällige Abfrage → eigene Seite mit Rückkehrziel, nicht fällig → zurück", () => {
   assert.equal(DATEN_CHECK_PFAD, "/daten-bestaetigen");
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  // Weiterleitung vor jeder Ausgabe (die Seite eines Segments käme sonst als eigener RSC-Eintrag mit).
-  assert.match(layout, /if \(modus === "umleiten"\) redirect\(DATEN_CHECK_PFAD\);/);
-  assert.ok(layout.indexOf('redirect(DATEN_CHECK_PFAD)') < layout.indexOf("return ("));
-  // Eigene Seite außerhalb des Intranet-Layouts, nur bei Mängeln, sonst zurück.
+  // Kein Fenster über der Seite mehr; das Layout leitet über die Sperre um (vor jeder Ausgabe).
+  assert.doesNotMatch(layout, /DatenCheckFenster|fenster-ueber-seite/);
+  assert.ok(layout.indexOf("await sperreBeiDatenmaengeln();") < layout.indexOf("return ("));
+  // Eigene Seite außerhalb des Intranet-Layouts: nicht fällig → zum (geprüften) Rückkehrziel.
   const seite = readFileSync(new URL("../app/daten-bestaetigen/page.tsx", import.meta.url), "utf8");
-  assert.match(seite, /if \(!datenCheck \|\| datenCheck\.gueltig\) redirect\("\/dashboard"\);/);
+  assert.match(seite, /const weiter = rueckkehrZiel\(/);
+  assert.match(seite, /if \(!datenCheck\) redirect\(weiter\);/);
   assert.match(seite, /if \(!user\) redirect\("\/login"\);/);
   assert.doesNotMatch(seite, /\{children\}/);
   const middleware = readFileSync(new URL("../middleware.ts", import.meta.url), "utf8");
   assert.match(middleware, /"\/daten-bestaetigen",/);
-  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  // Ohne Portal (steht im Server-HTML), Seite darunter inert, noscript mit Abmelden, JS-Knöpfe ohne JS aus.
-  assert.doesNotMatch(fenster, /DialogPrimitive\.Portal|<DialogPortal|<DialogContent/);
-  assert.match(fenster, /inert=\{offen\}/);
-  assert.match(fenster, /<noscript>[\s\S]*Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\.[\s\S]*action=\{logoutAction\}/);
-  // G2: bei gültigen Daten „… zu bestätigen.“, bei Mängeln „… zu aktualisieren.“ (Intranet ohne JS in beiden Fällen gesperrt).
+  // Rückkehr-Header setzt immer die Middleware (Wert des Browsers zählt nie), ohne _rsc.
+  assert.match(middleware, /request\.headers\.set\(RUECKKEHR_HEADER, /);
+  assert.match(middleware, /searchParams\.delete\("_rsc"\)/);
+  const seiteClient = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  // Ohne JS: Hinweis, Formular und „Später“ ausgeblendet, Abmelden als Formular mit Server-Action (geht ohne JS).
+  assert.match(seiteClient, /<noscript>[\s\S]*\[data-nur-mit-js\]\{display:none!important\}/);
   assert.match(
-    fenster,
+    seiteClient,
     /ansicht\.gueltig\s*\?\s*"Bitte aktiviere JavaScript, um deine Daten zu bestätigen\."\s*:\s*"Bitte aktiviere JavaScript, um deine Daten zu aktualisieren\."/,
   );
-  // G1: Overlay ohne Einblenden (ab dem ersten Bild deckend), Fenster bei reduzierter Bewegung ohne Einblenden.
-  const overlay = /<DialogPrimitive\.Overlay className="([^"]*)"/.exec(fenster);
-  assert.ok(overlay);
-  assert.doesNotMatch(overlay[1], /animate-in|fade-in/);
-  const inhalt = /<DialogPrimitive\.Content[\s\S]*?className="([^"]*)"/.exec(fenster);
-  assert.ok(inhalt);
-  assert.match(inhalt[1], /(^| )motion-reduce:animate-none!( |$)/);
-  assert.match(fenster, /\[data-nur-mit-js\]\{display:none!important\}/);
+  assert.match(seiteClient, /<form action=\{logoutAction\}>/);
+  assert.match(seiteClient, /<form\s+ref=\{formular\}\s+data-nur-mit-js\s+method="post"/);
+  // Bewegung nur ohne „Bewegung reduzieren“.
+  for (const m of seiteClient.matchAll(/animate-in[^"]*"/g)) assert.match(m[0], /motion-reduce:animate-none/);
+  // Felder ohne name: Vor der Hydration bzw. ohne JS gehen keine Werte als normales Formular über die Leitung.
+  assert.doesNotMatch(seiteClient, /name="(?!")/);
 });
+
+test("Rückkehrziel: nur sichere relative Pfade, nie die Abfrage selbst", () => {
+  assert.equal(RUECKKEHR_HEADER, "x-icr-pfad");
+  assert.equal(rueckkehrZiel("/events/abc?tab=2"), "/events/abc?tab=2");
+  for (const schlecht of [null, undefined, "", "//boese.example", "https://boese.example/", "/\\boese", "/login", "javascript:alert(1)"]) {
+    assert.equal(rueckkehrZiel(schlecht), "/dashboard", String(schlecht));
+  }
+  for (const schleife of ["/daten-bestaetigen", "/daten-bestaetigen/", "/DATEN-BESTAETIGEN?weiter=%2Fnews"]) {
+    assert.equal(rueckkehrZiel(schleife), "/dashboard", schleife);
+  }
+  assert.equal(datenCheckAdresse("/news"), "/daten-bestaetigen?weiter=%2Fnews");
+  assert.equal(datenCheckAdresse("/events/abc?tab=2"), "/daten-bestaetigen?weiter=%2Fevents%2Fabc%3Ftab%3D2");
+  assert.equal(datenCheckAdresse("/dashboard"), "/daten-bestaetigen");
+  assert.equal(datenCheckAdresse(null), "/daten-bestaetigen");
+  assert.equal(datenCheckAdresse("//boese.example"), "/daten-bestaetigen");
+  // Die Sperre leitet jede fällige Abfrage um (auch gültige), mit dem Pfad aus dem Header.
+  const sperre = readFileSync(new URL("../lib/member-data-check-sperre.ts", import.meta.url), "utf8");
+  assert.match(sperre, /if \(datenCheck\) redirect\(datenCheckAdresse\(\(await headers\(\)\)\.get\(RUECKKEHR_HEADER\)\)\);/);
+});
+
+test("Nur geänderte Felder: was die Seite nicht schickt, kommt aus dem Bestand", () => {
+  const bestand = gut({ handynummer: "+491761234567", land: null });
+  const start = formularAusBestand(bestand);
+  assert.equal(start.land, "DE");
+  assert.equal(start.handyLand, "DE");
+  assert.equal(start.handynummer, "176 1234567");
+  // Nichts geschickt → alles wie im Bestand → gültig, nichts zu schreiben.
+  const nichts = eingabeMitBestand(() => null, bestand);
+  assert.deepEqual(nichts, start);
+  const r = pruefeDatenCheckAenderung(nichts, bestand, false, false, HEUTE);
+  assert.equal(r.gueltig, true);
+  assert.deepEqual(r.secrets, {});
+  // Geleert (leere Zeichenkette) zählt als Eingabe, nicht als „nicht geschickt“.
+  const geleert = eingabeMitBestand((feld) => (feld === "handynummer" ? "" : null), bestand);
+  assert.equal(geleert.handynummer, "");
+  assert.equal(geleert.iban, bestand.iban);
+  const ohneHandy = pruefeDatenCheckAenderung(geleert, bestand, false, false, HEUTE);
+  assert.equal(ohneHandy.gueltig, true);
+  assert.equal(ohneHandy.secrets.handynummer, null);
+  // Alumni: IBAN nicht geschickt → gespeicherte IBAN bleibt unangetastet; sie geht auch nicht an den Browser.
+  const alumni = pruefeDatenCheckAenderung(eingabeMitBestand(() => null, bestand), bestand, true, false, HEUTE);
+  assert.equal(alumni.gueltig, true);
+  assert.equal("iban" in alumni.secrets, false);
+  assert.equal(ansicht(bestand, { alumni: true }).formular.iban, "");
+  assert.equal(ansicht(bestand).formular.iban, bestand.iban);
+  // Die Actions nehmen die Eingabe nur über eingabeMitBestand.
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  assert.equal(actions.match(/eingabeMitBestand\(\(feld\) => formData\.get\(feld\), g\.bestand\)/g)?.length, 2);
+  assert.doesNotMatch(actions, /AENDERN_FELDER/);
+});
+
+test("Prüfen während der Eingabe: vollstaendig nur, wenn der Bestand danach ganz bewertet ist", () => {
+  // Formularfehler → nicht vollständig (Mängel unveränderter Felder fehlen darin).
+  const formfehler = pruefeDatenCheckAenderung(
+    formular({ iban: "DE89370400440532013001", handynummer: "941 123456" }),
+    gut({ handynummer: "0941 123456" }),
+    false,
+    false,
+    HEUTE,
+  );
+  assert.equal(formfehler.gueltig, false);
+  assert.equal(formfehler.vollstaendig, false);
+  assert.ok(formfehler.fehler.iban);
+  // Formular gut, Bestand danach ganz bewertet → vollständig.
+  assert.equal(pruefeDatenCheckAenderung(formular(), gut(), false, false, HEUTE).vollstaendig, true);
+  // Die Prüf-Action speichert nichts, liefert nur Meldungen, hat ein eigenes Rate-Limit.
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  const ab = actions.slice(actions.indexOf("export async function pruefeMemberDataCheck"));
+  const pruefen = ab.slice(0, ab.search(/\r?\n\}\r?\n/) + 3);
+  assert.match(pruefen, /withinRateLimits\(\[/);
+  assert.doesNotMatch(pruefen, /saveMemberSecrets|speichere|bestaetigeStand|\.update\(/);
+  assert.match(pruefen, /return \{ success: true, fehler: r\.fehler, vollstaendig: r\.vollstaendig \};/);
+});
+
 
 function fakeAdmin({ rpc, version = 0, rpcFehler = null } = {}) {
   const calls = { rpc: [], updates: [] };
@@ -511,8 +587,8 @@ test("A3: landUnbekannt kommt nur vom Server, nie aus dem Formular", () => {
   const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
   assert.doesNotMatch(actions, /formData\.get\("landUnbekannt"\)/);
   assert.match(actions, /const landUnbekannt = !g\.landBekannt;/);
-  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(fenster, /name="landUnbekannt"/);
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(seite, /landUnbekannt/);
 });
 
 test("A4: Schalter an ohne gültiges Start-Datum → einmal Warnung ohne Wert", () => {
@@ -534,9 +610,9 @@ test("A4: Schalter an ohne gültiges Start-Datum → einmal Warnung ohne Wert", 
   }
 });
 
-test("B2: „Ändern“ fokussiert bei Mängeln das erste markierte Feld", () => {
-  const fenster = readFileSync(new URL("../components/member/DatenCheckFenster.tsx", import.meta.url), "utf8");
-  assert.match(fenster, /fokussiere\(nach === "aendern" && Object\.values\(fehler\)\.some\(Boolean\) \? "fehler" : "schritt"\)/);
+test("B2: nach einem Fehler beim Absenden steht der Fokus im ersten markierten Feld", () => {
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.match(seite, /formular\.current\?\.querySelector<HTMLElement>\('\[aria-invalid="true"\]'\)\?\.focus\(\)/);
 });
 
 test("B3: Anschrift ganz leer → ohne Mangel (freiwillig); mit IBAN außerhalb des EWR eine Zeile für die Anschrift, Feldmarkierungen bleiben", () => {

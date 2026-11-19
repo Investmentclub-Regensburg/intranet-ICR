@@ -309,29 +309,68 @@ export function bauDatenCheckAnsicht({
     zeilen.push(zeile);
   }
 
-  const handy = handyFuerEingabe(bestand.handynummer);
+  const start = formularAusBestand(bestand);
   return {
     zeilen,
     gueltig: b.gueltig,
     spaeterErlaubt: b.gueltig && spaeterMoeglich,
     formular: {
-      vorname: text(bestand.vorname).trim(),
-      nachname: text(bestand.nachname).trim(),
-      strasse: bestand.strasse ?? "",
-      hausnummer: bestand.hausnummer ?? "",
-      plz: bestand.plz ?? "",
-      ort: bestand.ort ?? "",
-      land: landAusBestand(bestand.land),
-      handyLand: handy.land,
-      handyNummer: handy.nummer,
-      geburtsdatum: (bestand.geburtsdatum ?? "").trim(),
-      iban: bestand.iban ?? "",
+      vorname: start.vorname,
+      nachname: start.nachname,
+      strasse: start.strasse,
+      hausnummer: start.hausnummer,
+      plz: start.plz,
+      ort: start.ort,
+      land: start.land,
+      handyLand: start.handyLand,
+      handyNummer: start.handynummer,
+      geburtsdatum: start.geburtsdatum,
+      // Alumni sehen keine Bankverbindung (nicht nötig): ihre IBAN geht gar nicht erst an den Browser. Das Formular
+      // schickt dann keine IBAN, der Server nimmt die gespeicherte (eingabeMitBestand).
+      iban: alumni ? "" : start.iban,
       alumni,
       version,
       landUnbekannt: !landBekannt,
     },
     formularFehler: { ...b.fehler },
   };
+}
+
+/** Ausgangswerte des Formulars aus dem Bestand, Schlüssel wie AENDERN_FELDER (Handy aufgeteilt, Land mit Standard). */
+export function formularAusBestand(bestand: DatenBestand): Record<(typeof AENDERN_FELDER)[number], string> {
+  const handy = handyFuerEingabe(bestand.handynummer);
+  return {
+    vorname: text(bestand.vorname).trim(),
+    nachname: text(bestand.nachname).trim(),
+    strasse: bestand.strasse ?? "",
+    hausnummer: bestand.hausnummer ?? "",
+    plz: bestand.plz ?? "",
+    ort: bestand.ort ?? "",
+    land: landAusBestand(bestand.land),
+    handyLand: handy.land,
+    handynummer: handy.nummer,
+    geburtsdatum: (bestand.geburtsdatum ?? "").trim(),
+    iban: bestand.iban ?? "",
+  };
+}
+
+/**
+ * Eingabe der Abfrage-Seite vervollständigen: Die Seite schickt nur geänderte Felder (Handy immer mit Land). Was
+ * fehlt, gilt als unverändert und kommt aus dem Bestand (`formularAusBestand`), so als stünde es im Formular. Ein
+ * geleertes Feld kommt als leere Zeichenkette und zählt als Eingabe. `lies` liefert null für „nicht geschickt“
+ * (wie FormData.get).
+ */
+export function eingabeMitBestand(
+  lies: (feld: string) => unknown,
+  bestand: DatenBestand,
+): Record<(typeof AENDERN_FELDER)[number], unknown> {
+  const start = formularAusBestand(bestand);
+  const eingabe = {} as Record<(typeof AENDERN_FELDER)[number], unknown>;
+  for (const feld of AENDERN_FELDER) {
+    const wert = lies(feld);
+    eingabe[feld] = wert === null || wert === undefined ? start[feld] : wert;
+  }
+  return eingabe;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -369,6 +408,11 @@ export function pruefeDatenCheckAenderung(
   gueltig: boolean;
   fehler: FeldFehler;
   ersterFehler: string | null;
+  /**
+   * true: Formular gültig, der Bestand danach ist ganz bewertet (`fehler` ist alles). false: nur Formularfehler,
+   * Mängel unveränderter Felder (z. B. alte Handynummer) stehen dann nicht darin.
+   */
+  vollstaendig: boolean;
   secrets: Partial<MemberSecretValues>;
   namen: { vorname?: string; nachname?: string };
 } {
@@ -383,7 +427,14 @@ export function pruefeDatenCheckAenderung(
   const k = pruefeProfil("bank", bank, bestand, alumni, heute, landUnbekannt, false);
   const formFehler: FeldFehler = { ...p.fehler, ...k.fehler };
   if (!p.gueltig || !k.gueltig) {
-    return { gueltig: false, fehler: formFehler, ersterFehler: p.ersterFehler ?? k.ersterFehler, secrets: {}, namen: {} };
+    return {
+      gueltig: false,
+      fehler: formFehler,
+      ersterFehler: p.ersterFehler ?? k.ersterFehler,
+      vollstaendig: false,
+      secrets: {},
+      namen: {},
+    };
   }
 
   const nachher: DatenBestand = {
@@ -396,13 +447,14 @@ export function pruefeDatenCheckAenderung(
   const b = bewerteBestand(nachher, alumni, heute);
   if (!b.gueltig) {
     const ersterFehler = Object.values(b.fehler).find((f) => f !== undefined) ?? null;
-    return { gueltig: false, fehler: b.fehler, ersterFehler, secrets: {}, namen: {} };
+    return { gueltig: false, fehler: b.fehler, ersterFehler, vollstaendig: true, secrets: {}, namen: {} };
   }
   const rest = bestaetigungsAenderungen(nachher, b.werte, alumni, !landUnbekannt);
   return {
     gueltig: true,
     fehler: {},
     ersterFehler: null,
+    vollstaendig: true,
     secrets: { ...p.aenderungen, ...k.aenderungen, ...rest.secrets },
     namen: { ...p.namen, ...rest.namen },
   };

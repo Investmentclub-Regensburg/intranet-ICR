@@ -2,6 +2,9 @@
 // Stichtage 1.3. und 15.9. (Berliner Datum), je etwa zwei Wochen vor dem Beitragseinzug (Entscheidung 5).
 // Auch die Vorstandsübersicht (PR 5, Filter „Nicht bestätigt“) nutzt istBestaetigungOffen.
 import { berlinToday } from "./berlin-date";
+import { DEFAULT_REDIRECT_PATH, safeNextPath } from "./safe-redirect";
+
+export { RUECKKEHR_HEADER } from "./safe-redirect";
 
 /** Stichtage im Jahr (Monat 1–12, Tag), aufsteigend. */
 export const STICHTAGE: ReadonlyArray<{ monat: number; tag: number }> = [
@@ -225,18 +228,29 @@ export type DatenCheckAnsicht = {
   formularFehler: Partial<Record<string, string>>;
 };
 
-/** Eigene Seite für die Abfrage bei Mängeln (außerhalb des Intranet-Layouts, in middleware.ts geschützt). */
+/**
+ * Eigene Seite der Abfrage (außerhalb des Intranet-Layouts, ohne Seitenleiste, in middleware.ts geschützt). Seit der
+ * Design-Runde 19.11.2026 für jede fällige Abfrage, auch bei gültigen Daten (vorher: Fenster über der Seite).
+ */
 export const DATEN_CHECK_PFAD = "/daten-bestaetigen";
 
+/** Nach der Abfrage ohne gültiges Ziel. */
+export const RUECKKEHR_STANDARD = DEFAULT_REDIRECT_PATH;
+
 /**
- * Was das Intranet-Layout tut (Review A1/B1): nicht fällig → Seite; fällig und gültig → Seite unter dem Fenster
- * (inert, „Später“ möglich); fällig mit Mängeln → Weiterleitung auf DATEN_CHECK_PFAD. Die Weiterleitung im Layout
- * allein hält den Seiteninhalt nicht aus der Antwort: Next rendert und überträgt die Seite eines Segments parallel
- * zum Layout (eigener Eintrag im RSC-Payload, auch nach `redirect()` im Layout), und bei einer Navigation unter
- * demselben Layout läuft das Layout gar nicht. Deshalb ruft jede Intranet-Seite zuerst `sperreBeiDatenmaengeln()`
- * auf (lib/member-data-check-sperre.ts, Gegenprüfung S-G1).
+ * Wohin es nach der Abfrage geht: ein sicherer relativer Pfad (`safeNextPath`), nie die Abfrage selbst (sonst
+ * Schleife), sonst das Dashboard.
  */
-export function layoutModus(datenCheck: Pick<DatenCheckAnsicht, "gueltig"> | null): "seite" | "fenster-ueber-seite" | "umleiten" {
-  if (!datenCheck) return "seite";
-  return datenCheck.gueltig ? "fenster-ueber-seite" : "umleiten";
+export function rueckkehrZiel(wert: unknown): string {
+  const pfad = safeNextPath(wert);
+  if (!pfad) return RUECKKEHR_STANDARD;
+  const ohneQuery = pfad.split(/[?#]/)[0].toLowerCase().replace(/\/+$/, "");
+  if (ohneQuery === DATEN_CHECK_PFAD) return RUECKKEHR_STANDARD;
+  return pfad;
+}
+
+/** Adresse der Abfrage mit Rückkehrziel (`?weiter=`, beim Standardziel ohne). */
+export function datenCheckAdresse(rueckkehr: unknown): string {
+  const ziel = rueckkehrZiel(rueckkehr);
+  return ziel === RUECKKEHR_STANDARD ? DATEN_CHECK_PFAD : `${DATEN_CHECK_PFAD}?weiter=${encodeURIComponent(ziel)}`;
 }

@@ -119,12 +119,12 @@ test("S-G1: die Prüfregel erkennt fehlende, späte und versteckte Aufrufe", () 
   assert.ok(pruefeRoutenDatei("x/page.tsx", `"use client";\n${gut}`).length >= 1);
 });
 
-test("S-G1: Sperre leitet nur bei fällig + ungültig um, je Anfrage einmal berechnet", () => {
+test("S-G1: Sperre leitet jede fällige Abfrage um (seit 19.11. auch gültige), je Anfrage einmal berechnet", () => {
   const sperre = readFileSync(new URL("../lib/member-data-check-sperre.ts", import.meta.url), "utf8");
   assert.match(sperre, /^import "server-only";$/m);
   assert.match(sperre, /export const eigenerDatenCheck = cache\(/);
   assert.match(sperre, /export const sperreBeiDatenmaengeln = cache\(/);
-  assert.match(sperre, /if \(datenCheck && !datenCheck\.gueltig\) redirect\(DATEN_CHECK_PFAD\);/);
+  assert.match(sperre, /if \(datenCheck\) redirect\(datenCheckAdresse\(/);
   // Fälligkeit aus getCachedAuth (keine zusätzliche Abfrage), Entschlüsseln nur in faelligerDatenCheck (nur wenn fällig).
   assert.match(sperre, /await getCachedAuth\(\)/);
   // Abfrage aus: sofort raus, vor Anmeldung und Datenbank (Gegenprüfung 2, N1).
@@ -134,9 +134,9 @@ test("S-G1: Sperre leitet nur bei fällig + ungültig um, je Anfrage einmal bere
   );
   assert.match(sperre, /faelligerDatenCheck\(/);
   assert.doesNotMatch(sperre, /readMemberSecrets|\.from\(/);
-  // Layout und /daten-bestaetigen nutzen dieselbe berechnete Ansicht (einmal entschlüsseln je Anfrage).
+  // Layout (über die Sperre) und /daten-bestaetigen nutzen dieselbe berechnete Ansicht (einmal entschlüsseln je Anfrage).
   const layout = readFileSync(new URL("../app/(intranet)/layout.tsx", import.meta.url), "utf8");
-  assert.match(layout, /await eigenerDatenCheck\(\)/);
+  assert.match(layout, /await sperreBeiDatenmaengeln\(\)/);
   assert.doesNotMatch(layout, /faelligerDatenCheck/);
   const seite = readFileSync(new URL("../app/daten-bestaetigen/page.tsx", import.meta.url), "utf8");
   assert.match(seite, /await eigenerDatenCheck\(\)/);

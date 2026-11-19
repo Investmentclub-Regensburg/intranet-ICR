@@ -52,7 +52,7 @@ test("U4: BIC wird nicht mehr abgefragt – kein BIC-Hinweis, keine BIC-Länderl
     "../app/register/register-form.tsx",
     "../app/register/iban-fields.tsx",
     "../components/profile/ProfileDataSections.tsx",
-    "../components/member/DatenCheckFenster.tsx",
+    "../components/member/DatenPruefenSeite.tsx",
     "../components/admin/MemberCorrectionDialog.tsx",
   ]) {
     assert.doesNotMatch(readFileSync(new URL(datei, import.meta.url), "utf8"), /name="bic"|name="semester"/, datei);

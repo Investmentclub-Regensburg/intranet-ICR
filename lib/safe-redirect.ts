@@ -18,6 +18,13 @@ const CHECK_ORIGIN = "https://intranet.invalid";
 /** Ziele, die nicht als Weiterleitung nach dem Login taugen (Schleifen, Auth-Flows). */
 const BLOCKED_PATHS = ["/login", "/register", "/forgot-password", "/auth"];
 
+/**
+ * Request-Header mit dem angefragten Pfad (setzt middleware.ts bei jeder Anfrage neu, ein Wert vom Browser wird
+ * überschrieben). Daraus baut die Sperre der Datenabfrage das Rückkehrziel (lib/member-data-check.ts
+ * `rueckkehrZiel`); geprüft wird es trotzdem wie jede Weiterleitung.
+ */
+export const RUECKKEHR_HEADER = "x-icr-pfad";
+
 /** Standardziel, wenn kein gültiges Weiterleitungsziel vorliegt. */
 export const DEFAULT_REDIRECT_PATH = "/dashboard";
 
