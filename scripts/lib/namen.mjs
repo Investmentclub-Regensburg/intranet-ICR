@@ -304,6 +304,26 @@ export function formatiereReparatur(r) {
   ].join("\n");
 }
 
+/** Profil-ID, die es nie gibt (Funktionsprobe). */
+export const PROBE_PROFIL = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * Argumente der Funktionsprobe vor „reparieren“: eine Profil-ID, die es nicht gibt, gültige Werte und der ECHTE
+ * Vorstand. So läuft die Probe durch die Vorstandsprüfung der Datenbankfunktion (Migration 20261120110000) und
+ * liefert nur dann `false`, wenn die Funktion bis zum Update fehlerfrei kommt – ein Fehler wie der Enum-Vergleich
+ * in 20261120100000 fällt auf, bevor ein Profil angefasst wird.
+ */
+export function funktionsProbe(vorstand) {
+  return {
+    p_profile_id: PROBE_PROFIL,
+    p_expected_vorname: null,
+    p_expected_nachname: null,
+    p_vorname: "Test",
+    p_nachname: "Test",
+    p_corrected_by: vorstand,
+  };
+}
+
 /**
  * Ein Profil schreiben: frisch lesen und neu bewerten (Gruppe, leere Namen, Adresse, Konto-Metadaten), dann über
  * die Datenbankfunktion save_member_name_bereinigung (Compare-and-set „noch leer“ + Protokoll in EINER
