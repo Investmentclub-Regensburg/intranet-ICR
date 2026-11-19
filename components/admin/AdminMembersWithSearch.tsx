@@ -293,11 +293,12 @@ export function AdminMembersWithSearch({ members, canEditRole, showDataIssues = 
           open={fensterOffen}
           onOpenChange={setFensterOffen}
           onCloseAutoFocus={(e) => {
-            // Radix setzt den Fokus auf den Stift zurück; fiel die Zeile aus dem Filter (z. B. Austritt), gibt es ihn
-            // nicht mehr und der Fokus landete auf body.
-            if (ausloeser.current?.isConnected) return;
+            // Fokus selbst setzen: zurück auf den Stift; fiel die Zeile aus dem Filter (z. B. Austritt), gibt es ihn
+            // nicht mehr, dann aufs Suchfeld (sonst landete er auf body).
             e.preventDefault();
-            suchfeld.current?.focus();
+            const stift = ausloeser.current;
+            if (stift?.isConnected) stift.focus();
+            else suchfeld.current?.focus();
           }}
         />
       )}
