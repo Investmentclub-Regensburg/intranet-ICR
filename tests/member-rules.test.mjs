@@ -471,13 +471,13 @@ test("Reparatur Handy: sicher, Vorschlag, offen", () => {
     ["+49 (0)176 12345678", "sicher", "+4917612345678"],
     ["0049 176 12345678", "sicher", "+4917612345678"],
     ["0176 12345678", "sicher", "+4917612345678"],
-    ["+49 176 12345678", "vorschlag", "+4917612345678"], // F3: +49 evtl. aus der alten Vorauswahl
+    ["+49 176 12345678", "sicher", "+4917612345678"], // seit 19.11.: 15/16/17 nach +49 gilt als deutsch
     ["+4917612345678", "gueltig", "+4917612345678"],
     [" +4917612345678 ", "sicher", "+4917612345678"],
     ["+43 664 1234567", "vorschlag", "+436641234567"], // R2: Land weicht vom Standardland ab
-    ["17612345678", "vorschlag", "+4917612345678"],
-    ["176 12345678", "vorschlag", "+4917612345678"],
-    ["1511 2345678", "vorschlag", "+4915112345678"],
+    ["17612345678", "sicher", "+4917612345678"],
+    ["176 12345678", "sicher", "+4917612345678"],
+    ["1511 2345678", "sicher", "+4915112345678"],
     ["max@example.org", "offen", "max@example.org"],
     ["0941 123456", "offen", "0941 123456"],
     ["941 123456", "offen", "941 123456"],
@@ -495,13 +495,16 @@ test("Reparatur Handy: sicher, Vorschlag, offen", () => {
   assert.equal(repariereHandy("", "DE", VORSTAND).status, "gueltig");
 });
 
-test("Reparatur Handy: chinesische/mehrdeutige Nummern ohne Vorwahl nie „sicher“", () => {
-  for (const eingabe of ["13812345678", "15912345678", "17012345678", "15012345678", "159 1234 5678"]) {
+test("Reparatur Handy: ohne Vorwahl nur 15/16/17 als deutsch „sicher“ (Entscheidung Hannes 19.11.2026)", () => {
+  // Abwägung: Chinesische Nummern mit 15x/17x sehen genauso aus. Der Verein korrigiert trotzdem selbst
+  // (Mitglieder haben sich mit vorausgewählter +49 registriert; jede Korrektur ist protokolliert).
+  for (const eingabe of ["15912345678", "17012345678", "159 1234 5678"]) {
     const r = repariereHandy(eingabe);
-    assert.notEqual(r.status, "sicher", eingabe);
-    assert.ok(["vorschlag", "offen"].includes(r.status), eingabe);
+    assert.equal(r.status, "sicher", eingabe);
+    assert.ok(r.wert.startsWith("+4915") || r.wert.startsWith("+4917"), eingabe);
   }
-  assert.equal(repariereHandy("13812345678").status, "offen");
+  // Andere Anfänge (z. B. 138…, 188…, nur in China vergeben) bleiben unangetastet.
+  for (const eingabe of ["13812345678", "18812345678"]) assert.equal(repariereHandy(eingabe).status, "offen", eingabe);
 });
 
 test("Reparatur IBAN, BIC, Straße", () => {
@@ -559,9 +562,9 @@ test("Reparatur ist idempotent (zweimal anwenden = gleiches Ergebnis)", () => {
 test("Reparatur Datensatz: sicher/Vorschlag getrennt, danach gültig", () => {
   const alt = { ...GUT, handynummer: "176 12345678", iban: "de89 3704 0044 0532 0130 00", bic: "COBADEFF", strasse: "Hauptstraße 12a", hausnummer: "" };
   const r = repariereMitgliederdaten(alt, MITGLIED);
-  assert.deepEqual(r.sicher, { iban: IBAN_DE, strasse: "Hauptstraße", hausnummer: "12a" });
-  assert.deepEqual(r.vorschlaege, { handynummer: "+4917612345678" });
-  assert.deepEqual(r.status, { handynummer: "vorschlag", iban: "sicher", bic: "gueltig", strasse: "sicher" });
+  assert.deepEqual(r.sicher, { handynummer: "+4917612345678", iban: IBAN_DE, strasse: "Hauptstraße", hausnummer: "12a" });
+  assert.deepEqual(r.vorschlaege, {});
+  assert.deepEqual(r.status, { handynummer: "sicher", iban: "sicher", bic: "gueltig", strasse: "sicher" });
   // Nach sicherer Reparatur + bestätigtem Vorschlag ist der Datensatz gültig und im Zielformat.
   const fertig = { ...alt, ...r.sicher, ...r.vorschlaege };
   const pruefung = pruefeFormular(fertig, MITGLIED);
@@ -756,9 +759,9 @@ test("F2: weitere echte Hausnummern gültig, Halbgeviertstrich normalisiert", ()
 
 test("F3/R2: Handy-Reparatur „sicher“ nur mit deutschem Beleg", () => {
   const tabelle = [
-    ["+49 15112345678", "vorschlag"],
-    ["+49 17612345678", "vorschlag"],
-    ["+49 1761234567", "vorschlag"],
+    ["+49 15112345678", "sicher"], // seit 19.11.2026 (Mobilvorwahl 15/16/17)
+    ["+49 17612345678", "sicher"],
+    ["+49 1761234567", "sicher"],
     ["+49 0176 12345678", "sicher"],
     ["+49 (0)176 12345678", "sicher"],
     ["0049 176 12345678", "sicher"],
@@ -784,10 +787,11 @@ test("F3/R2: Handy-Reparatur „sicher“ nur mit deutschem Beleg", () => {
 
 test("F4: Hinweis vorwahl_ergaenzt im Bestand für nur angenommene deutsche Vorwahl (nicht blockierend)", () => {
   assert.deepEqual(HINWEIS_CODES, ["vorwahl_ergaenzt", "bic_land"]);
+  // Seit 19.11.2026 werden 15/16/17 ohne 0 sicher korrigiert → kein Hinweis mehr (Hinweis ⇔ Vorschlag).
   for (const handy of ["17612345678", "176 12345678", "+49 15112345678"]) {
     const r = pruefeBestand({ ...GUT, handynummer: handy }, MITGLIED);
     assert.equal(r.gueltig, true, handy);
-    assert.deepEqual(r.hinweise, [{ feld: "handynummer", code: "vorwahl_ergaenzt" }], handy);
+    assert.deepEqual(r.hinweise, [], handy);
     assert.match(r.werte.handynummer, /^\+49/, handy);
   }
   for (const handy of ["+4917612345678", "0176 12345678", "+49 0176 12345678", "0049 176 12345678", "+43 664 1234567"]) {
@@ -1061,9 +1065,8 @@ test("G2/N2: vorwahl_ergaenzt nie im Formular (Land gewählt), nur im Bestand", 
   assert.deepEqual(pruefeFormular({ ...GUT, handynummer: client.nummer, handyLand: client.land }, MITGLIED).hinweise, []);
   // Bestand mit ausdrücklich gewähltem Land: auch kein Hinweis.
   assert.deepEqual(pruefeBestand({ ...GUT, handynummer: "176 12345678", handyLand: "DE" }, MITGLIED).hinweise, []);
-  assert.deepEqual(pruefeBestand({ ...GUT, handynummer: "176 12345678" }, MITGLIED).hinweise, [
-    { feld: "handynummer", code: "vorwahl_ergaenzt" },
-  ]);
+  // Seit 19.11.2026 auch ohne gewähltes Land kein Hinweis: 15/16/17 wird sicher korrigiert.
+  assert.deepEqual(pruefeBestand({ ...GUT, handynummer: "176 12345678" }, MITGLIED).hinweise, []);
 });
 
 test("G3: alle Format-Zeichen (Cf) werden abgelehnt; Quelltext ohne unsichtbare Zeichen", () => {

@@ -238,13 +238,14 @@ test("Alumni ohne IBAN/BIC gültig, Bank bleibt unangetastet", () => {
   assert.deepEqual(bestaetigungsAenderungen(alt, b.werte, true).secrets, {});
 });
 
-test("Hinweis vorwahl_ergaenzt: blockiert nicht, Anzeige zeigt die bestätigte Nummer, „Stimmt alles“ speichert E.164", () => {
+test("Handy ohne Vorwahl (15/16/17): seit 19.11.2026 ohne Rückfrage, Anzeige E.164, „Stimmt alles“ speichert E.164", () => {
   const bestand = gut({ handynummer: "17612345678" });
   const a = ansicht(bestand);
   assert.equal(a.gueltig, true);
   const handy = a.zeilen.find((zl) => zl.key === "handy");
   assert.deepEqual(handy.wert, ["+49 176 12345678"]);
-  assert.equal(handy.hinweis, HINWEIS_VORWAHL);
+  assert.equal(handy.hinweis, undefined);
+  assert.equal(typeof HINWEIS_VORWAHL, "string"); // Text bleibt für echte Vorschläge erhalten
   const b = bewerteBestand(bestand, false, HEUTE);
   assert.deepEqual(bestaetigungsAenderungen(bestand, b.werte, false).secrets, { handynummer: "+4917612345678" });
 });

@@ -77,8 +77,8 @@ test("Handy aus dem Bestand für die Eingabe aufteilen", () => {
   assert.deepEqual(handyFuerEingabe("+49 0176 1234567"), { land: "DE", nummer: "176 1234567" });
   assert.deepEqual(handyFuerEingabe("0176 1234567"), { land: "DE", nummer: "176 1234567" });
   assert.deepEqual(handyFuerEingabe("0049 176 1234567"), { land: "DE", nummer: "176 1234567" });
-  assert.deepEqual(handyFuerEingabe("176 1234567"), { land: "DE", nummer: "176 1234567" }); // vorschlag: roh (gleich)
-  assert.deepEqual(handyFuerEingabe("1761234567"), { land: "DE", nummer: "1761234567" }); // vorschlag: roh
+  assert.deepEqual(handyFuerEingabe("176 1234567"), { land: "DE", nummer: "176 1234567" }); // seit 19.11. sicher
+  assert.deepEqual(handyFuerEingabe("1761234567"), { land: "DE", nummer: "176 1234567" }); // seit 19.11. sicher
   assert.deepEqual(handyFuerEingabe("0176 12"), { land: "DE", nummer: "0176 12" }); // offen: roh
   assert.deepEqual(handyFuerEingabe("max@example.org"), { land: "DE", nummer: "max@example.org" });
 });
@@ -88,7 +88,7 @@ test("Handy-Anzeige: E.164 international, Altwerte roh", () => {
   // Sicher bereinigbar: wie im Formular (Nachtrag Gegenprüfung N1); sonst roh.
   assert.equal(handyAnzeige("+49 0176 1234567"), "+49 176 1234567");
   assert.equal(handyAnzeige("0176 1234567"), "+49 176 1234567");
-  assert.equal(handyAnzeige("1761234567"), "1761234567");
+  assert.equal(handyAnzeige("1761234567"), "+49 176 1234567"); // seit 19.11.2026 sicher
   assert.equal(handyAnzeige("0176 12"), "0176 12");
   assert.equal(handyAnzeige(null), "");
 });
@@ -263,11 +263,11 @@ test("Profil: sicher bereinigbare Altnummer wird mitgespeichert, wenn ohnehin ge
   // Andere Änderung: bereinigte Nummer kommt geprüft mit.
   const r = pruefeProfil("personal", persoenlich({ handyLand: anzeige.land, handynummer: anzeige.nummer, ort: "Neutraubling" }), alt, false, HEUTE);
   assert.equal(r.aenderungen.handynummer, "+491761234567");
-  // „vorschlag“ (ohne Vorwahl) wird nie still ergänzt.
-  const vorschlag = bestand({ handynummer: "1761234567" });
-  const v = handyFuerEingabe(vorschlag.handynummer);
-  const r2 = pruefeProfil("personal", persoenlich({ handyLand: v.land, handynummer: v.nummer, ort: "Neutraubling" }), vorschlag, false, HEUTE);
-  assert.ok(!("handynummer" in r2.aenderungen));
+  // Seit 19.11.2026 auch ohne Vorwahl (15/16/17) sicher: kommt beim Speichern bereinigt mit.
+  const ohneVorwahl = bestand({ handynummer: "1761234567" });
+  const v = handyFuerEingabe(ohneVorwahl.handynummer);
+  const r2 = pruefeProfil("personal", persoenlich({ handyLand: v.land, handynummer: v.nummer, ort: "Neutraubling" }), ohneVorwahl, false, HEUTE);
+  assert.equal(r2.aenderungen.handynummer, "+491761234567");
 });
 
 test("Vorstand: Name korrigieren, nur geänderte Felder, nie leer", () => {

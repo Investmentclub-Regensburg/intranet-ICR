@@ -294,7 +294,10 @@ function vorwahlNurAngenommen(roh: string, e164: string): boolean {
   const t = roh.trim();
   if (t === e164) return false;
   const kompakt = t.replace(HANDY_TRENNER, "");
-  return /^[1-9]/.test(kompakt) || /^\+49[1-9]/.test(kompakt);
+  if (!(/^[1-9]/.test(kompakt) || /^\+49[1-9]/.test(kompakt))) return false;
+  // Hinweis ⇔ Reparatur-Vorschlag: Was „sicher“ korrigiert wird (seit 19.11.2026 auch 15/16/17 ohne 0),
+  // fragt niemand mehr nach.
+  return repariereHandy(roh).status === "vorschlag";
 }
 
 /**
@@ -813,11 +816,12 @@ function gueltigOderSicher(roh: string, wert: string): Reparatur {
  * Handy (Altdaten, Land unbekannt → DE). „sicher“ NUR mit Beleg für eine deutsche Nummer und deutschem
  * Ergebnis bei Standardland DE:
  *   führende 0 (`0176…`), `0049…` oder `+49 0…`/`+49 (0)…` → `+49176…`
+ * Ebenfalls „sicher“ (Entscheidung Hannes 19.11.2026, der Verein korrigiert selbst statt nachzufragen):
+ *   ohne Vorwahl und ohne 0: nur 10–11 Ziffern, Beginn 15/16/17, gültige deutsche Mobilnummer
+ *   `+49 151…`/`+49 16…`/`+49 17…` ohne 0, gültige deutsche Mobilnummer
  * „vorschlag“ (Mitglied bestätigt), wenn gültig, aber nicht belegt:
- *   ohne Vorwahl und ohne 0: nur 10–11 Ziffern, Beginn 15/16/17, deutsche Mobilnummer (chinesische Nummern
- *     sehen gleich aus)
- *   `+49 151…` ohne 0 (Vorwahl stammt evtl. aus der alten Vorauswahl der Registrierung)
  *   anderes Land als das Standardland (`+43 664…`, Tippfehler `0015…` → USA)
+ *   `+49` mit anderer Vorwahl als 15/16/17
  * Schon E.164 → gueltig. Alles andere (Mailadresse, Festnetz, zu kurz) → offen.
  */
 export function repariereHandy(
@@ -839,10 +843,11 @@ export function repariereHandy(
   const kompakt = t.replace(HANDY_TRENNER, "");
   const ohnePraefix = !/^(\+|0)/.test(kompakt);
   if (ohnePraefix) {
-    // Nur reine Ziffern, 10–11 Stellen, deutsche Mobilvorwahl ohne 0.
+    // Nur reine Ziffern, 10–11 Stellen, deutsche Mobilvorwahl ohne 0. Seit 19.11.2026 „sicher“
+    // (Entscheidung Hannes: deutsche Handynummern mit 15/16/17 korrigiert der Verein selbst).
     if (standardLand === "DE" && /^1[567]\d{8,9}$/.test(kompakt)) {
       const r = pruefeHandy(`0${kompakt}`, "DE", kontext);
-      if (!r.code && r.land === "DE") return { status: "vorschlag", wert: r.wert, code: null };
+      if (!r.code && r.land === "DE") return { status: "sicher", wert: r.wert, code: null };
     }
     const r = pruefeHandy(t, land, kontext);
     return { status: "offen", wert: roh, code: r.code ?? "format" };
@@ -854,6 +859,10 @@ export function repariereHandy(
   if (r.wert === t) return { status: "sicher", wert: r.wert, code: null }; // nur Leerraum/harmlose Zeichen
   const deBeleg = /^0[1-9]/.test(kompakt) || /^0049/.test(kompakt) || /^\+490/.test(kompakt);
   if (deBeleg && r.land === "DE" && standardLand === "DE") return { status: "sicher", wert: r.wert, code: null };
+  // `+49 151…` ohne 0: Mobilvorwahl 15/16/17 → „sicher“ (Entscheidung Hannes 19.11.2026).
+  if (/^\+491[567]/.test(kompakt) && r.land === "DE" && standardLand === "DE") {
+    return { status: "sicher", wert: r.wert, code: null };
+  }
   return { status: "vorschlag", wert: r.wert, code: null };
 }
 
