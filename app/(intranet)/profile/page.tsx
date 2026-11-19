@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
-import { ProfileOverview } from "@/components/profile/ProfileOverview";
 import { ProfileDataSections } from "@/components/profile/ProfileDataSections";
 import { MyEventsSection } from "@/components/profile/MyEventsSection";
 import { MembershipSection } from "@/components/profile/MembershipSection";
@@ -9,8 +8,6 @@ import {
   ROLE_LABELS,
   STATUS_LABELS,
   formatDate,
-  initials,
-  maskIban,
   membershipDuration,
   nextFeeStop,
 } from "@/components/profile/profile-format";
@@ -120,20 +117,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       )}
       <ProfileTabs
         panels={{
-          ueberblick: (
-            <ProfileOverview
-              data={{
-                vorname: p.vorname,
-                nachname: p.nachname,
-                email: p.email,
-                initials: initials(p.vorname, p.nachname),
-                roleLabel,
-                statusLabel,
-                memberSince,
-                duration: membershipDuration(p.datumAntrag),
-              }}
-            />
-          ),
           daten: secretsUnavailable ? (
             <p role="alert" className="rounded-2xl border border-destructive/25 bg-card p-5 text-sm">
               Deine Adresse und Bankverbindung können gerade nicht angezeigt werden. Bitte versuche es später
@@ -151,7 +134,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 plz: p.plz,
                 ort: p.ort,
                 land: p.land,
-                landName: p.land === "DE" ? "" : (findCountry(p.land)?.name ?? p.land),
+                landName: findCountry(p.land)?.name ?? p.land,
                 handyLand: handy.land,
                 handyNummer: handy.nummer,
                 handyAnzeige: handyAnzeige(p.mobil),
@@ -159,6 +142,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 alumni: isAlumniProfile(profile as Record<string, unknown> | null),
                 iban: p.iban,
                 bic: p.bic,
+                zahltBeitrag: paysFee,
+                mandatVom: formatDate(p.datumMandat),
                 bicHinweis: bicHinweis(p.bic, p.iban),
                 version: secretsVersion,
                 landUnbekannt,
@@ -178,8 +163,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 memberSince,
                 duration: membershipDuration(p.datumAntrag),
                 feeStop: paysFee ? nextFeeStop() : null,
-                ibanMasked: maskIban(p.iban),
-                mandateDate: formatDate(p.datumMandat),
               }}
             />
           ),
