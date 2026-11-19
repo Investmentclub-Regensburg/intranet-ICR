@@ -78,7 +78,8 @@ export function InsightsView({
             role="tab"
             id={`insights-tab-${t.key}`}
             aria-selected={an}
-            aria-controls={`insights-panel-${t.key}`}
+            // Nur der aktive Reiter verweist auf ein Panel: die anderen Panels sind nicht im DOM.
+            aria-controls={an ? `insights-panel-${t.key}` : undefined}
             tabIndex={an ? 0 : -1}
             onClick={() => waehle(t.key)}
             className={cn(
@@ -109,7 +110,9 @@ export function InsightsView({
         role="tabpanel"
         id={`insights-panel-${tab}`}
         aria-labelledby={`insights-tab-${tab}`}
-        className="insights-panel flex flex-col gap-4"
+        // Fokussierbar, weil Überblick und Mitglieder keine fokussierbaren Elemente haben (APG Tabs).
+        tabIndex={0}
+        className="insights-panel flex flex-col gap-4 rounded-2xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
       >
         {tab === "ueberblick" && <Ueberblick data={data} />}
         {tab === "mitglieder" && <Mitglieder data={data} />}
