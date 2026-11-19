@@ -23,8 +23,8 @@
 //
 // Ziele wie scripts/datenqualitaet.mjs (gleiche Argumente und Sicherungen): lokal nur Loopback und Testdatenbank,
 // prod nur mit ausdrücklichem --url. Laut RAHMEN.md werden Cloud-Projekte nicht angefasst.
-// Braucht die Migration 20261120100000_member_name_bereinigung.sql auf dem Ziel (sonst bricht „reparieren“ ab,
-// bevor etwas geschrieben wird).
+// Braucht die Migrationen 20261120100000_member_name_bereinigung.sql und 20261120110000_member_name_bereinigung_rolle.sql
+// auf dem Ziel (sonst bricht „reparieren“ ab, bevor etwas geschrieben wird).
 //
 // Profile, deren Login-Konto schon einen Namen in den Metadaten hat, bleiben unverändert (sonst wären zwei
 // verschiedene Namen im Umlauf); das Skript schreibt nie in die Konto-Metadaten.
@@ -48,6 +48,7 @@ import {
   formatierePruefung,
   formatiereProbelauf,
   formatiereReparatur,
+  funktionsProbe,
   kontoHatNamen,
   leseNamenArgumente,
   listeTsv,
@@ -219,17 +220,15 @@ async function main() {
     },
   };
 
-  /** Gibt es die Datenbankfunktion? Aufruf mit einer Profil-ID, die es nicht gibt (schreibt nichts). */
+  /**
+   * Gibt es die Datenbankfunktion in der richtigen Fassung? Aufruf mit einer Profil-ID, die es nicht gibt, und dem
+   * echten Vorstand (funktionsProbe): schreibt nichts, durchläuft aber die Vorstandsprüfung der Funktion.
+   */
   async function pruefeFunktion() {
-    const { data, error } = await admin.rpc("save_member_name_bereinigung", {
-      p_profile_id: "00000000-0000-0000-0000-000000000000",
-      p_expected_vorname: null,
-      p_expected_nachname: null,
-      p_vorname: "Test",
-      p_nachname: "Test",
-      p_corrected_by: vorstand,
-    });
-    if (error || data !== false) fail("Datenbankfunktion save_member_name_bereinigung fehlt (Migration 20261120100000).");
+    const { data, error } = await admin.rpc("save_member_name_bereinigung", funktionsProbe(vorstand));
+    if (error || data !== false) {
+      fail("Datenbankfunktion save_member_name_bereinigung fehlt oder ist veraltet (Migrationen 20261120100000 und 20261120110000).");
+    }
   }
 
   try {

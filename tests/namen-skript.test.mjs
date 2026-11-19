@@ -6,11 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import {
   MIT_VORSCHLAEGEN,
+  PROBE_PROFIL,
   bewerteAlle,
   bewerteNamen,
   formatierePruefung,
   formatiereProbelauf,
   formatiereReparatur,
+  funktionsProbe,
   istLeer,
   kontoHatNamen,
   leseNamenArgumente,
@@ -19,6 +21,10 @@ import {
   schreibeProfil,
   zaehleAlle,
 } from "../scripts/lib/namen.mjs";
+import { pruefeName } from "../lib/member-rules.ts";
+
+/** Probe-Werte müssen die Werteprüfung der Datenbankfunktion bestehen (sonst Fehler statt false). */
+const nameAusEmailGueltig = (w) => pruefeName(w, "vorname").code === null && !/[0-9]/.test(w);
 
 const profil = (email, extra = {}) => ({
   id: extra.id ?? "p-1",
@@ -298,4 +304,16 @@ test("schreibeProfil: vorschlag nur mit --mit-vorschlaegen", async () => {
   const o = testDb({ "p-1": profil("info.verein@example.org", { id: "p-1" }) });
   assert.equal(await schreibeProfil(o, "p-1", { mitVorschlaegen: true }), "erledigt");
   assert.equal(o.aufrufe.length, 0);
+});
+
+test("Funktionsprobe: echter Vorstand, Profil-ID, die es nicht gibt (läuft durch die Vorstandsprüfung)", () => {
+  const v = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const a = funktionsProbe(v);
+  // Vorher fehlte p_corrected_by nicht, aber die Funktion prüfte den Vorstand erst nach dem Update – die Probe endete
+  // davor. Seit 20261120110000 kommt die Vorstandsprüfung zuerst; die Probe muss dafür den echten Vorstand tragen.
+  assert.equal(a.p_corrected_by, v);
+  assert.equal(a.p_profile_id, PROBE_PROFIL);
+  assert.equal(a.p_expected_vorname, null);
+  assert.equal(a.p_expected_nachname, null);
+  assert.equal(nameAusEmailGueltig(a.p_vorname) && nameAusEmailGueltig(a.p_nachname), true);
 });
