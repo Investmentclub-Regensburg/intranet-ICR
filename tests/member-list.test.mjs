@@ -7,6 +7,7 @@ import {
   ariaSort,
   datenFuerKorrektur,
   filterAbweichungen,
+  filterStatus,
   filtereMitglieder,
   mitgliedschaftAufruf,
   mitgliedschaftNachAufruf,
@@ -16,6 +17,7 @@ import {
   rolleVon,
   sortiereMitglieder,
   speichereBearbeitung,
+  statusText,
   mitgliedschaftFehlerText,
   standardFilter,
   STANDARD_SORTIERUNG,
@@ -44,7 +46,7 @@ const LISTE = [
   zeile("Alt Daten", { rolle: "", status: "alumni" }),
 ];
 
-test("Standard: alle Rollen, Aktiv + Antrag offen, Daten alle; Ausgetretene ausgeblendet", () => {
+test("Standard: alle Rollen, nur Aktiv, Daten alle; Ausgetretene ausgeblendet", () => {
   const f = standardFilter();
   assert.equal(filterAbweichungen(f), 0);
   const namen = filtereMitglieder(LISTE, "", f).map((m) => m.name);
@@ -55,12 +57,22 @@ test("Standard: alle Rollen, Aktiv + Antrag offen, Daten alle; Ausgetretene ausg
   assert.equal(namen.length, LISTE.length - 1);
 });
 
+test("Altprofil mit Status applicant zählt im Filter wie Aktiv, bleibt in der Pille Antrag offen", () => {
+  assert.equal(filterStatus({ status: "applicant" }), "active");
+  assert.equal(filterStatus({ status: "alumni" }), "active");
+  assert.equal(filterStatus({ status: "cancelled" }), "cancelled");
+  const namen = filtereMitglieder(LISTE, "", standardFilter()).map((m) => m.name);
+  assert.ok(namen.includes("Felix Neumann"));
+  assert.equal(statusText({ status: "applicant" }), "Antrag offen");
+  assert.ok(!filtereMitglieder(LISTE, "", { ...standardFilter(), status: ["cancelled"] }).some((m) => m.name === "Felix Neumann"));
+});
+
 test("Zähler am Knopf: je abweichender Gruppe eins, Reihenfolge egal", () => {
   const f = standardFilter();
-  assert.equal(filterAbweichungen({ ...f, status: ["applicant", "active"] }), 0);
+  assert.equal(filterAbweichungen({ ...f, status: ["active"] }), 0);
   assert.equal(filterAbweichungen({ ...f, rollen: umschalten(f.rollen, "admin") }), 1);
   assert.equal(filterAbweichungen({ ...f, status: [...f.status, "cancelled"] }), 1);
-  assert.equal(filterAbweichungen({ ...f, status: ["active"], daten: "unbestaetigt" }), 2);
+  assert.equal(filterAbweichungen({ ...f, status: ["active", "cancelled"], daten: "unbestaetigt" }), 2);
   assert.equal(
     filterAbweichungen({ rollen: ["board"], status: ["cancelled"], daten: "unvollstaendig" }),
     3,
@@ -123,7 +135,7 @@ test("Sortieren nach Name (deutsch), Rolle und Status; Gleichstand nach Name A�
     sortiereMitglieder(rows, { spalte: "name", richtung: "desc" }).map((m) => m.name),
     ["Zoe Ost", "Bert Acker", "Ärne Bach", "Anton Zeh"],
   );
-  // Rolle nach Anzeige: Admin, Admin, Mitglied, Vorstand; Gleichstand (Admin) nach Name.
+  // Rolle nach Anzeige: Engagierte, Engagierte, Mitglied, Vorstand; Gleichstand (Admin) nach Name.
   assert.deepEqual(
     sortiereMitglieder(rows, { spalte: "rolle", richtung: "asc" }).map((m) => m.name),
     ["Bert Acker", "Zoe Ost", "Anton Zeh", "Ärne Bach"],

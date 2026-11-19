@@ -151,7 +151,7 @@ function isExpandable(item: NavItem): boolean {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  admin: "Admin",
+  admin: "Engagierte",
   board: "Vorstand",
   member: "Mitglied",
   alumni: "Alumni",
@@ -557,7 +557,6 @@ export function Sidebar({ profile }: { profile: Profile }) {
     const subId = `${idPrefix}-sub-profile`;
     return (
       <div className="border-t border-sidebar-border pt-3">
-        <ThemeToggle layoutId={`${idPrefix}-theme`} className="mb-2" />
         <AnimatePresence initial={false}>
           {profileOpen && (
             <Suspense key="profile-sub" fallback={null}>
@@ -591,6 +590,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
           </button>
           <LogoutButton />
         </div>
+        <ThemeToggle layoutId={`${idPrefix}-theme`} className="mt-2" />
         <LegalLinks className="mt-2 px-2" />
       </div>
     );

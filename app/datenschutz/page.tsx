@@ -371,9 +371,9 @@ export default function DatenschutzPage() {
         Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Austausch der Mitglieder untereinander als Vereinszweck).
       </p>
 
-      <h3>Zugriff durch Vorstand und Admins</h3>
+      <h3>Zugriff durch Vorstand und Engagierte</h3>
       <p>
-        Der Vorstand kann einzelne Mitglieder mit Verwaltungsaufgaben betrauen (Rolle „Admin“). Admins sehen in der
+        Der Vorstand kann einzelne Mitglieder mit Verwaltungsaufgaben betrauen (Rolle „Engagierte“). Engagierte sehen in der
         Mitgliederliste Name, Studiengang, E-Mail-Adresse, Handynummer, Status und Rolle, die Teilnehmerlisten von
         Veranstaltungen sowie Anträge auf Alumni-Status und Zeitschriftenzugang (Name, E-Mail-Adresse, Datum).
       </p>
@@ -386,7 +386,7 @@ export default function DatenschutzPage() {
 
       <h3>Veranstaltungen</h3>
       <p>
-        Wenn Sie sich zu einer Veranstaltung anmelden, speichern wir, wer sich wann angemeldet hat. Vorstand und Admins
+        Wenn Sie sich zu einer Veranstaltung anmelden, speichern wir, wer sich wann angemeldet hat. Vorstand und Engagierte
         sehen die Teilnehmerliste mit Name, Studiengang, Rolle und Zeitpunkt der Anmeldung, um die Veranstaltung zu
         organisieren (Art. 6 Abs. 1 lit. b DSGVO). Titel, Datum, Uhrzeit, Ort und Veranstalter der Termine erscheinen
         auch auf unserer öffentlichen Website; Angaben zu Teilnehmenden werden dorthin nicht übertragen. Bilder zu
@@ -466,7 +466,7 @@ export default function DatenschutzPage() {
         <li>Bestätigungen zu Ihrer Kündigung und die Entscheidung über einen Alumni-Antrag</li>
         <li>Einladungen zu Veranstaltungen an alle aktiven Mitglieder oder an einzelne Adressen, die der Vorstand eingibt</li>
         <li>Benachrichtigungen an den Vorstand zu Registrierungen, Kündigungen, Alumni-Anträgen und IBAN-Änderungen</li>
-        <li>Erinnerungen an Aufgaben für Vorstand und Admins</li>
+        <li>Erinnerungen an Aufgaben für Vorstand und Engagierte</li>
       </ul>
       <p>
         Anbieter ist die Plus Five Five, Inc. (Resend), 2261 Market Street #5039, San Francisco, CA 94114, USA. Resend

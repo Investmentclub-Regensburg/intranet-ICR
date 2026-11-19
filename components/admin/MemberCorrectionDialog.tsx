@@ -59,7 +59,7 @@ const DATEN_FELDER = [
 
 const ROLLEN_OPTIONEN = [
   ["member", "Mitglied"],
-  ["admin", "Admin"],
+  ["admin", "Engagierte"],
   ["board", "Vorstand"],
   ["alumni", "Alumni"],
 ] as const;

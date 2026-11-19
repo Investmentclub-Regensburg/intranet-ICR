@@ -32,7 +32,7 @@ export function formatMoment(value: string | null | undefined): string {
 
 export const ROLE_LABELS: Record<string, string> = {
   member: "Mitglied",
-  admin: "Admin",
+  admin: "Engagierte",
   board: "Vorstand",
   alumni: "Alumni",
   cancelled: "Ausgetreten",
