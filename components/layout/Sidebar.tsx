@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
-  ChevronRight,
+  ChevronDown,
   Gift,
   LayoutDashboard,
   Menu,
@@ -32,7 +32,15 @@ import {
   sectionsForRole,
   type SubNavItem,
 } from "@/components/layout/nav-sections";
-import { PROFILE_TABS } from "@/components/profile/tabs";
+import {
+  PROFILE_SECTION,
+  pathMatches,
+  sectionForPath,
+  toggleSection,
+  type OpenableSection,
+} from "@/components/layout/nav-open";
+import { PROFILE_TABS, profileTabFromParam, profileTabHref } from "@/components/profile/tabs";
+import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { cn } from "@/lib/utils";
 
 type Profile = {
@@ -50,7 +58,7 @@ type NavItem = {
   iconKey?: string;
   /** Weitere Pfade (Präfix), auf denen der Eintrag aktiv ist (Bereiche mit Unterseiten). */
   match?: string[];
-  /** Unterseiten; klappen unter dem Eintrag auf, solange der Bereich aktiv ist. */
+  /** Unterseiten; ein Klick auf den Bereich klappt sie auf oder zu (ab zwei sichtbaren Unterseiten). */
   children?: SubNavItem[];
   allowedRoles: string[];
 };
@@ -69,8 +77,10 @@ const ALL_ROLES = ["member", "admin", "board", "alumni"];
 // Struktur UX-Umbau (Hannes 2026-10-08, ux-umbau-brief.md): fünf Bereiche für alle,
 // darunter abgesetzt die Verwaltung (nur admin/board wie bisher). „Mein Profil“
 // steht nicht in der Liste, sondern ist die Nutzerzeile unten (Hannes). Die Sidebar ist
-// die einzige Navigation: Unterseiten eines Bereichs klappen unter dem aktiven Eintrag
-// auf (components/layout/nav-sections.ts), die Seiten tragen keine eigene Tab-Leiste.
+// die einzige Navigation (components/layout/nav-sections.ts), die Seiten tragen keine
+// eigene Tab-Leiste. Design-Runde 19.11.2026 (Skizze Main.dc.html): Bereiche mit
+// Unterseiten navigieren nicht, ein Klick klappt sie auf oder zu; immer ist höchstens ein
+// Bereich offen, nach jeder Navigation der der aktuellen Seite (components/layout/nav-open.ts).
 // URLs bleiben unverändert.
 //   Veranstaltungen = /events (Liste) + /calendar (Kalender) + /events/[id]
 //   Verein          = /whatsapp (öffnet zuerst, Hannes) + /members (+ /members/satzung) + /board-members
@@ -127,10 +137,17 @@ function BrandMark({ logoClassName }: { logoClassName?: string }) {
   );
 }
 
+function itemPaths(item: NavItem): string[] {
+  return [item.href, ...(item.match ?? [])];
+}
+
 function isActivePath(pathname: string, item: NavItem): boolean {
-  return [item.href, ...(item.match ?? [])].some(
-    (p) => pathname === p || pathname.startsWith(p + "/"),
-  );
+  return pathMatches(pathname, itemPaths(item));
+}
+
+/** Bereich mit mindestens zwei sichtbaren Unterseiten: klappt auf statt zu navigieren. */
+function isExpandable(item: NavItem): boolean {
+  return (item.children?.length ?? 0) > 1;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -171,22 +188,26 @@ function ActiveHighlight({ layoutId }: { layoutId: string }) {
  * einen roten Punkt.
  */
 function SubNav({
+  id,
   idPrefix,
   items,
   activeKey,
   onNavigate,
 }: {
+  id?: string;
   idPrefix: string;
   items: { key: string; label: string; href: string }[];
   activeKey: string | null;
   onNavigate?: () => void;
 }) {
+  const reduced = useReducedMotionSafe();
   return (
     <motion.div
+      id={id}
       initial={{ height: 0, opacity: 0 }}
       animate={{ height: "auto", opacity: 1 }}
       exit={{ height: 0, opacity: 0 }}
-      transition={{ duration: 0.3, ease: drawerEase }}
+      transition={reduced ? { duration: 0 } : { duration: 0.3, ease: drawerEase }}
       className="overflow-hidden"
     >
       <ul className="mt-0.5 mb-1.5 ml-7 space-y-px">
@@ -225,15 +246,31 @@ function SubNav({
 }
 
 /** Bereiche von „Mein Profil“ (?tab=…), aufgeklappt über der Nutzerzeile. */
-function ProfileSubNav({ idPrefix, onNavigate }: { idPrefix: string; onNavigate?: () => void }) {
+function ProfileSubNav({
+  id,
+  idPrefix,
+  current,
+  onNavigate,
+}: {
+  id: string;
+  idPrefix: string;
+  /** Liegt die aktuelle Seite unter /profile? Nur dann trägt ein Unterpunkt die Fläche. */
+  current: boolean;
+  onNavigate?: () => void;
+}) {
   const tab = useSearchParams().get("tab");
-  const items = PROFILE_TABS.map((t) => ({
-    key: t.key,
-    label: t.label,
-    href: t.key === "ueberblick" ? "/profile" : `/profile?tab=${t.key}`,
-  }));
-  const activeKey = items.some((i) => i.key === tab) ? tab : "ueberblick";
-  return <SubNav idPrefix={idPrefix} items={items} activeKey={activeKey} onNavigate={onNavigate} />;
+  const items = PROFILE_TABS.map((t) => ({ key: t.key, label: t.label, href: profileTabHref(t.key) }));
+  return (
+    <nav aria-label="Mein Profil">
+      <SubNav
+        id={id}
+        idPrefix={idPrefix}
+        items={items}
+        activeKey={current ? profileTabFromParam(tab) : null}
+        onNavigate={onNavigate}
+      />
+    </nav>
+  );
 }
 
 export function Sidebar({ profile }: { profile: Profile }) {
@@ -335,7 +372,24 @@ export function Sidebar({ profile }: { profile: Profile }) {
   })).filter((group) => group.items.length > 0);
   const initials = getInitials(profile.vorname, profile.nachname);
   const roleLabel = ROLE_LABELS[profile.rolle] ?? profile.rolle;
-  const profileActive = pathname === "/profile" || pathname.startsWith("/profile/");
+  const profileActive = pathMatches(pathname, ["/profile"]);
+
+  // Aufklappbare Bereiche (Schlüssel = href) und die Nutzerzeile. Offen ist höchstens einer; nach jeder
+  // Navigation (auch Zurück/Vor) der Bereich der aktuellen Seite. Angepasst wird beim Rendern statt im
+  // Effekt (React-Muster „Zustand bei geänderten Props anpassen“), damit nichts kurz falsch aufblitzt.
+  const openable: OpenableSection[] = [
+    ...groups.flatMap((g) => g.items).filter(isExpandable).map((item) => ({ key: item.href, paths: itemPaths(item) })),
+    { key: PROFILE_SECTION, paths: ["/profile"] },
+  ];
+  const routeSection = sectionForPath(pathname, openable);
+  const [openFor, setOpenFor] = useState(pathname);
+  const [openSection, setOpenSection] = useState<string | null>(routeSection);
+  if (openFor !== pathname) {
+    setOpenFor(pathname);
+    setOpenSection(routeSection);
+  }
+  const toggle = (key: string) => setOpenSection((current) => toggleSection(current, key));
+  const profileOpen = openSection === PROFILE_SECTION;
 
   // Laufende Nummer je Eintrag über alle Gruppen (Staffelung im mobilen Menü).
   const groupOffsets = groups.map((_, gi) =>
@@ -358,11 +412,69 @@ export function Sidebar({ profile }: { profile: Profile }) {
             <ul className="space-y-0.5">
               {group.items.map((item, ii) => {
                 const active = isActivePath(pathname, item);
-                // Mit Unterseiten trägt die aktive Unterseite die Fläche, der Bereich nur Text und Icon.
+                const expandable = isExpandable(item);
+                const expanded = expandable && openSection === item.href;
+                // Mit Unterseiten trägt die aktive Unterseite die Fläche, der Bereich nur Text und Icon
+                // (rot und fett, auch zugeklappt).
                 const activeChild = active && item.children ? activeTabKey(pathname, item.children) : null;
                 const filled = active && !activeChild;
                 const showUnread = item.href === "/news" && hasUnread && !active;
                 const i = groupOffsets[gi] + ii;
+                const subId = `${idPrefix}-sub-${item.href.replace(/[^a-z]/g, "")}`;
+
+                const row = (
+                  <motion.div
+                    // Icon-Animation nur beim Hover, mit kurzer Verzögerung (NAV_HOVER_INTENT_MS).
+                    // Kein whileTap: Nach dem Klick kehrte framer-motion in den Hover-Zustand
+                    // zurück und spielte die Animation erneut ab; das Eindrücken macht CSS
+                    // (active:scale).
+                    initial="rest"
+                    animate={hoveredHref === item.href ? "hover" : "rest"}
+                    variants={navItemVariants}
+                    onHoverStart={() => startRowHover(item.href)}
+                    onHoverEnd={() => endRowHover(item.href)}
+                    className={cn(
+                      "group relative flex items-center gap-3 overflow-visible rounded-lg px-3 py-2 text-sm transition-[background-color,scale] duration-200 active:scale-[0.98]",
+                      !filled && "hover:bg-sidebar-accent/70",
+                    )}
+                  >
+                    {filled && <ActiveHighlight layoutId={`${idPrefix}-nav-active`} />}
+                    <span className="relative">
+                      <SidebarNavIcon
+                        href={item.iconKey ?? item.href}
+                        icon={item.icon}
+                        active={active}
+                        isRowHovered={hoveredHref === item.href}
+                      />
+                    </span>
+                    <span
+                      className={cn(
+                        "relative truncate",
+                        active
+                          ? "font-semibold text-sidebar-foreground"
+                          : "font-medium text-sidebar-muted group-hover:text-sidebar-foreground",
+                      )}
+                    >
+                      {item.name}
+                    </span>
+                    {showUnread && (
+                      // Ungelesene Beiträge am Schwarzen Brett: kleine Pille statt Punkt.
+                      <span className="relative ml-auto rounded-full bg-primary px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-primary-foreground uppercase">
+                        Neu
+                        <span className="sr-only"> (ungelesene Beiträge)</span>
+                      </span>
+                    )}
+                    {expandable && (
+                      <ChevronDown
+                        aria-hidden
+                        className={cn(
+                          "relative ml-auto size-3.5 shrink-0 text-sidebar-muted transition-[rotate,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:text-sidebar-foreground motion-reduce:transition-none",
+                          expanded && "rotate-180",
+                        )}
+                      />
+                    )}
+                  </motion.div>
+                );
 
                 return (
                   <motion.li
@@ -372,58 +484,37 @@ export function Sidebar({ profile }: { profile: Profile }) {
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.35, delay: onNavigate ? 0.08 + i * 0.03 : 0, ease: drawerEase }}
                   >
-                    <Link
-                      href={item.href}
-                      onClick={onNavigate}
-                      aria-current={active ? "page" : undefined}
-                      className="block rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
-                    >
-                      <motion.div
-                        // Icon-Animation nur beim Hover, mit kurzer Verzögerung (NAV_HOVER_INTENT_MS).
-                        // Kein whileTap: Nach dem Klick kehrte framer-motion in den Hover-Zustand
-                        // zurück und spielte die Animation erneut ab; das Eindrücken macht CSS
-                        // (active:scale).
-                        initial="rest"
-                        animate={hoveredHref === item.href ? "hover" : "rest"}
-                        variants={navItemVariants}
-                        onHoverStart={() => startRowHover(item.href)}
-                        onHoverEnd={() => endRowHover(item.href)}
-                        className={cn(
-                          "group relative flex items-center gap-3 overflow-visible rounded-lg px-3 py-2 text-sm transition-[background-color,scale] duration-200 active:scale-[0.98]",
-                          !filled && "hover:bg-sidebar-accent/70",
-                        )}
+                    {expandable ? (
+                      // Bereich mit Unterseiten: klappt nur auf oder zu, die Seite rechts bleibt
+                      // (mobil bleibt das Menü offen).
+                      <button
+                        type="button"
+                        onClick={() => toggle(item.href)}
+                        aria-expanded={expanded}
+                        aria-controls={expanded ? subId : undefined}
+                        className="block w-full rounded-lg text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
                       >
-                        {filled && <ActiveHighlight layoutId={`${idPrefix}-nav-active`} />}
-                        <span className="relative">
-                          <SidebarNavIcon
-                            href={item.iconKey ?? item.href}
-                            icon={item.icon}
-                            active={active}
-                            isRowHovered={hoveredHref === item.href}
-                          />
-                        </span>
-                        <span
-                          className={cn(
-                            "relative truncate",
-                            active
-                              ? "font-semibold text-sidebar-foreground"
-                              : "font-medium text-sidebar-muted group-hover:text-sidebar-foreground",
-                          )}
-                        >
-                          {item.name}
-                        </span>
-                        {showUnread && (
-                          // Ungelesene Beiträge am Schwarzen Brett: kleine Pille statt Punkt.
-                          <span className="relative ml-auto rounded-full bg-primary px-1.5 text-[10px] leading-4 font-semibold tracking-wide text-primary-foreground uppercase">
-                            Neu
-                            <span className="sr-only"> (ungelesene Beiträge)</span>
-                          </span>
-                        )}
-                      </motion.div>
-                    </Link>
+                        {row}
+                      </button>
+                    ) : (
+                      // Bereich ohne (oder mit nur einer sichtbaren) Unterseite: navigiert direkt
+                      // und klappt Aufgeklapptes zu.
+                      <Link
+                        href={item.href}
+                        onClick={() => {
+                          setOpenSection(null);
+                          onNavigate?.();
+                        }}
+                        aria-current={active ? "page" : undefined}
+                        className="block rounded-lg outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                      >
+                        {row}
+                      </Link>
+                    )}
                     <AnimatePresence initial={false}>
-                      {active && item.children && item.children.length > 1 && (
+                      {expanded && item.children && (
                         <SubNav
+                          id={subId}
                           idPrefix={idPrefix}
                           items={item.children}
                           activeKey={activeChild}
@@ -441,50 +532,50 @@ export function Sidebar({ profile }: { profile: Profile }) {
     );
   };
 
-  // Nutzerzeile = Zugang zu „Mein Profil“ (kein eigener Navi-Eintrag). Auf /profile
-  // klappen darüber die Bereiche des Profils auf; die aktive Fläche (dieselbe layoutId
-  // wie die Navi) gleitet von der Liste dorthin. Hover/Fokus: Fläche + Pfeil nach rechts.
-  const renderFooter = (idPrefix: string, onNavigate?: () => void) => (
-    <div className="border-t border-sidebar-border pt-3">
-      <ThemeToggle layoutId={`${idPrefix}-theme`} className="mb-2" />
-      <AnimatePresence initial={false}>
-        {profileActive && (
-          <Suspense key="profile-sub" fallback={null}>
-            <ProfileSubNav idPrefix={idPrefix} onNavigate={onNavigate} />
-          </Suspense>
-        )}
-      </AnimatePresence>
-      <div className="flex items-center gap-1">
-        <Link
-          href="/profile"
-          onClick={onNavigate}
-          title="Mein Profil"
-          aria-current={profileActive ? "page" : undefined}
-          className="group relative flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-2 transition-colors outline-none hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:ring-[3px] focus-visible:ring-ring/40"
-        >
-          <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground transition-transform duration-300 group-hover:scale-105">
-            {initials}
-          </span>
-          <span className="relative min-w-0 flex-1 leading-tight">
-            <span className="sr-only">Mein Profil: </span>
-            <span className="block truncate text-sm font-semibold text-sidebar-foreground">
-              {profile.vorname} {profile.nachname}
-            </span>
-            <span className="block truncate text-xs text-sidebar-muted">{roleLabel}</span>
-          </span>
-          <ChevronRight
-            aria-hidden
+  // Nutzerzeile = Zugang zu „Mein Profil“ (kein eigener Navi-Eintrag). Sie wird wie ein Bereich
+  // behandelt (Skizze Profil.dc.html): Ein Klick klappt darüber die drei Unterpunkte auf oder zu,
+  // ohne zu navigieren; auf /profile ist sie offen und grau hinterlegt.
+  const renderFooter = (idPrefix: string, onNavigate?: () => void) => {
+    const subId = `${idPrefix}-sub-profile`;
+    return (
+      <div className="border-t border-sidebar-border pt-3">
+        <ThemeToggle layoutId={`${idPrefix}-theme`} className="mb-2" />
+        <AnimatePresence initial={false}>
+          {profileOpen && (
+            <Suspense key="profile-sub" fallback={null}>
+              <ProfileSubNav id={subId} idPrefix={idPrefix} current={profileActive} onNavigate={onNavigate} />
+            </Suspense>
+          )}
+        </AnimatePresence>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => toggle(PROFILE_SECTION)}
+            title="Mein Profil"
+            aria-expanded={profileOpen}
+            aria-controls={profileOpen ? subId : undefined}
             className={cn(
-              "relative -ml-1 size-3.5 shrink-0 transition-[translate,color,opacity] duration-300 motion-safe:group-hover:translate-x-0.5 motion-safe:group-focus-visible:translate-x-0.5",
-              "text-sidebar-muted opacity-60 group-hover:text-sidebar-foreground group-hover:opacity-100 group-focus-visible:text-sidebar-foreground group-focus-visible:opacity-100",
+              "group relative flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-2 text-left transition-colors outline-none hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              profileActive && "bg-sidebar-accent",
             )}
-          />
-        </Link>
-        <LogoutButton />
+          >
+            <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground transition-transform duration-300 group-hover:scale-105">
+              {initials}
+            </span>
+            <span className="relative min-w-0 flex-1 leading-tight">
+              <span className="sr-only">Mein Profil: </span>
+              <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+                {profile.vorname} {profile.nachname}
+              </span>
+              <span className="block truncate text-xs text-sidebar-muted">{roleLabel}</span>
+            </span>
+          </button>
+          <LogoutButton />
+        </div>
+        <LegalLinks className="mt-2 px-2" />
       </div>
-      <LegalLinks className="mt-2 px-2" />
-    </div>
-  );
+    );
+  };
 
   return (
     <>
