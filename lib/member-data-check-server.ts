@@ -20,6 +20,7 @@ import {
   PLZ_DE_MELDUNG,
   handyFuerEingabe,
   landAusBestand,
+  ohneAnschrift,
   pruefeProfil,
   type FeldFehler,
   type Namen,
@@ -206,7 +207,8 @@ export function bestaetigungsAenderungen(
     if (neu !== (bestand[feld] ?? null)) secrets[feld] = neu;
   }
   if (landBekannt && werte.land !== undefined) {
-    const neu = leerZuNull(werte.land);
+    // Ohne Anschrift kein Land (Review N4, `ohneAnschrift` in lib/member-forms.ts).
+    const neu = ohneAnschrift({ ...bestand, ...secrets }) ? null : leerZuNull(werte.land);
     if (neu !== (bestand.land ?? null) && (Object.keys(secrets).length > 0 || neu !== landAusBestand(bestand.land))) {
       secrets.land = neu;
     }

@@ -580,3 +580,15 @@ test("N2: leere Anschrift mit Mangel nur am Land → Meldung des Lands, nicht di
   assert.notEqual(zeile.fehler, ANSCHRIFT_FEHLT);
   assert.ok(a.formularFehler.land);
 });
+
+test("N4: „Stimmt alles“ leert ein Land ohne Anschrift, Ändern ohne Anschrift speichert kein Land", () => {
+  const altLand = gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: "DE" });
+  const b = bewerteBestand(altLand, false, HEUTE);
+  assert.equal(b.gueltig, true);
+  assert.deepEqual(bestaetigungsAenderungen(altLand, b.werte, false).secrets, { land: null });
+  const ohneLand = gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null });
+  assert.deepEqual(bestaetigungsAenderungen(ohneLand, bewerteBestand(ohneLand, false, HEUTE).werte, false).secrets, {});
+  const r = pruefeDatenCheckAenderung(formular({ strasse: "", hausnummer: "", plz: "", ort: "", land: "AT" }), ohneLand, false, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal("land" in r.secrets, false);
+});
