@@ -4,10 +4,12 @@ import { unstable_cache } from "next/cache";
 import { requireRole } from "@/utils/supabase/guards";
 import { createServiceClient } from "@/utils/supabase/service";
 import { berlinToday } from "@/lib/berlin-date";
-import { readMemberSecretsMany, type MemberSecretsResult } from "@/lib/member-secrets-server";
+import { readMemberSecretFieldMany } from "@/lib/member-secrets-server";
 import { altersgruppe } from "@/lib/insights-merkmale";
 import {
+  budgetJahr,
   computeInsights,
+  istMitglied,
   overrideKey,
   type FeeOverride,
   type InsightsData,
@@ -20,18 +22,20 @@ function text(value: unknown): string {
 
 // Nur Zählungen im Cache (keine Namen, keine Werte): das Geburtsdatum wird hier entschlüsselt, sofort auf
 // die Altersgruppe reduziert und nicht weitergegeben oder protokolliert.
+// Der Berliner Tag ist Argument und damit Teil des Cache-Schlüssels (unstable_cache nimmt die Argumente in den
+// Schlüssel auf): Nach einem Tages- oder Semesterwechsel wird immer neu gerechnet, statt im Hintergrund
+// erneuerte alte Zahlen auszuliefern.
 const getInsightsDataCached = unstable_cache(
-  async (): Promise<InsightsData | null> => {
+  async (today: string): Promise<InsightsData | null> => {
     const admin = createServiceClient();
-    const today = berlinToday();
-    const nextYear = Number(today.slice(0, 4)) + 1;
+    const jahr = budgetJahr(today);
 
     const [profilesRes, overridesRes] = await Promise.all([
       admin
         .from("profiles")
         .select('id, "Status", "Rolle", "Datum_Antrag", "Datum_Kündigung", "Studiengang / Fach", "Hochschulart", "Abschluss"')
         .range(0, 9999),
-      admin.from("finance_export_overrides").select("profile_id, action, semester, year").eq("year", nextYear),
+      admin.from("finance_export_overrides").select("profile_id, action, semester, year").eq("year", jahr),
     ]);
 
     if (profilesRes.error || !profilesRes.data) {
@@ -40,23 +44,21 @@ const getInsightsDataCached = unstable_cache(
     }
     const rows = profilesRes.data as Record<string, unknown>[];
 
-    // Altersgruppen nur für Mitglieder (aktiv/Alumni). Nicht lesbar → ohne Angabe.
-    let secrets: Map<string, MemberSecretsResult> = new Map();
+    // Altersgruppen nur für Mitglieder (gleiche Regel wie die Zählung). Entschlüsselt wird nur das Feld
+    // Geburtsdatum, keine IBAN, Anschrift oder Handynummer. Nicht lesbar → ohne Angabe.
+    let geburtsdaten = new Map<string, string | null | "unreadable">();
     try {
-      const mitglieder = rows
-        .filter((r) => {
-          const s = text(r["Status"]).trim().toLowerCase();
-          return s !== "cancelled" && s !== "applicant";
-        })
-        .map((r) => ({ id: text(r.id) }));
-      secrets = await readMemberSecretsMany(admin, mitglieder);
+      const ids = rows
+        .filter((r) => istMitglied({ status: text(r["Status"]), rolle: text(r["Rolle"]) }))
+        .map((r) => text(r.id));
+      geburtsdaten = await readMemberSecretFieldMany(admin, ids, "geburtsdatum");
     } catch (err) {
       console.error("getInsightsData: member_secrets", err instanceof Error ? err.name : "unbekannt");
     }
 
     const profiles: InsightsProfile[] = rows.map((r) => {
       const id = text(r.id);
-      const s = secrets.get(id);
+      const geb = geburtsdaten.get(id);
       return {
         id,
         status: text(r["Status"]),
@@ -66,12 +68,12 @@ const getInsightsDataCached = unstable_cache(
         fach: text(r["Studiengang / Fach"]) || null,
         hochschule: text(r["Hochschulart"]) || null,
         abschluss: text(r["Abschluss"]) || null,
-        altersgruppe: s && s !== "unreadable" ? altersgruppe(s.geburtsdatum, today) : null,
+        altersgruppe: geb && geb !== "unreadable" ? altersgruppe(geb, today) : null,
       };
     });
-    secrets.clear();
+    geburtsdaten.clear();
 
-    // Anpassungen (Freisemester, entfernen, aufnehmen) der beiden Semester des nächsten Jahres.
+    // Anpassungen (Freisemester, entfernen, aufnehmen) der beiden Semester des Budgetjahres.
     const overrides = new Map<string, Map<string, FeeOverride>>();
     for (const o of overridesRes.data ?? []) {
       if (o.action !== "include" && o.action !== "exclude" && o.action !== "free_semester") continue;
@@ -84,7 +86,7 @@ const getInsightsDataCached = unstable_cache(
 
     return computeInsights(profiles, today, overrides);
   },
-  ["insights-data-v4"],
+  ["insights-data-v5"],
   { revalidate: 60 }
 );
 
@@ -92,7 +94,7 @@ export async function getInsightsData(): Promise<InsightsData | null> {
   const auth = await requireRole(["board"]);
   if (!auth.ok) return null;
 
-  return getInsightsDataCached();
+  return getInsightsDataCached(berlinToday());
 }
 
 export type CancellationRow = {
