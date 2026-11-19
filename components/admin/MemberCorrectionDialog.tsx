@@ -262,11 +262,13 @@ export function MemberCorrectionDialog({
         else if (!saving) schliessen();
       }}
     >
-      <DialogContent className="block max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto rounded-[18px] p-0 sm:max-w-[600px]">
+      <DialogContent
+        // Im Haken-Zustand ohne Beschreibung (der Haken meldet sich selbst als Status).
+        {...(saved ? { "aria-describedby": undefined } : {})}
+        className="block max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto rounded-[18px] p-0 sm:max-w-[600px]">
         {saved ? (
           <div className="px-6 py-12">
             <DialogTitle className="sr-only">{member.name}</DialogTitle>
-            <DialogDescription className="sr-only">Gespeichert</DialogDescription>
             <GespeichertHaken
               onFertig={() => {
                 schliessen();
@@ -294,7 +296,7 @@ export function MemberCorrectionDialog({
               <div className="flex flex-col gap-6 px-6 pt-4 pb-2">
                 <Abschnitt titel="Mitgliedschaft">
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="grid min-w-0 gap-1.5">
+                    <div className="grid min-w-0 content-start gap-1.5">
                       <Label htmlFor="mc-rolle">Rolle</Label>
                       <select
                         id="mc-rolle"
@@ -314,7 +316,7 @@ export function MemberCorrectionDialog({
                         ))}
                       </select>
                     </div>
-                    <div className="grid min-w-0 gap-1.5">
+                    <div className="grid min-w-0 content-start gap-1.5">
                       <Label htmlFor="mc-status">Status</Label>
                       <select
                         id="mc-status"
@@ -359,7 +361,7 @@ export function MemberCorrectionDialog({
                           <Input id="mc-nachname" name="nachname" defaultValue={data.nachname} autoComplete="off" {...invalid("mc-nachname", fehler.nachname)} onInput={() => clear("nachname")} />
                         </Field>
                       </div>
-                      <div className="grid min-w-0 gap-1.5">
+                      <div className="grid min-w-0 content-start gap-1.5">
                         <Label htmlFor="mc-email">E-Mail</Label>
                         <Input id="mc-email" value={member.email || "—"} readOnly className="bg-muted text-muted-foreground" />
                       </div>
@@ -484,7 +486,7 @@ function Abschnitt({ titel, children }: { titel: string; children: ReactNode }) 
 
 function Field({ id, label, fehler, children }: { id: string; label: string; fehler?: string; children: ReactNode }) {
   return (
-    <div className="grid min-w-0 gap-1.5">
+    <div className="grid min-w-0 content-start gap-1.5">
       <Label htmlFor={id}>{label}</Label>
       {children}
       <FeldFehler id={`${id}-fehler`}>{fehler}</FeldFehler>
