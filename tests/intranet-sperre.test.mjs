@@ -83,6 +83,13 @@ test("S-G1: jede Seite, jedes Layout und jedes generateMetadata unter app/(intra
   assert.deepEqual(fehler, []);
   // Ohne loading.tsx rendert ein Prefetch die Seite nicht vor (sonst hier neu bewerten).
   assert.deepEqual(alle.filter((d) => /[\\/]loading\.\w+$/.test(d)), []);
+  // Spezialdateien, die ohne Seite rendern bzw. antworten, gibt es unter app/(intranet) nicht (sonst Sperre nachziehen).
+  assert.deepEqual(
+    alle.filter((d) =>
+      /[\\/](route|not-found|error|global-error|forbidden|unauthorized|opengraph-image|twitter-image|icon|apple-icon|sitemap)\.\w+$/.test(d),
+    ),
+    [],
+  );
 });
 
 test("S-G1: die Prüfregel erkennt fehlende, späte und versteckte Aufrufe", () => {
@@ -120,6 +127,11 @@ test("S-G1: Sperre leitet nur bei fällig + ungültig um, je Anfrage einmal bere
   assert.match(sperre, /if \(datenCheck && !datenCheck\.gueltig\) redirect\(DATEN_CHECK_PFAD\);/);
   // Fälligkeit aus getCachedAuth (keine zusätzliche Abfrage), Entschlüsseln nur in faelligerDatenCheck (nur wenn fällig).
   assert.match(sperre, /await getCachedAuth\(\)/);
+  // Abfrage aus: sofort raus, vor Anmeldung und Datenbank (Gegenprüfung 2, N1).
+  assert.match(
+    sperre,
+    /if \(!datenCheckEinstellungen\(\)\.eingeschaltet\) return null;\r?\n\s*const \{ user, profile, datenCheckSpalten \} = await getCachedAuth\(\);/,
+  );
   assert.match(sperre, /faelligerDatenCheck\(/);
   assert.doesNotMatch(sperre, /readMemberSecrets|\.from\(/);
   // Layout und /daten-bestaetigen nutzen dieselbe berechnete Ansicht (einmal entschlüsseln je Anfrage).

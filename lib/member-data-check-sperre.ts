@@ -5,9 +5,10 @@
  * auch wenn das Layout mit `redirect()` abbricht. Bei einer Navigation, deren `Next-Router-State-Tree` das Layout
  * als geladen meldet, läuft das Layout gar nicht. Die Weiterleitung im Intranet-Layout allein hält den Seiteninhalt
  * deshalb nicht aus der Antwort. Darum ruft jede `page.tsx` (und jedes `generateMetadata`) unter `app/(intranet)`
- * als erste Anweisung `sperreBeiDatenmaengeln()` auf (Prüfregel in tests/member-data-check.test.mjs).
+ * als erste Anweisung `sperreBeiDatenmaengeln()` auf (Prüfregel in tests/intranet-sperre.test.mjs).
  *
- * Kosten: `eigenerDatenCheck` ist per `cache()` je Anfrage einmal berechnet und von Layout, Seiten, Metadaten und
+ * Kosten: Ist die Abfrage abgeschaltet (DATA_CHECK_ENABLED), endet die Sperre sofort, ohne Anmeldung oder Datenbank.
+ * Sonst ist `eigenerDatenCheck` per `cache()` je Anfrage einmal berechnet und von Layout, Seiten, Metadaten und
  * /daten-bestaetigen geteilt. Die Fälligkeit kommt aus `getCachedAuth` (keine zusätzliche Datenbankanfrage);
  * entschlüsselt wird nur bei fälliger Abfrage und dann genau einmal je Anfrage.
  *
@@ -20,10 +21,11 @@ import { redirect } from "next/navigation";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
 import { DATEN_CHECK_PFAD, type DatenCheckAnsicht } from "./member-data-check";
-import { faelligerDatenCheck } from "./member-data-check-server";
+import { datenCheckEinstellungen, faelligerDatenCheck } from "./member-data-check-server";
 
 /** Fenster-Daten des angemeldeten Mitglieds, falls die Abfrage fällig ist (sonst null). Einmal je Anfrage. */
 export const eigenerDatenCheck = cache(async (): Promise<DatenCheckAnsicht | null> => {
+  if (!datenCheckEinstellungen().eingeschaltet) return null;
   const { user, profile, datenCheckSpalten } = await getCachedAuth();
   if (!user) return null;
   return faelligerDatenCheck({
