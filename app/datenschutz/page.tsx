@@ -293,17 +293,18 @@ export default function DatenschutzPage() {
       <ul>
         <li>Vorname und Nachname</li>
         <li>Geburtsdatum</li>
-        <li>Anschrift (Straße, Hausnummer, Postleitzahl, Ort)</li>
-        <li>E-Mail-Adresse und Handynummer</li>
         <li>
-          ob Sie studieren; falls ja, Studiengang, angestrebter Abschluss, Semester und Hochschule
+          freiwillig Ihre Anschrift (Straße, Hausnummer, Postleitzahl, Ort); Pflicht ist sie nur bei einem Konto in einem
+          SEPA-Land außerhalb des Europäischen Wirtschaftsraums (z. B. Schweiz, Vereinigtes Königreich)
         </li>
-        <li>IBAN und BIC sowie Ihre Bestätigung des SEPA-Lastschriftmandats</li>
+        <li>E-Mail-Adresse und freiwillig Ihre Handynummer</li>
+        <li>ob Sie studieren; falls ja, Studiengang, angestrebter Abschluss und Hochschule</li>
+        <li>IBAN sowie Ihre Bestätigung des SEPA-Lastschriftmandats</li>
         <li>ein Passwort für Ihr Konto</li>
       </ul>
       <p>
-        Alle Angaben sind Pflichtangaben. Ohne sie können wir Ihre Mitgliedschaft nicht führen und den Beitrag nicht
-        einziehen. Ihr Konto wird erst aktiv, wenn Sie Ihre E-Mail-Adresse über den Link in unserer Bestätigungs-E-Mail
+        Alle Angaben außer den freiwilligen sind Pflichtangaben. Ohne sie können wir Ihre Mitgliedschaft nicht führen und
+        den Beitrag nicht einziehen. Ihr Konto wird erst aktiv, wenn Sie Ihre E-Mail-Adresse über den Link in unserer Bestätigungs-E-Mail
         bestätigt haben. Bis dahin speichern wir Ihre Angaben vorläufig. Über jede neue Registrierung informieren wir den
         Vorstand per E-Mail (Name, E-Mail-Adresse, Studienangaben, Datum des Antrags).
       </p>
@@ -402,7 +403,7 @@ export default function DatenschutzPage() {
 
       <h3>Mitgliedsbeitrag und SEPA-Lastschrift</h3>
       <p>
-        Für den Einzug des Mitgliedsbeitrags erstellt der Vorstand je Semester eine Datei mit Name, IBAN, BIC, Betrag,
+        Für den Einzug des Mitgliedsbeitrags erstellt der Vorstand je Semester eine Datei mit Name, IBAN, BIC (sofern gespeichert), Betrag,
         Mandatsreferenz und Datum des Mandats und reicht sie bei unserem Kreditinstitut ein. Wir protokollieren, wer wann
         eine solche Datei erstellt hat und wie viele Buchungen sie enthält. Ändern Sie Ihre IBAN im Profil, informieren
         wir den Vorstand per E-Mail mit Ihrem Namen, Ihrer E-Mail-Adresse und den letzten vier Stellen der alten und der
