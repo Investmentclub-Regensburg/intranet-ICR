@@ -381,7 +381,9 @@ export default function DatenschutzPage() {
         Der Vorstand sieht zusätzlich Anschrift und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
         sieht Kündigungen mit Kündigungsgrund und erstellt die Dateien für den Beitragseinzug und den Zeitschriftenzugang
         (siehe unten). Bei Korrekturen protokollieren wir, wer wann welche Felder geändert hat; die Werte selbst nicht.
-        Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
+        Für interne Statistiken wertet der Vorstand Angaben wie Alter, Studiengang, Hochschule und Abschluss nur
+        zusammengefasst aus, als Anzahl je Gruppe und ohne Namen; das Geburtsdatum wird dafür nur in eine Altersgruppe
+        umgerechnet. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
       </p>
 
       <h3>Veranstaltungen</h3>
