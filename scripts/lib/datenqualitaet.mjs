@@ -104,7 +104,16 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
     for (const [feld, wert] of Object.entries(kandidaten)) if (!verworfen.has(feld)) aenderungen[feld] = wert;
   }
 
-  return { ...basis, maengel, hinweise: pruefung.hinweise, status, aenderungen };
+  // Nur Zählung (keine Werte): Handy gültig/sicher, aber die deutsche Herkunft nur angenommen (ohne Präfix
+  // 15/16/17 bzw. „+49“ ohne 0, Entscheidung Hannes 19.11.2026) oder belegt (0…, 0049, +49 0, volle E.164).
+  let handyHerkunft = null;
+  const handy = typeof daten.handynummer === "string" ? daten.handynummer.replace(/[\s\-/().]/g, "") : "";
+  if (handy && (status.handynummer === "sicher" || status.handynummer === "gueltig")) {
+    const angenommen = /^1[567]\d+$/.test(handy) || (/^\+491[567]/.test(handy) && status.handynummer === "sicher");
+    handyHerkunft = angenommen ? "angenommen" : "belegt";
+  }
+
+  return { ...basis, maengel, hinweise: pruefung.hinweise, status, aenderungen, handyHerkunft };
 }
 
 /**
@@ -161,6 +170,9 @@ export function neueZaehlung() {
     zuAendern: 0,
     /** feld → Anzahl geplanter Änderungen */
     aenderungenJeFeld: {},
+    /** Handy gültig/sicher: deutsche Herkunft nur angenommen vs. belegt (nur aktive, lesbare Profile) */
+    handyAngenommen: 0,
+    handyBelegt: 0,
   };
 }
 
@@ -191,6 +203,8 @@ export function zaehle(z, b) {
   for (const m of eindeutigeMaengel(b.maengel)) erhoehe(z.maengel, m.feld, m.code);
   for (const h of b.hinweise) erhoehe(z.hinweise, h.feld, h.code);
   for (const feld of AUSGABE_FELDER) z.status[feld][b.status[feld]]++;
+  if (b.handyHerkunft === "angenommen") z.handyAngenommen++;
+  if (b.handyHerkunft === "belegt") z.handyBelegt++;
   const felder = Object.keys(b.aenderungen);
   if (felder.length) {
     z.zuAendern++;
@@ -271,6 +285,10 @@ export function formatiereProbelauf(z) {
     "",
     zeile("Profile, die „reparieren“ ändern würde", z.zuAendern),
     ...geplant,
+    "",
+    "Handy (gültig oder sicher): deutsche Herkunft",
+    zeile("  nur angenommen (ohne Präfix 15/16/17 bzw. +49 ohne 0)", z.handyAngenommen),
+    zeile("  belegt (0…, 0049, +49 0, E.164, andere Länder)", z.handyBelegt),
   ].join("\n");
 }
 
