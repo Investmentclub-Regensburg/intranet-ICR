@@ -24,13 +24,15 @@ const LAENDER_NACH_NAME = [...countryCodes].sort((a, b) =>
 
 /**
  * Fehler direkt unter dem Feld (kurz, Du-Form). `symbol`: mit Warnsymbol und etwas größer (Seite „Daten prüfen“,
- * Skizze DatenPruefen.dc.html).
+ * Skizze DatenPruefen.dc.html), dann ohne role="alert": Die Seite prüft beim Verlassen jedes Felds und sagt den Stand
+ * über ihren Zähler (aria-live) an; das Feld verweist per aria-describedby auf die Meldung. Sonst würde jede Meldung
+ * zusätzlich als Alarm vorgelesen, während man schon im nächsten Feld ist.
  */
 export function FeldFehler({ id, children, symbol = false }: { id: string; children?: ReactNode; symbol?: boolean }) {
   if (!children) return null;
   if (symbol) {
     return (
-      <p id={id} role="alert" className="flex items-start gap-1.5 text-[0.8125rem] text-destructive">
+      <p id={id} className="flex items-start gap-1.5 text-[0.8125rem] text-destructive">
         <CircleAlert className="mt-[0.1875rem] size-3.5 shrink-0" aria-hidden />
         <span className="min-w-0">{children}</span>
       </p>

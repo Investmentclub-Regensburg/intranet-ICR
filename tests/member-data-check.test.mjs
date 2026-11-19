@@ -32,6 +32,7 @@ import {
   HINWEIS_VORWAHL,
 } from "../lib/member-data-check-server.ts";
 import { isActiveMemberProfile } from "../lib/profile-status.ts";
+import { NUR_IM_BESTAND_GEPRUEFT, markierungenNachPruefung } from "../components/member/daten-pruefen.ts";
 
 const z = (iso) => new Date(iso);
 
@@ -237,7 +238,7 @@ test("Leere Pflichtfelder (keine Daten) → ungültig nur wegen IBAN und Geburts
   assert.equal(ansicht({ ...leer, iban: IBAN_DE, geburtsdatum: "2001-04-12" }).gueltig, true);
   // Seite: Anschrift und Handy als optional beschriftet.
   const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
-  assert.match(seite, /<Abschnitt titel="Anschrift" optional \/>/);
+  assert.match(seite, /<Abschnitt titel="Anschrift" optional=\{anschriftOptional\(markierungen\)\} \/>/);
   assert.match(seite, /Handynummer <span className="[^"]*">\(optional\)<\/span>/);
 });
 
@@ -667,4 +668,47 @@ test("N4: „Stimmt alles“ leert ein Land ohne Anschrift, Ändern ohne Anschri
   const r = pruefeDatenCheckAenderung(formular({ strasse: "", hausnummer: "", plz: "", ort: "", land: "AT" }), ohneLand, false, false, HEUTE);
   assert.equal(r.gueltig, true, r.ersterFehler ?? "");
   assert.equal("land" in r.secrets, false);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Review daten-seite, Runde 2 (M1)
+// ---------------------------------------------------------------------------------------------------
+
+test("M1: Nach IBAN CH → DE gilt die Pflicht-Anschrift nicht mehr, auch wenn der Server nur Formularfehler meldet", () => {
+  const CH = "CH9300762011623852957";
+  const bestand = gut({ iban: CH, strasse: null, hausnummer: null, plz: null, ort: null, land: null, geburtsdatum: null });
+  const anfang = ansicht(bestand).formularFehler;
+  for (const feld of ["strasse", "hausnummer", "plz", "ort", "geburtsdatum"]) assert.ok(anfang[feld], feld);
+  // Nur die IBAN geändert (Geburtsdatum fehlt weiter): Formularfehler, nicht vollständig.
+  const eingabe = eingabeMitBestand((feld) => (feld === "iban" ? IBAN_DE : null), bestand);
+  const r = pruefeDatenCheckAenderung(eingabe, bestand, false, false, HEUTE);
+  assert.equal(r.gueltig, false);
+  assert.equal(r.vollstaendig, false);
+  assert.deepEqual(Object.keys(r.fehler), ["geburtsdatum"]);
+  // Die Seite behält davon keine Anschrift-Markierung aus der ersten Bewertung.
+  const neu = markierungenNachPruefung({ anfang, pruefung: r.fehler, vollstaendig: r.vollstaendig, geaendert: ["iban"] });
+  assert.deepEqual(Object.keys(neu), ["geburtsdatum"]);
+  // „Speichern“ reicht vollstaendig durch, „Stimmt alles“ meldet immer den ganzen Bestand; die Seite nutzt das Flag.
+  const actions = readFileSync(new URL("../app/(intranet)/profile/data-check-actions.ts", import.meta.url), "utf8");
+  assert.match(actions, /fehler: r\.fehler, vollstaendig: r\.vollstaendig \}/);
+  assert.match(actions, /error: MAENGEL_MELDUNG, fehler: b\.fehler, vollstaendig: true \}/);
+  const seite = readFileSync(new URL("../components/member/DatenPruefenSeite.tsx", import.meta.url), "utf8");
+  assert.match(seite, /vollstaendig: r\.vollstaendig === true,/);
+});
+
+test("M1: Gegenprobe NUR_IM_BESTAND_GEPRUEFT – nur Handy und Geburtsdatum bewertet das Formular unverändert nicht neu", () => {
+  assert.deepEqual([...NUR_IM_BESTAND_GEPRUEFT].sort(), ["geburtsdatum", "handynummer"]);
+  // Ein anderer Formularfehler (IBAN-Prüfziffer) sorgt dafür, dass nur Formularfehler kommen.
+  const falscheIban = (feld) => (feld === "iban" ? "DE89370400440532013001" : null);
+  // PLZ, Straße, Hausnummer, Ort, Land: bewertet das Formular immer selbst (auch unverändert).
+  const plz = gut({ plz: "9304" });
+  const rPlz = pruefeDatenCheckAenderung(eingabeMitBestand(falscheIban, plz), plz, false, false, HEUTE);
+  assert.equal(rPlz.vollstaendig, false);
+  assert.ok(rPlz.fehler.plz);
+  // Unveränderte alte Handynummer: nicht in den Formularfehlern (bleibt aus der ersten Bewertung stehen).
+  const handy = gut({ handynummer: "0941 123456" });
+  assert.ok(bewerteBestand(handy, false, HEUTE).fehler.handynummer);
+  const rHandy = pruefeDatenCheckAenderung(eingabeMitBestand(falscheIban, handy), handy, false, false, HEUTE);
+  assert.equal(rHandy.vollstaendig, false);
+  assert.equal(rHandy.fehler.handynummer, undefined);
 });

@@ -45,9 +45,47 @@ export function dankeText(gespeichert: boolean): string {
   return gespeichert ? "Deine Daten sind aktualisiert." : "Deine Daten sind bestätigt.";
 }
 
-/** Zahl der markierten Felder. */
+/** Teile der Anschrift (eine gleiche Meldung an mehreren Teilen zählt und steht nur einmal). */
+export const ANSCHRIFT_FELDER = ["strasse", "hausnummer", "plz", "ort"] as const;
+
+/**
+ * Felder, die die Formularprüfung (`pruefeProfil`) bei unverändertem gespeichertem Wert NICHT neu bewertet
+ * (Handy, Geburtsdatum; Name ist nie ein Bestandsmangel). Nur deren Mängel aus der ersten Bewertung bleiben stehen,
+ * wenn der Server nur Formularfehler meldet. Alle anderen Felder bewertet das Formular immer selbst
+ * (Gegenprobe in tests/member-data-check.test.mjs).
+ */
+export const NUR_IM_BESTAND_GEPRUEFT: readonly string[] = ["handynummer", "geburtsdatum"];
+
+/**
+ * Wo die Meldung eines Felds steht: bei gleicher Meldung an mehreren Anschriftteilen nur am ersten (z. B. „Für eine
+ * IBAN außerhalb des EWR brauchen wir die Anschrift.“ an allen vier). Liefert je markiertem Feld das Feld, unter dem
+ * die Meldung angezeigt wird (für aria-describedby); Felder ohne eigene Anzeige zeigen auf das erste.
+ */
+export function meldungsOrt(markierungen: Markierungen): Record<string, string> {
+  const ort: Record<string, string> = {};
+  const erstesMit = new Map<string, string>();
+  for (const [feld, text] of Object.entries(markierungen)) {
+    if (!text) continue;
+    if (!(ANSCHRIFT_FELDER as readonly string[]).includes(feld)) ort[feld] = feld;
+  }
+  for (const feld of ANSCHRIFT_FELDER) {
+    const text = markierungen[feld];
+    if (!text) continue;
+    if (!erstesMit.has(text)) erstesMit.set(text, feld);
+    ort[feld] = erstesMit.get(text)!;
+  }
+  return ort;
+}
+
+/** Zahl der offenen Angaben: je markiertem Feld eine, gleiche Meldungen der Anschrift zusammen nur eine. */
 export function offeneAngaben(markierungen: Markierungen): number {
-  return Object.values(markierungen).filter(Boolean).length;
+  const ort = meldungsOrt(markierungen);
+  return Object.entries(ort).filter(([feld, anzeige]) => feld === anzeige).length;
+}
+
+/** „optional“ an der Anschrift nur, solange kein Anschriftteil markiert ist (sonst ist sie gerade Pflicht). */
+export function anschriftOptional(markierungen: Markierungen): boolean {
+  return !ANSCHRIFT_FELDER.some((feld) => markierungen[feld]);
 }
 
 /** Zähler in der Fußleiste. */
@@ -100,9 +138,11 @@ export function zuSendendeWerte(start: DatenWerte, jetzt: DatenWerte): [keyof Da
 }
 
 /**
- * Markierungen nach einer Prüfung des Servers. `vollstaendig` (der Server hat den ganzen Bestand danach bewertet):
- * genau seine Meldungen. Sonst kennt der Server nur die Formularfehler; Mängel unveränderter Felder aus der ersten
- * Bewertung (`anfang`, z. B. eine alte Handynummer) bleiben dann stehen, geänderte Felder zählen nur nach Server.
+ * Markierungen nach einer Prüfung des Servers (beim Verlassen eines Felds oder beim Absenden). `vollstaendig` (der
+ * Server hat den ganzen Bestand danach bewertet): genau seine Meldungen. Sonst kennt der Server nur die
+ * Formularfehler; dann bleiben aus der ersten Bewertung (`anfang`) nur Mängel unveränderter Felder, die das Formular
+ * nicht neu bewertet (NUR_IM_BESTAND_GEPRUEFT, z. B. eine alte Handynummer). Alles andere sagt der Server neu, auch
+ * wenn eine frühere Markierung (z. B. Pflicht-Anschrift wegen einer IBAN außerhalb des EWR) nicht mehr gilt.
  */
 export function markierungenNachPruefung({
   anfang,
@@ -118,7 +158,7 @@ export function markierungenNachPruefung({
   if (vollstaendig) return { ...pruefung };
   const ergebnis: Markierungen = {};
   for (const [feld, meldung] of Object.entries(anfang)) {
-    if (meldung && !geaendert.includes(feld)) ergebnis[feld] = meldung;
+    if (meldung && NUR_IM_BESTAND_GEPRUEFT.includes(feld) && !geaendert.includes(feld)) ergebnis[feld] = meldung;
   }
   for (const [feld, meldung] of Object.entries(pruefung)) {
     if (meldung) ergebnis[feld] = meldung;

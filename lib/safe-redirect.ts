@@ -38,9 +38,29 @@ function isPlainRelativePath(value: string): boolean {
   return true;
 }
 
-function isBlocked(pathname: string): boolean {
+function isBlockedPlain(pathname: string): boolean {
   const lower = pathname.toLowerCase();
   return BLOCKED_PATHS.some((p) => lower === p || lower.startsWith(`${p}/`));
+}
+
+/**
+ * Gesperrt, auch wenn der Pfad prozent-kodiert ist (`/%61uth/…`, `/%6Cogin`): Next dekodiert beim Routen. Geprüft
+ * werden der Pfad und jede Dekodierungsstufe; nicht dekodierbar gilt als gesperrt.
+ */
+function isBlocked(pathname: string): boolean {
+  let current = pathname;
+  for (let round = 0; round <= MAX_DECODE_ROUNDS; round++) {
+    if (isBlockedPlain(current)) return true;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(current);
+    } catch {
+      return true;
+    }
+    if (decoded === current) return false;
+    current = decoded;
+  }
+  return true;
 }
 
 /**

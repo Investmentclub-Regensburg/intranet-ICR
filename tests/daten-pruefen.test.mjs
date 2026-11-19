@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  anschriftOptional,
   dankeText,
   dankeTitel,
   datenTitel,
@@ -9,6 +10,7 @@ import {
   gruenNachPruefung,
   knopfText,
   markierungenNachPruefung,
+  meldungsOrt,
   offeneAngaben,
   ohneFeld,
   zaehlerText,
@@ -102,4 +104,34 @@ test("Beim Tippen fällt nur die Markierung des bearbeiteten Felds weg", () => {
   const m = { plz: "a", ort: "b", iban: "c" };
   assert.deepEqual(ohneFeld(m, "plz", "ort"), { iban: "c" });
   assert.equal(ohneFeld(m, "vorname"), m);
+});
+
+test("N1: gleiche Meldung an mehreren Anschriftteilen steht und zählt nur einmal, „optional“ dann weg", () => {
+  const ewr = "Für eine IBAN außerhalb des EWR brauchen wir die Anschrift.";
+  const m = { strasse: ewr, hausnummer: ewr, plz: ewr, ort: ewr, iban: "Prüfziffer", geburtsdatum: "fehlt" };
+  assert.deepEqual(meldungsOrt(m), {
+    iban: "iban",
+    geburtsdatum: "geburtsdatum",
+    strasse: "strasse",
+    hausnummer: "strasse",
+    plz: "strasse",
+    ort: "strasse",
+  });
+  assert.equal(offeneAngaben(m), 3);
+  assert.equal(zaehlerText(offeneAngaben(m)), "3 Angaben fehlen noch");
+  assert.equal(anschriftOptional(m), false);
+  // Verschiedene Meldungen bleiben einzeln (PLZ-Format und fehlender Ort).
+  const zwei = { plz: "In Deutschland hat die PLZ 5 Ziffern.", ort: "Bitte trag den Ort ein." };
+  assert.deepEqual(meldungsOrt(zwei), { plz: "plz", ort: "ort" });
+  assert.equal(offeneAngaben(zwei), 2);
+  assert.equal(anschriftOptional({ iban: "x" }), true);
+  assert.equal(anschriftOptional({}), true);
+});
+
+test("M1: ohne vollständige Bewertung bleiben nur Bestandsmängel von Handy/Geburtsdatum aus der ersten Bewertung", () => {
+  const anfang = { strasse: "EWR", plz: "EWR", handynummer: "Alt", geburtsdatum: "Ungültig" };
+  assert.deepEqual(
+    markierungenNachPruefung({ anfang, pruefung: { iban: "Neu" }, vollstaendig: false, geaendert: ["iban", "geburtsdatum"] }),
+    { handynummer: "Alt", iban: "Neu" },
+  );
 });

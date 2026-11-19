@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FeldFehler, FeldHinweis, HandyEingabe, IbanEingabe, LandAuswahl } from "@/components/member/MemberInputs";
 import {
+  anschriftOptional,
   dankeText,
   dankeTitel,
   datenTitel,
@@ -25,6 +26,7 @@ import {
   gruenNachPruefung,
   knopfText,
   markierungenNachPruefung,
+  meldungsOrt,
   offeneAngaben,
   ohneFeld,
   zaehlerText,
@@ -210,8 +212,8 @@ export function DatenPruefenSeite({
           const neu = markierungenNachPruefung({
             anfang,
             pruefung: r.fehler,
-            // „Stimmt alles“ bewertet den ganzen Bestand; „Speichern“ meldet evtl. nur die Formularfehler.
-            vollstaendig: jetztGeaendert.length === 0,
+            // Der Server sagt, ob er den ganzen Bestand bewertet hat (sonst nur Formularfehler).
+            vollstaendig: r.vollstaendig === true,
             geaendert: jetztGeaendert,
           });
           setMarkierungen(neu);
@@ -241,9 +243,14 @@ export function DatenPruefenSeite({
   }
 
   const feldId = (feld: string) => `${id}-${feld}`;
+  // Gleiche Meldungen der Anschrift stehen nur einmal; das Feld verweist dann auf diese eine Meldung.
+  const ort = meldungsOrt(markierungen);
+  const eigeneMeldung = (feld: string) => (ort[feld] === feld ? markierungen[feld] : undefined);
   /** aria-Attribute eines Felds mit Markierung. */
   const ungueltig = (feld: string) =>
-    markierungen[feld] ? { "aria-invalid": true as const, "aria-describedby": `${feldId(feld)}-fehler` } : {};
+    markierungen[feld]
+      ? { "aria-invalid": true as const, "aria-describedby": `${feldId(ort[feld] ?? feld)}-fehler` }
+      : {};
   const gruenKlasse = (feld: string) => (gruen.includes(feld) ? GRUEN : undefined);
   const knopf = knopfText(geaendert.length > 0, offen);
 
@@ -333,7 +340,7 @@ export function DatenPruefenSeite({
                   />
                 </Zeile>
 
-                <Abschnitt titel="Anschrift" optional />
+                <Abschnitt titel="Anschrift" optional={anschriftOptional(markierungen)} />
                 <Zeile label="Straße und Nr." htmlFor={feldId("strasse")}>
                   <div className="grid grid-cols-[minmax(0,1fr)_6rem] gap-2.5">
                     <TextFeld
@@ -353,7 +360,7 @@ export function DatenPruefenSeite({
                       {...ungueltig("hausnummer")}
                     />
                   </div>
-                  <Meldungen ids={[feldId("strasse"), feldId("hausnummer")]} texte={[markierungen.strasse, markierungen.hausnummer]} />
+                  <Meldungen ids={[feldId("strasse"), feldId("hausnummer")]} texte={[eigeneMeldung("strasse"), eigeneMeldung("hausnummer")]} />
                 </Zeile>
                 <Zeile label="PLZ und Ort" htmlFor={feldId("plz")}>
                   <div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2.5">
@@ -376,7 +383,7 @@ export function DatenPruefenSeite({
                       {...ungueltig("ort")}
                     />
                   </div>
-                  <Meldungen ids={[feldId("plz"), feldId("ort")]} texte={[markierungen.plz, markierungen.ort]} />
+                  <Meldungen ids={[feldId("plz"), feldId("ort")]} texte={[eigeneMeldung("plz"), eigeneMeldung("ort")]} />
                 </Zeile>
                 <Zeile label="Land" htmlFor={feldId("land")}>
                   <div className={FELD}>
@@ -586,6 +593,7 @@ function DankeAnsicht({
   onWeiter: () => void;
 }) {
   const reduziert = useReducedMotionSafe();
+  const textId = useId();
   const [laeuft, setLaeuft] = useState(false);
   const titel = useRef<HTMLHeadingElement>(null);
   const weiter = useRef(onWeiter);
@@ -619,7 +627,6 @@ function DankeAnsicht({
 
   return (
     <div
-      role="status"
       className="flex min-h-[min(620px,70dvh)] flex-col items-center justify-center gap-[1.125rem] text-center duration-[450ms] ease-out animate-in fade-in-0 slide-in-from-bottom-2 motion-reduce:animate-none"
     >
       <span className="flex size-[88px] items-center justify-center rounded-full bg-success-tint text-success duration-500 ease-out animate-in fade-in-0 zoom-in-50 motion-reduce:animate-none">
@@ -635,10 +642,19 @@ function DankeAnsicht({
           />
         </svg>
       </span>
-      <h1 ref={titel} tabIndex={-1} className="mt-1.5 text-[2rem] font-bold tracking-[-0.03em] outline-none">
+      {/* Eine Ansage: Der Fokus springt auf die Überschrift, der Satz darunter ist ihre Beschreibung (kein role=status
+          zusätzlich, sonst würde alles zweimal vorgelesen). */}
+      <h1
+        ref={titel}
+        tabIndex={-1}
+        aria-describedby={`${textId}`}
+        className="mt-1.5 text-[2rem] font-bold tracking-[-0.03em] outline-none"
+      >
         {dankeTitel(vorname)}
       </h1>
-      <p className="text-base text-muted-foreground">{dankeText(gespeichert)}</p>
+      <p id={textId} className="text-base text-muted-foreground">
+        {dankeText(gespeichert)}
+      </p>
       <span className="mt-2.5 h-1.5 w-[220px] max-w-full overflow-hidden rounded-full bg-muted" aria-hidden>
         <span
           className="block h-full rounded-full bg-primary"

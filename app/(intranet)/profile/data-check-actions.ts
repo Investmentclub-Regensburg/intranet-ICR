@@ -37,6 +37,11 @@ export type DatenCheckState = {
   error: string;
   /** Meldungen je Feld (Mangel nach lib/member-rules.ts). */
   fehler?: FeldFehler;
+  /**
+   * Mit `fehler`: true = der ganze Bestand (danach) ist bewertet, `fehler` ist alles; false = nur Formularfehler
+   * (siehe `pruefeDatenCheckAenderung`).
+   */
+  vollstaendig?: boolean;
 };
 
 const GEAENDERT_MELDUNG = "Deine Daten wurden inzwischen geändert. Bitte lade die Seite neu.";
@@ -165,7 +170,7 @@ export async function confirmMemberData(input: {
     return { success: false, error: GEAENDERT_MELDUNG };
   }
   const b = bewerteBestand(g.bestand, g.alumni);
-  if (!b.gueltig) return { success: false, error: MAENGEL_MELDUNG, fehler: b.fehler };
+  if (!b.gueltig) return { success: false, error: MAENGEL_MELDUNG, fehler: b.fehler, vollstaendig: true };
   const { secrets, namen } = bestaetigungsAenderungen(g.bestand, b.werte, g.alumni, g.landBekannt);
   return speichereUndBestaetige(admin, g, auth.user.id, secrets, namen);
 }
@@ -194,7 +199,9 @@ export async function saveMemberDataCheck(formData: FormData): Promise<DatenChec
   // Land unbekannt bestimmt nur der Server (gelesen ohne Spalte land), nie das Formular (Review A3).
   const landUnbekannt = !g.landBekannt;
   const r = pruefeDatenCheckAenderung(eingabe, g.bestand, g.alumni, landUnbekannt);
-  if (!r.gueltig) return { success: false, error: r.ersterFehler ?? MAENGEL_MELDUNG, fehler: r.fehler };
+  if (!r.gueltig) {
+    return { success: false, error: r.ersterFehler ?? MAENGEL_MELDUNG, fehler: r.fehler, vollstaendig: r.vollstaendig };
+  }
   return speichereUndBestaetige(admin, g, auth.user.id, r.secrets, r.namen);
 }
 
