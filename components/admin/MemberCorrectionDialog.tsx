@@ -30,7 +30,7 @@ import {
 } from "@/app/(intranet)/admin/members/actions";
 import {
   angezeigteRolle,
-  datenGeaendert,
+  datenFuerKorrektur,
   mitgliedschaftAufruf,
   mitgliedschaftGesperrt,
   mitgliedschaftFehlerText,
@@ -102,10 +102,13 @@ export function MemberCorrectionDialog({
   const [land, setLand] = useState("DE");
   const [handy, setHandy] = useState<HandyWert>({ land: "DE", nummer: "" });
   const [iban, setIban] = useState("");
+  // Felder, die der Vorstand selbst geändert hat: nur die zählen als Änderung (Review M2).
+  const angefasst = useRef(new Set<string>());
   // Antwort eines inzwischen geschlossenen Fensters verwerfen.
   const aktiv = useRef(true);
 
   function uebernehme(d: MemberCorrectionData) {
+    angefasst.current = new Set();
     setData(d);
     setLand(d.land);
     setHandy({ land: d.handyLand, nummer: d.handynummer });
@@ -146,6 +149,12 @@ export function MemberCorrectionDialog({
     onOpenChange(false);
   }
 
+  /** Feld vom Vorstand geändert: merken und seinen Fehler entfernen. */
+  function anfassen(feld: string, ...auchLeeren: string[]) {
+    angefasst.current.add(feld);
+    clear(feld, ...auchLeeren);
+  }
+
   function clear(...felder: string[]) {
     setFehler((alt) => {
       if (!felder.some((f) => alt[f])) return alt;
@@ -177,7 +186,7 @@ export function MemberCorrectionDialog({
         bic: value("bic"),
         iban,
       };
-      if (!datenGeaendert(eingabe, data, DATEN_FELDER)) eingabe = null;
+      eingabe = datenFuerKorrektur(eingabe, data, DATEN_FELDER, angefasst.current);
     }
 
     if (!aufruf && !eingabe) {
@@ -335,10 +344,10 @@ export function MemberCorrectionDialog({
                     <Abschnitt titel="Persönliche Daten">
                       <div className="grid gap-3 sm:grid-cols-2">
                         <Field id="mc-vorname" label="Vorname" fehler={fehler.vorname}>
-                          <Input id="mc-vorname" name="vorname" defaultValue={data.vorname} autoComplete="off" {...invalid("mc-vorname", fehler.vorname)} onInput={() => clear("vorname")} />
+                          <Input id="mc-vorname" name="vorname" defaultValue={data.vorname} autoComplete="off" {...invalid("mc-vorname", fehler.vorname)} onInput={() => anfassen("vorname")} />
                         </Field>
                         <Field id="mc-nachname" label="Nachname" fehler={fehler.nachname}>
-                          <Input id="mc-nachname" name="nachname" defaultValue={data.nachname} autoComplete="off" {...invalid("mc-nachname", fehler.nachname)} onInput={() => clear("nachname")} />
+                          <Input id="mc-nachname" name="nachname" defaultValue={data.nachname} autoComplete="off" {...invalid("mc-nachname", fehler.nachname)} onInput={() => anfassen("nachname")} />
                         </Field>
                       </div>
                       <div className="grid min-w-0 content-start gap-1.5">
@@ -347,7 +356,7 @@ export function MemberCorrectionDialog({
                       </div>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <Field id="mc-geburtsdatum" label="Geburtsdatum" fehler={fehler.geburtsdatum}>
-                          <Input id="mc-geburtsdatum" name="geburtsdatum" type="date" defaultValue={data.geburtsdatum} {...invalid("mc-geburtsdatum", fehler.geburtsdatum)} onInput={() => clear("geburtsdatum")} />
+                          <Input id="mc-geburtsdatum" name="geburtsdatum" type="date" defaultValue={data.geburtsdatum} {...invalid("mc-geburtsdatum", fehler.geburtsdatum)} onInput={() => anfassen("geburtsdatum")} />
                         </Field>
                       </div>
                       <div className="grid gap-1.5">
@@ -357,7 +366,8 @@ export function MemberCorrectionDialog({
                           wert={handy}
                           onChange={(w) => {
                             setHandy(w);
-                            clear("handynummer");
+                            angefasst.current.add("handyLand");
+                            anfassen("handynummer");
                           }}
                           autoComplete="off"
                           fehler={fehler.handynummer}
@@ -368,10 +378,10 @@ export function MemberCorrectionDialog({
                     <Abschnitt titel="Anschrift">
                       <div className="grid grid-cols-[1fr_6.5rem] gap-3">
                         <Field id="mc-strasse" label="Straße" fehler={fehler.strasse}>
-                          <Input id="mc-strasse" name="strasse" defaultValue={data.strasse} autoComplete="off" {...invalid("mc-strasse", fehler.strasse)} onInput={() => clear("strasse")} />
+                          <Input id="mc-strasse" name="strasse" defaultValue={data.strasse} autoComplete="off" {...invalid("mc-strasse", fehler.strasse)} onInput={() => anfassen("strasse")} />
                         </Field>
                         <Field id="mc-hausnummer" label="Hausnr." fehler={fehler.hausnummer}>
-                          <Input id="mc-hausnummer" name="hausnummer" defaultValue={data.hausnummer} autoComplete="off" {...invalid("mc-hausnummer", fehler.hausnummer)} onInput={() => clear("hausnummer")} />
+                          <Input id="mc-hausnummer" name="hausnummer" defaultValue={data.hausnummer} autoComplete="off" {...invalid("mc-hausnummer", fehler.hausnummer)} onInput={() => anfassen("hausnummer")} />
                         </Field>
                       </div>
                       <div className="grid gap-1.5">
@@ -381,17 +391,17 @@ export function MemberCorrectionDialog({
                           wert={land}
                           onChange={(l) => {
                             setLand(l);
-                            clear("land", "plz", "hausnummer", "ort");
+                            anfassen("land", "plz", "hausnummer", "ort");
                           }}
                           fehler={fehler.land}
                         />
                       </div>
                       <div className="grid grid-cols-[6.5rem_1fr] gap-3">
                         <Field id="mc-plz" label="PLZ" fehler={fehler.plz}>
-                          <Input id="mc-plz" name="plz" defaultValue={data.plz} inputMode={plzInputMode(land)} autoComplete="off" {...invalid("mc-plz", fehler.plz)} onInput={() => clear("plz")} />
+                          <Input id="mc-plz" name="plz" defaultValue={data.plz} inputMode={plzInputMode(land)} autoComplete="off" {...invalid("mc-plz", fehler.plz)} onInput={() => anfassen("plz")} />
                         </Field>
                         <Field id="mc-ort" label="Ort" fehler={fehler.ort}>
-                          <Input id="mc-ort" name="ort" defaultValue={data.ort} autoComplete="off" {...invalid("mc-ort", fehler.ort)} onInput={() => clear("ort")} />
+                          <Input id="mc-ort" name="ort" defaultValue={data.ort} autoComplete="off" {...invalid("mc-ort", fehler.ort)} onInput={() => anfassen("ort")} />
                         </Field>
                       </div>
                     </Abschnitt>
@@ -424,7 +434,7 @@ export function MemberCorrectionDialog({
                           spellCheck={false}
                           className="font-mono tracking-wide"
                           {...invalid("mc-bic", fehler.bic)}
-                          onInput={() => clear("bic")}
+                          onInput={() => anfassen("bic")}
                         />
                         {!fehler.bic && <FeldHinweis>{data.bicHinweis}</FeldHinweis>}
                       </Field>

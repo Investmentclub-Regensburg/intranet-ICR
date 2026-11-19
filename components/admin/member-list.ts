@@ -229,12 +229,25 @@ export function mitgliedschaftFehlerText(meldung: string, datenGespeichert: bool
   return datenGespeichert ? `Daten gespeichert, Rolle/Status nicht: ${meldung}` : meldung;
 }
 
-/** Datenfelder des Korrekturteils (Vergleich mit den Werten beim Öffnen, nur Rohtext). */
-export function datenGeaendert<K extends string>(
-  eingabe: Readonly<Record<K, string>> & { iban: string },
+/**
+ * Datenteil für correctMemberData, oder null, wenn nichts zu senden ist. Zählt nur Felder, die der Vorstand
+ * wirklich angefasst hat (`angefasst`); für alle anderen geht der beim Öffnen geladene Rohwert mit. So löst
+ * keine Anzeige-Umwandlung eine Sendung aus (z. B. ein Geburtsdatum im Altformat „12.04.2003“, das ein
+ * Datumsfeld leer anzeigt). Eine neue IBAN (nicht leer) zählt immer.
+ */
+export function datenFuerKorrektur<K extends string>(
+  formular: Readonly<Record<K, string>> & { iban: string },
   basis: Readonly<Record<K, string>>,
   felder: readonly K[],
-): boolean {
-  if (eingabe.iban.trim() !== "") return true;
-  return felder.some((f) => (eingabe[f] ?? "") !== (basis[f] ?? ""));
+  angefasst: ReadonlySet<string>,
+): (Record<K, string> & { iban: string }) | null {
+  const eingabe = {} as Record<K, string>;
+  let geaendert = formular.iban.trim() !== "";
+  for (const f of felder) {
+    const alt = basis[f] ?? "";
+    const wert = angefasst.has(f) ? (formular[f] ?? "") : alt;
+    eingabe[f] = wert;
+    if (wert !== alt) geaendert = true;
+  }
+  return geaendert ? { ...eingabe, iban: formular.iban } : null;
 }

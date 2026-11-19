@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import {
   angezeigteRolle,
   ariaSort,
-  datenGeaendert,
+  datenFuerKorrektur,
   filterAbweichungen,
   filtereMitglieder,
   mitgliedschaftAufruf,
@@ -202,13 +202,51 @@ test("Nach dem Aufruf: neue Ausgangswerte wie der Server sie setzt", () => {
   assert.equal(mitgliedschaftAufruf(basis, ms("board", "active")), null);
 });
 
-test("datenGeaendert: nur Rolle geändert → Datenfelder laufen nicht mit", () => {
+test("datenFuerKorrektur: nur angefasste Felder zählen, sonst geht der Rohwert mit", () => {
   const felder = ["vorname", "plz"];
   const basis = { vorname: "Lena", plz: "93053" };
-  assert.equal(datenGeaendert({ vorname: "Lena", plz: "93053", iban: "" }, basis, felder), false);
-  assert.equal(datenGeaendert({ vorname: "Lena", plz: "93053", iban: "  " }, basis, felder), false);
-  assert.equal(datenGeaendert({ vorname: "Lea", plz: "93053", iban: "" }, basis, felder), true);
-  assert.equal(datenGeaendert({ vorname: "Lena", plz: "93053", iban: "DE89 3704" }, basis, felder), true);
+  const nichts = new Set();
+  assert.equal(datenFuerKorrektur({ vorname: "Lena", plz: "93053", iban: "" }, basis, felder, nichts), null);
+  assert.equal(datenFuerKorrektur({ vorname: "Lena", plz: "93053", iban: "  " }, basis, felder, nichts), null);
+  // Nicht angefasst: anderer Formularwert zählt nicht.
+  assert.equal(datenFuerKorrektur({ vorname: "Lea", plz: "93053", iban: "" }, basis, felder, nichts), null);
+  assert.deepEqual(datenFuerKorrektur({ vorname: "Lea", plz: "93053", iban: "" }, basis, felder, new Set(["vorname"])), {
+    vorname: "Lea",
+    plz: "93053",
+    iban: "",
+  });
+  // Angefasst, aber gleich geblieben: nichts zu senden.
+  assert.equal(datenFuerKorrektur({ vorname: "Lena", plz: "93053", iban: "" }, basis, felder, new Set(["vorname"])), null);
+  // Neue IBAN zählt immer.
+  assert.deepEqual(datenFuerKorrektur({ vorname: "Lena", plz: "93053", iban: "DE89 3704" }, basis, felder, nichts), {
+    vorname: "Lena",
+    plz: "93053",
+    iban: "DE89 3704",
+  });
+});
+
+test("Geburtsdatum im Altformat + reine Rollenänderung → kein correctMemberData-Aufruf", async () => {
+  // Das Datumsfeld zeigt „12.04.2003“ nicht an und liefert "" – ohne Anfassen darf das nichts auslösen.
+  const felder = ["vorname", "geburtsdatum"];
+  const basis = { vorname: "Lena", geburtsdatum: "12.04.2003" };
+  const eingabe = datenFuerKorrektur({ vorname: "Lena", geburtsdatum: "", iban: "" }, basis, felder, new Set());
+  assert.equal(eingabe, null);
+  const log = [];
+  const r = await speichereBearbeitung(eingabe, mitgliedschaftAufruf(ms("member", "active"), ms("admin", "active")), {
+    daten: async () => {
+      log.push("daten");
+      return { error: "" };
+    },
+    mitgliedschaft: async (wert) => {
+      log.push(wert);
+      return { error: "" };
+    },
+  });
+  assert.deepEqual(log, ["admin"]);
+  assert.equal(r.art, "ok");
+  // Wird ein anderes Feld geändert, geht das Altformat-Datum unverändert mit (der Server sieht es nicht als geändert).
+  const mitName = datenFuerKorrektur({ vorname: "Lea", geburtsdatum: "", iban: "" }, basis, felder, new Set(["vorname"]));
+  assert.equal(mitName.geburtsdatum, "12.04.2003");
 });
 
 /** Wege mit Protokoll: welche Teile in welcher Reihenfolge liefen. */
