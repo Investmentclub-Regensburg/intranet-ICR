@@ -25,33 +25,7 @@ function toDirectory(rows: Record<string, unknown>[] | null): MemberRow[] {
     });
 }
 
-export async function searchMembers(query: string): Promise<MemberRow[]> {
-  const auth = await requireUser();
-  if (!auth.ok) return [];
-
-  const admin = createServiceClient();
-
-  const q = (typeof query === "string" ? query : "").trim().slice(0, 100);
-  if (!q) return [];
-
-  // Eingabe für den PostgREST-`or`-Filter absichern: Backslash und Quote escapen
-  // (Reihenfolge wichtig) und LIKE-Wildcards entfernen, damit der Filter nicht
-  // manipuliert oder zu einer Voll-Tabellen-Suche aufgeweitet werden kann.
-  const safe = q
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/[%_]/g, "");
-  const pattern = `%${safe}%`;
-  const { data, error } = await admin
-    .from("profiles")
-    .select('Vorname, Nachname, "Studiengang / Fach", Status')
-    .or(`Vorname.ilike."${pattern}",Nachname.ilike."${pattern}"`);
-
-  if (error) return [];
-
-  return toDirectory(data as Record<string, unknown>[] | null);
-}
-
+/** Alle aktiven Mitglieder (Name + Studiengang) für das Verzeichnis; die Seite lädt sie auf dem Server. */
 export async function getAllMembers(): Promise<MemberRow[]> {
   const auth = await requireUser();
   if (!auth.ok) return [];
