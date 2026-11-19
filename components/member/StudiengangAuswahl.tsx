@@ -5,6 +5,10 @@
  * ein Eingabefeld, das beim Tippen filtert (Kurzname, Langform und Abkürzung finden denselben Eintrag, z. B. „BWL“
  * und „Betriebs…“). Nur bei „Sonstiges“ erscheint ein Textfeld, dessen Inhalt gespeichert wird.
  *
+ * Bedienung nach dem üblichen Combobox-Muster (WAI-ARIA APG, „List autocomplete“): Fokus bleibt im Eingabefeld, die
+ * aktive Option steht in `aria-activedescendant` und trägt `aria-selected`; Pfeiltasten wandern, Enter wählt, Esc
+ * schließt nur die Liste. Die Trefferzahl wird angesagt. Nach „Sonstiges“ springt der Fokus ins Textfeld.
+ *
  * Gesendet werden `name` (Name aus der Liste) und `freitextName` (nur bei „Sonstiges“). Gültig ist, was der Server
  * sagt (lib/studiengaenge.ts → pruefeStudiengang); im Browser meldet das Feld nur „aus der Liste wählen“.
  */
@@ -27,6 +31,7 @@ export function StudiengangAuswahl({
   wert,
   onChange,
   fehler,
+  fehlerFreitext,
   required,
   ohneKeinStudium = false,
   className,
@@ -36,26 +41,36 @@ export function StudiengangAuswahl({
   freitextName?: string;
   wert: StudiengangWert;
   onChange: (wert: StudiengangWert) => void;
+  /** Fehler zur Auswahl. */
   fehler?: string;
+  /** Fehler zum Freitext bei „Sonstiges“ (steht am Textfeld). */
+  fehlerFreitext?: string;
   required?: boolean;
   /** „Kein Studium“ ausblenden (Registrierung nach „Ja, ich studiere“). */
   ohneKeinStudium?: boolean;
   className?: string;
 }) {
   const listeId = useId();
+  const ansageId = useId();
   const fehlerId = `${id}-fehler`;
+  const freitextId = `${id}-sonstiges`;
+  const freitextFehlerId = `${freitextId}-fehler`;
   const eingabe = useRef<HTMLInputElement>(null);
+  const freitextFeld = useRef<HTMLInputElement>(null);
   const liste = useRef<HTMLUListElement>(null);
   /** Text beim Tippen; ohne laufende Suche zeigt das Feld die Auswahl. */
   const [suche, setSuche] = useState<string | null>(null);
   const [offen, setOffen] = useState(false);
   const [aktiv, setAktiv] = useState(-1);
+  /** Nach der Wahl von „Sonstiges“ einmal ins Textfeld springen. */
+  const [zumFreitext, setZumFreitext] = useState(false);
 
   const text = suche ?? wert.auswahl;
   const treffer = useMemo(
     () => sucheStudiengaenge(suche ?? "", { ohneKeinStudium }),
     [suche, ohneKeinStudium]
   );
+  const trefferZahl = treffer.filter((s) => s.name !== SONSTIGES).length;
 
   // Browser-Prüfung (Wizard „Weiter“): Pflichtfeld ohne Auswahl → Hinweis „aus der Liste wählen“.
   useEffect(() => {
@@ -68,6 +83,14 @@ export function StudiengangAuswahl({
     liste.current?.querySelector<HTMLElement>(`[data-index="${aktiv}"]`)?.scrollIntoView({ block: "nearest" });
   }, [offen, aktiv]);
 
+  // Fokus ins Textfeld, sobald es nach „Sonstiges“ da ist.
+  useEffect(() => {
+    if (!zumFreitext || wert.auswahl !== SONSTIGES) return;
+    freitextFeld.current?.focus();
+    const t = window.setTimeout(() => setZumFreitext(false), 0);
+    return () => window.clearTimeout(t);
+  }, [zumFreitext, wert.auswahl]);
+
   const waehle = (auswahl: string) => {
     // Bei „Sonstiges“ wandert der getippte Text ins Freitextfeld, wenn es noch leer ist.
     const getippt = (suche ?? "").trim();
@@ -77,6 +100,7 @@ export function StudiengangAuswahl({
     setSuche(null);
     setOffen(false);
     setAktiv(-1);
+    if (auswahl === SONSTIGES) setZumFreitext(true);
   };
 
   const schliessen = () => {
@@ -85,7 +109,7 @@ export function StudiengangAuswahl({
     if (suche === null) return;
     // Beim Verlassen: eindeutige Eingabe („bwl“, „Betriebswirtschaftslehre“) übernehmen, sonst Text stehen lassen.
     const eindeutig = eindeutigerTreffer(suche, { ohneKeinStudium });
-    if (eindeutig) waehle(eindeutig);
+    if (eindeutig && eindeutig !== SONSTIGES) waehle(eindeutig);
     else if (!suche.trim()) setSuche(null);
   };
 
@@ -106,13 +130,6 @@ export function StudiengangAuswahl({
         e.preventDefault();
         e.stopPropagation();
         waehle(treffer[aktiv].name);
-      } else if (offen && suche !== null) {
-        const eindeutig = eindeutigerTreffer(suche, { ohneKeinStudium }) ?? (treffer.length === 2 ? treffer[0].name : null);
-        if (eindeutig) {
-          e.preventDefault();
-          e.stopPropagation();
-          waehle(eindeutig);
-        }
       }
     } else if (e.key === "Escape") {
       if (offen) {
@@ -125,7 +142,6 @@ export function StudiengangAuswahl({
     }
   };
 
-  const zeigeFehler = fehler;
   return (
     <div className={cn("space-y-3", className)}>
       <div className="space-y-1.5">
@@ -139,8 +155,8 @@ export function StudiengangAuswahl({
             aria-controls={listeId}
             aria-autocomplete="list"
             aria-activedescendant={offen && aktiv >= 0 ? `${listeId}-${aktiv}` : undefined}
-            aria-invalid={zeigeFehler ? true : undefined}
-            aria-describedby={zeigeFehler ? fehlerId : undefined}
+            aria-invalid={fehler ? true : undefined}
+            aria-describedby={fehler ? fehlerId : undefined}
             autoComplete="off"
             spellCheck={false}
             required={required}
@@ -175,15 +191,17 @@ export function StudiengangAuswahl({
           >
             <ChevronDown className={cn("size-4 transition-transform", offen && "rotate-180")} aria-hidden />
           </button>
-          {offen && (
-            <ul
-              ref={liste}
-              id={listeId}
-              role="listbox"
-              aria-label="Studiengänge"
-              className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-            >
-              {treffer.map((s, i) => {
+          {/* Immer im DOM, damit aria-controls auf ein vorhandenes Element zeigt; geschlossen per hidden. */}
+          <ul
+            ref={liste}
+            id={listeId}
+            role="listbox"
+            aria-label="Studiengänge"
+            hidden={!offen}
+            className="absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+          >
+            {offen &&
+              treffer.map((s, i) => {
                 const gewaehlt = s.name === wert.auswahl;
                 return (
                   <li
@@ -191,7 +209,7 @@ export function StudiengangAuswahl({
                     id={`${listeId}-${i}`}
                     data-index={i}
                     role="option"
-                    aria-selected={gewaehlt}
+                    aria-selected={i === aktiv}
                     // mousedown statt click: sonst verliert das Feld vorher den Fokus und die Liste schließt.
                     onMouseDown={(e) => {
                       e.preventDefault();
@@ -201,28 +219,37 @@ export function StudiengangAuswahl({
                       if (aktiv !== i) setAktiv(i);
                     }}
                     className={cn(
-                      "flex cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm",
+                      // Am Handy mindestens 44 px hoch (Touch), am Desktop kompakter.
+                      "flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm md:min-h-0 md:py-2",
                       i === aktiv && "bg-muted",
-                      s.name === SONSTIGES && i > 0 && "mt-1 border-t border-border pt-2.5"
+                      s.name === SONSTIGES && i > 0 && "mt-1 border-t border-border"
                     )}
                   >
                     <span>{s.name}</span>
-                    {gewaehlt && <Check className="size-4 shrink-0 text-primary" aria-hidden />}
+                    {gewaehlt && <Check className="size-4 shrink-0 text-primary" aria-label="gewählt" />}
                   </li>
                 );
               })}
-            </ul>
-          )}
+          </ul>
         </div>
+        {/* Trefferzahl für Screenreader (nur während der Suche). */}
+        <p id={ansageId} className="sr-only" aria-live="polite" aria-atomic="true">
+          {offen && suche !== null && suche.trim()
+            ? trefferZahl === 1
+              ? "1 Studiengang gefunden"
+              : `${trefferZahl} Studiengänge gefunden`
+            : ""}
+        </p>
         {/* Gesendet wird die Auswahl, nicht der Suchtext. */}
         <input type="hidden" name={name} value={wert.auswahl} />
-        <FeldFehler id={fehlerId}>{zeigeFehler}</FeldFehler>
+        <FeldFehler id={fehlerId}>{fehler}</FeldFehler>
       </div>
       {wert.auswahl === SONSTIGES && (
         <div className="space-y-2">
-          <Label htmlFor={`${id}-sonstiges`}>Dein Studiengang</Label>
+          <Label htmlFor={freitextId}>Dein Studiengang</Label>
           <Input
-            id={`${id}-sonstiges`}
+            ref={freitextFeld}
+            id={freitextId}
             name={freitextName}
             type="text"
             required={required}
@@ -230,8 +257,11 @@ export function StudiengangAuswahl({
             placeholder="z. B. Wirtschaftsrecht"
             value={wert.freitext}
             onChange={(e) => onChange({ auswahl: SONSTIGES, freitext: e.target.value })}
+            aria-invalid={fehlerFreitext ? true : undefined}
+            aria-describedby={fehlerFreitext ? freitextFehlerId : undefined}
             className="h-11"
           />
+          <FeldFehler id={freitextFehlerId}>{fehlerFreitext}</FeldFehler>
         </div>
       )}
     </div>

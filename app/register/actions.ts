@@ -4,7 +4,7 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { assertKeyRegistered, buildRegistrationSecrets, type MemberSecretValues } from "@/lib/member-secrets-server";
 import { DEFAULT_COUNTRY, countryFromSelectValue } from "@/lib/country-codes";
 import { FIELD_LIMITS, checkText } from "@/lib/member-fields";
-import { pruefeStudiengang } from "@/lib/studiengaenge";
+import { KEIN_STUDIUM, pruefeStudiengang } from "@/lib/studiengaenge";
 import {
   REGISTRIERUNG_SCHRITTE,
   istRegistrierungSchritt,
@@ -46,8 +46,8 @@ export type RegisterSavedState = {
 
 export type RegisterActionState = {
   error: string;
-  /** Meldungen je Feld (lib/member-rules.ts), Schlüssel = Feldname der Regeln; dazu `studiengang`. */
-  fieldErrors?: FeldFehler & { studiengang?: string };
+  /** Meldungen je Feld (lib/member-rules.ts), Schlüssel = Feldname der Regeln; dazu Auswahl und Freitext Studiengang. */
+  fieldErrors?: FeldFehler & { studiengang?: string; studiengangSonstiges?: string };
   redirect?: string;
   saved?: RegisterSavedState;
   confirmationMessage?: string;
@@ -133,9 +133,8 @@ export async function registerAction(
 
   // Übrige Pflichtangaben (Passwort, Studium)
   const required: Record<string, unknown> = { password, passwordRepeat, student };
-  // Studiendaten sind nur Pflicht, wenn "Student = Ja"
+  // Studiendaten sind nur Pflicht, wenn "Student = Ja". Den Studiengang prüft pruefeStudiengang (mit Feldfehler).
   if (student === "Ja") {
-    required.studiengang = studiengang;
     required.abschluss = abschluss;
     required.semester = semester;
     required.hochschultyp = hochschultyp;
@@ -149,12 +148,13 @@ export async function registerAction(
   }
 
   // Studiengang nur aus der Liste oder als „Sonstiges“ mit Freitext (Längengrenze wie bisher). Gespeichert wird der
-  // geprüfte Text; ohne Studium bleibt das Feld leer.
-  let fach: string | null = null;
+  // geprüfte Text; ohne Studium „Kein Studium“ (Entscheidung Hannes 4).
+  let fach: string = KEIN_STUDIUM;
   if (student === "Ja") {
     const studium = pruefeStudiengang(studiengang, studiengangSonstiges, { ohneKeinStudium: true });
     if (!studium.ok) {
-      return { error: studium.fehler, fieldErrors: { studiengang: studium.fehler }, saved };
+      const feld = studium.feld === "freitext" ? "studiengangSonstiges" : "studiengang";
+      return { error: studium.fehler, fieldErrors: { [feld]: studium.fehler }, saved };
     }
     fach = studium.wert;
   }

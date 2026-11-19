@@ -110,6 +110,7 @@ const FIELD_STEP: Record<string, StepKey> = {
   email: "contact",
   handynummer: "contact",
   studiengang: "study",
+  studiengangSonstiges: "study",
   iban: "bank",
   bic: "bank",
 };
@@ -126,10 +127,12 @@ const FELD_REIHENFOLGE = [
   "ort",
   "email",
   "handynummer",
+  "studiengang",
+  "studiengangSonstiges",
   "iban",
   "bic",
 ] as const;
-const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag" };
+const FELD_ID: Record<string, string> = { geburtsdatum: "geburtstag", studiengangSonstiges: "studiengang-sonstiges" };
 
 const HOCHSCHULEN = [
   { value: "Universität Regensburg", label: "Universität Regensburg" },
@@ -236,6 +239,14 @@ export function RegisterForm() {
     });
   const fe = fieldErrors;
 
+  /** Feld, das nach einem Prüffehler den Fokus bekommt (neues Objekt je Fehler, damit der Effekt erneut läuft). */
+  const [fokusZiel, setFokusZiel] = useState<{ id: string } | null>(null);
+  useEffect(() => {
+    if (!fokusZiel) return;
+    const id = window.setTimeout(() => document.getElementById(fokusZiel.id)?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [fokusZiel]);
+
   const [password, setPassword] = useState("");
   const [passwordRepeat, setPasswordRepeat] = useState("");
   const [passwordMismatch, setPasswordMismatch] = useState(false);
@@ -282,6 +293,9 @@ export function RegisterForm() {
       setFieldErrors(errors);
       const first = STEPS.find((s) => Object.keys(errors).some((k) => FIELD_STEP[k] === s.key));
       if (first) goToRef.current(first.key);
+      // Fokus aufs erste Feld mit Fehler (z. B. leerer Studiengang), nicht nur auf den Schritt.
+      const erstes = FELD_REIHENFOLGE.find((k) => errors[k as keyof typeof errors]);
+      if (erstes) setFokusZiel({ id: FELD_ID[erstes] ?? erstes });
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [state.fieldErrors]);
@@ -337,13 +351,6 @@ export function RegisterForm() {
     }
   };
   const [stepError, setStepError] = useState("");
-  /** Feld, das nach einem Prüffehler den Fokus bekommt (neues Objekt je Fehler, damit der Effekt erneut läuft). */
-  const [fokusZiel, setFokusZiel] = useState<{ id: string } | null>(null);
-  useEffect(() => {
-    if (!fokusZiel) return;
-    const id = window.setTimeout(() => document.getElementById(fokusZiel.id)?.focus(), 0);
-    return () => window.clearTimeout(id);
-  }, [fokusZiel]);
 
   /** Absenden: Ist irgendwo noch etwas ungültig, dorthin springen statt zu senden. */
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -784,9 +791,10 @@ export function RegisterForm() {
                   wert={{ auswahl: v.studiengang, freitext: v.studiengangSonstiges }}
                   onChange={(w) => {
                     setFormValues((f) => ({ ...f, studiengang: w.auswahl, studiengangSonstiges: w.freitext }));
-                    clearError("studiengang");
+                    clearError("studiengang", "studiengangSonstiges");
                   }}
                   fehler={fe.studiengang}
+                  fehlerFreitext={fe.studiengangSonstiges}
                   required
                   ohneKeinStudium
                 />

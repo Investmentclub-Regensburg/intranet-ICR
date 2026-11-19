@@ -6,6 +6,8 @@
  * Semester nach den Stichtagen des Vereins: SoSe ab 15.03., WiSe ab 01.10.
  */
 
+import { normalisiereStudiengang } from "./studiengaenge";
+
 // Gleicher Wert wie MEMBERSHIP_FEE_PER_SEMESTER (lib/membership-fee.ts), per Test abgesichert. Kein Import,
 // damit die Datei ohne Bundler testbar bleibt (Node-Typ-Stripping).
 export const FEE_PER_SEMESTER = 15;
@@ -75,30 +77,13 @@ export function sixMonthsBefore(today: string): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-const FACH_ALIASES: Record<string, string> = {
-  bwl: "BWL",
-  bw: "BWL",
-  betriebswirtschaftslehre: "BWL",
-  "bwl/finance": "BWL",
-  vwl: "VWL",
-  volkswirtschaftslehre: "VWL",
-  wirtschaftsinformatik: "Wirtschaftsinformatik",
-  "angewandte wirtschaftsinformatik": "Wirtschaftsinformatik",
-  "digital business": "Digital Business",
-  "digital business management": "Digital Business",
-  dbm: "Digital Business",
-  jura: "Jura",
-  rechtswissenschaften: "Jura",
-  sonstiges: "Sonstiges",
-  sonstige: "Sonstiges",
-  "kein student": "Sonstiges",
-};
-
-/** Studiengang vereinheitlichen: bekannte Schreibweisen zusammenfassen, sonst getrimmt übernehmen. */
+/**
+ * Studiengang vereinheitlichen wie die Auswahl und die Bereinigung (lib/studiengaenge.ts): bekannte Schreibweisen,
+ * Tippfehler und Vorschläge (z. B. „BW“ → „BWL“) zählen beim Listennamen, alles andere getrimmt als eigener Wert.
+ * Leer und „-“ zählen als fehlend.
+ */
 export function normalizeFach(raw: string | null | undefined): string | null {
-  const v = String(raw ?? "").trim().replace(/\s+/g, " ");
-  if (!v || v === "-") return null;
-  return FACH_ALIASES[v.toLowerCase()] ?? v;
+  return normalisiereStudiengang(raw).wert;
 }
 
 function countItems(values: (string | null)[]): { items: CountItem[]; missing: number } {

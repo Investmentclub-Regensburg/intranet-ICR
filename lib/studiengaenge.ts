@@ -43,7 +43,8 @@ const BISHER_ANGEGEBEN: readonly Studiengang[] = [
   },
   { name: "Immobilienwirtschaft", suche: ["Real Estate"] },
   { name: "Wirtschaftsinformatik", suche: ["Information Systems"] },
-  { name: "VWL", aliase: ["Volkswirtschaftslehre", "Volkswirtschaft", "Economics"] },
+  // „Economics“ nur Suchbegriff (Review N7): klingt auch nach IVWL oder Business, Economics & Psychology.
+  { name: "VWL", aliase: ["Volkswirtschaftslehre", "Volkswirtschaft"], suche: ["Economics"] },
   { name: "Digital Business" },
   {
     name: "Internationale VWL",
@@ -65,17 +66,16 @@ const BISHER_ANGEGEBEN: readonly Studiengang[] = [
 /**
  * Übrige Studiengänge aus der Recherche (Universität Regensburg + OTH Regensburg, Bachelor, Master, Staatsexamen,
  * berufsbegleitend). Kurze Namen ohne Abschluss; Zusätze wie „(Bachelor)“, „(als Nebenfach)“ und englische
- * Zweitnamen stehen als Suchbegriff. Lehramt ist ein Eintrag. Sortiert wird unten (STUDIENGAENGE).
+ * Zweitnamen stehen als Suchbegriff. Lehramt ist ein Eintrag. Dasselbe Fach mit anderem Namen für Bachelor/Master
+ * oder auf Englisch ist ein Eintrag mit Alias (Review N8). Sortiert wird unten (STUDIENGAENGE).
  */
 const WEITERE: readonly Studiengang[] = [
   { name: "Advanced Nursing Practice" },
-  { name: "Allgemeine und Vergleichende Medienwissenschaft" },
   { name: "Allgemeine und Vergleichende Sprachwissenschaft" },
-  { name: "Alte Geschichte – Klassikstudien" },
   { name: "Amerikanistik", suche: ["American Studies"] },
   { name: "Angewandte Bewegungswissenschaften", suche: ["Sport"] },
   { name: "Angewandte Naturwissenschaften" },
-  { name: "Anglistik", suche: ["British Studies", "Englisch"] },
+  { name: "Anglistik", aliase: ["Britische Literatur- und Kulturwissenschaft", "British Studies"], suche: ["Englisch"] },
   { name: "Applied Research in Engineering Sciences" },
   { name: "Bauingenieurwesen" },
   { name: "Bauklimatik" },
@@ -83,22 +83,18 @@ const WEITERE: readonly Studiengang[] = [
   { name: "Biochemie", aliase: ["Biochemistry"] },
   { name: "Biologie" },
   { name: "Biomedical Engineering" },
-  { name: "Britische Literatur- und Kulturwissenschaft", suche: ["British Studies"] },
   { name: "Business Administration (MBA)", suche: ["MBA", "General Management", "Leadership"] },
   { name: "Cancer and Immunity" },
   { name: "Car IT und Elektronik" },
   { name: "Chemie", aliase: ["Chemistry"] },
   { name: "Collectivity Studies" },
   { name: "Compliance" },
-  { name: "Computer Science" },
   { name: "Controlling (MBA)", suche: ["MBA"] },
   { name: "Data Science" },
   { name: "Demokratiewissenschaft" },
-  { name: "Design", suche: ["Industriedesign"] },
   { name: "Deutsch-Französische Studien", suche: ["Études Franco-Allemandes"] },
   { name: "Deutsch-Italienische Studien", suche: ["Studi Italo-Tedeschi"] },
   { name: "Deutsch-Tschechische Studien" },
-  { name: "Deutsche Philologie", suche: ["Germanistik", "Deutsch"] },
   { name: "Deutsches Recht und Rechtsvergleichung", suche: ["German and Comparative Law", "LL.M."] },
   { name: "Digital Engineering im Maschinenbau" },
   { name: "Digital Entrepreneurship" },
@@ -108,8 +104,11 @@ const WEITERE: readonly Studiengang[] = [
   { name: "Electrical and Microsystems Engineering" },
   { name: "Elektro- und Informationstechnik", suche: ["Elektrotechnik"] },
   { name: "Elektromobilität und Energienetze" },
-  { name: "Englische Linguistik", suche: ["English Linguistics", "Englisch"] },
-  { name: "Englische Sprachwissenschaft", suche: ["English Linguistics", "Englisch"] },
+  {
+    name: "Englische Sprachwissenschaft",
+    aliase: ["Englische Linguistik", "English Linguistics"],
+    suche: ["Englisch"],
+  },
   { name: "Erziehungswissenschaft", suche: ["Educational Science", "Pädagogik"] },
   { name: "European Studies" },
   { name: "Europäisch-Amerikanische Studien", suche: ["European-American Studies"] },
@@ -118,18 +117,17 @@ const WEITERE: readonly Studiengang[] = [
   { name: "Evidence Based Practice Pflege" },
   { name: "Executive MBA Real Estate", suche: ["MBA", "Immobilien"] },
   { name: "Französische Philologie", suche: ["Französisch"] },
-  { name: "Germanistik" },
+  { name: "Germanistik", aliase: ["Deutsche Philologie"], suche: ["Deutsch"] },
   { name: "Geschichte", suche: ["Europäische Gesellschaften im Wandel"] },
   { name: "Griechische Philologie" },
-  { name: "Hebammenkunde" },
-  { name: "Hebammenwissenschaft" },
+  { name: "Hebammenkunde", aliase: ["Hebammenwissenschaft"] },
   { name: "Historische Bauforschung" },
   { name: "Historische Musikwissenschaft" },
   { name: "Human Resource Management", suche: ["HRM", "Personal"] },
   { name: "Human-Centred AI", suche: ["KI"] },
   { name: "Industrial Engineering" },
-  { name: "Industriedesign" },
-  { name: "Informatik" },
+  { name: "Industriedesign", aliase: ["Design"] },
+  { name: "Informatik", aliase: ["Computer Science"] },
   { name: "Informationstechnologie" },
   { name: "Informationswissenschaft" },
   { name: "Intelligent Systems Engineering" },
@@ -142,7 +140,7 @@ const WEITERE: readonly Studiengang[] = [
   { name: "Italienische Philologie", suche: ["Italienisch"] },
   { name: "Katholische Religion" },
   { name: "Katholische Theologie" },
-  { name: "Klassikstudien" },
+  { name: "Klassikstudien", aliase: ["Alte Geschichte – Klassikstudien"] },
   { name: "Klassische Archäologie" },
   { name: "Kriminologie und Gewaltforschung" },
   { name: "Kunstgeschichte" },
@@ -161,9 +159,8 @@ const WEITERE: readonly Studiengang[] = [
   { name: "Maschinenbau" },
   { name: "Mathematics for Business and Industry" },
   { name: "Mechatronik" },
-  { name: "Media Informatics" },
-  { name: "Medieninformatik" },
-  { name: "Medienwissenschaft" },
+  { name: "Medieninformatik", aliase: ["Media Informatics"] },
+  { name: "Medienwissenschaft", aliase: ["Allgemeine und Vergleichende Medienwissenschaft"] },
   { name: "Medizin", aliase: ["Humanmedizin", "Medizin Niederbayern"], suche: ["Staatsexamen"] },
   { name: "Medizinische Chemie" },
   { name: "Medizinische Informatik" },
@@ -196,8 +193,7 @@ const WEITERE: readonly Studiengang[] = [
   { name: "Rhetorik und Sprechwissenschaft" },
   { name: "Romanische Kulturräume" },
   { name: "Scientific Computing" },
-  { name: "Slavische Studien" },
-  { name: "Slavistik" },
+  { name: "Slavistik", aliase: ["Slavische Studien"] },
   { name: "Soziale Arbeit", suche: ["Inklusion und Exklusion", "Sozialpädagogik"] },
   { name: "Spanische Philologie", suche: ["Spanisch"] },
   { name: "Südosteuropastudien" },
@@ -277,8 +273,10 @@ export type Normalisierung = {
 };
 
 /**
- * Schreibweisen aus der Zählung vom 19.11.2026, die nur ein Vorschlag sind: Abkürzungen mit zwei, drei Buchstaben,
- * Schwerpunkte und Doppelangaben (Information ginge verloren), Studiengänge, die es an UR und OTH so nicht gibt. Entscheidet Hannes; das Skript schreibt sie nie.
+ * Schreibweisen, die nur ein Vorschlag sind: Abkürzungen mit zwei, drei Buchstaben, Schwerpunkte und Doppelangaben
+ * (Information ginge verloren), Studiengänge, die es an UR und OTH so nicht gibt, mehrdeutige englische Namen.
+ * Für die Altwerte hat Hannes die meisten freigegeben – das gilt nur im Bereinigungsskript
+ * (scripts/lib/studiengang.mjs, ALTWERT_FREIGABEN), nie bei neuen Eingaben.
  */
 const VORSCHLAEGE: Readonly<Record<string, string>> = {
   bw: "BWL",
@@ -288,11 +286,12 @@ const VORSCHLAEGE: Readonly<Record<string, string>> = {
   "bwl medienwissenschaften": "BWL",
   "angewandte wirtschaftsinformatik": "Wirtschaftsinformatik",
   elektronik: "Elektro- und Informationstechnik",
+  economics: "VWL",
 };
 
 /**
- * Schreibweisen, die nie automatisch zugeordnet werden, auch wenn ein Listenname ähnlich aussieht (Sammelbegriffe,
- * Abschlüsse anderer Hochschulen). Bleiben als Freitext „offen“.
+ * Schreibweisen, die nie einem Listennamen zugeordnet werden, auch wenn einer ähnlich aussieht (Sammelbegriffe).
+ * Bleiben „offen“ (das Bereinigungsskript leert die freigegebenen, Entscheidung Hannes 3).
  */
 const NIE_ZUORDNEN: ReadonlySet<string> = new Set(
   [
@@ -304,7 +303,61 @@ const NIE_ZUORDNEN: ReadonlySet<string> = new Set(
   ].map(schluessel)
 );
 
-/** Exakte Zuordnung Schlüssel → Name (Name und Aliase jedes Eintrags). */
+/**
+ * Abschlusszusätze am Anfang oder Ende („BWL (Bachelor)“, „M.Sc. Informatik“, „Controlling (MBA)“), im Schlüssel
+ * (Satzzeichen schon entfernt). Längere zuerst.
+ */
+const ABSCHLUSS_ZUSAETZE: readonly string[] = [
+  "bachelor of science",
+  "bachelor of arts",
+  "bachelor of engineering",
+  "bachelor of education",
+  "bachelor of laws",
+  "master of science",
+  "master of arts",
+  "master of engineering",
+  "master of education",
+  "master of laws",
+  "bachelor",
+  "master",
+  "b sc",
+  "m sc",
+  "bsc",
+  "msc",
+  "b a",
+  "m a",
+  "b eng",
+  "m eng",
+  "b ed",
+  "m ed",
+  "ll b",
+  "ll m",
+  "llb",
+  "llm",
+  "mba",
+  "staatsexamen",
+];
+
+/** Schlüssel ohne Abschlusszusätze am Anfang und Ende. */
+export function ohneAbschluss(k: string): string {
+  let rest = k;
+  for (let geaendert = true; geaendert; ) {
+    geaendert = false;
+    for (const z of ABSCHLUSS_ZUSAETZE) {
+      if (rest === z) return "";
+      if (rest.startsWith(`${z} `)) {
+        rest = rest.slice(z.length + 1);
+        geaendert = true;
+      } else if (rest.endsWith(` ${z}`)) {
+        rest = rest.slice(0, -(z.length + 1));
+        geaendert = true;
+      }
+    }
+  }
+  return rest.trim();
+}
+
+/** Exakte Zuordnung Schlüssel → Name (Name und Aliase jedes Eintrags, auch ohne Abschlusszusatz). */
 const ZUORDNUNG: ReadonlyMap<string, string> = (() => {
   const map = new Map<string, string>();
   for (const s of STUDIENGAENGE) {
@@ -317,8 +370,20 @@ const ZUORDNUNG: ReadonlyMap<string, string> = (() => {
       map.set(k, s.name);
     }
   }
+  // „Controlling (MBA)“ auch als „controlling“, sofern der Schlüssel frei ist.
+  for (const [k, name] of [...map.entries()]) {
+    const kurz = ohneAbschluss(k);
+    if (kurz && !map.has(kurz)) map.set(kurz, name);
+  }
   return map;
 })();
+
+/** Exakter Treffer (Name oder Alias, auch ohne Abschlusszusatz) – ohne Tippfehler und Vorschläge. */
+export function exakterTreffer(text: unknown): string | null {
+  const k = schluessel(text);
+  if (!k) return null;
+  return ZUORDNUNG.get(k) ?? ZUORDNUNG.get(ohneAbschluss(k)) ?? null;
+}
 
 /** Kandidaten für die Tippfehler-Suche: Schlüssel von Namen und Aliasen ab 8 Zeichen. */
 const TIPPFEHLER_KANDIDATEN: readonly { k: string; name: string }[] = [...ZUORDNUNG.entries()]
@@ -348,23 +413,11 @@ export function tippAbstand(a: string, b: string, grenze = 3): number {
   return d[a.length][b.length];
 }
 
-/**
- * Altwert einem Namen der Liste zuordnen.
- *   sicher     gleicher Name/Alias (Groß-/Kleinschreibung, Bindestriche, Leerzeichen egal) oder genau ein
- *              Listenname mit einem offensichtlichen Tippfehler (ein Zeichen, ab 8 Zeichen, kein zweiter ähnlicher).
- *   vorschlag  Abkürzung, Schwerpunkt, Doppelangabe oder ein Tippfehler mit zwei Zeichen bzw. mehreren Kandidaten.
- *   offen      keine Zuordnung (bleibt Freitext unter „Sonstiges“) oder leer.
- * Unklare Fälle („BWL/ Medienwissenschaften“, „Geisteswissenschaften“) sind nie „sicher“.
- */
-export function normalisiereStudiengang(rohwert: unknown): Normalisierung {
-  if (istLeer(rohwert)) return { wert: null, sicherheit: "offen" };
-  const text = bereinigeText(rohwert);
-  const k = schluessel(text);
-  if (!k || NIE_ZUORDNEN.has(k)) return { wert: text, sicherheit: "offen" };
-
+/** Bewertung eines Schlüssels; null = nichts gefunden. */
+function bewerteSchluessel(k: string, text: string): Normalisierung | null {
+  if (NIE_ZUORDNEN.has(k)) return { wert: text, sicherheit: "offen" };
   const vorschlag = VORSCHLAEGE[k];
   if (vorschlag) return { wert: vorschlag, sicherheit: "vorschlag" };
-
   const exakt = ZUORDNUNG.get(k);
   if (exakt) return { wert: exakt, sicherheit: "sicher" };
 
@@ -380,6 +433,32 @@ export function normalisiereStudiengang(rohwert: unknown): Normalisierung {
       const bester = [...treffer].sort((a, b) => a.abstand - b.abstand)[0];
       return { wert: bester.name, sicherheit: "vorschlag" };
     }
+  }
+  return null;
+}
+
+/**
+ * Wert einem Namen der Liste zuordnen.
+ *   sicher     gleicher Name/Alias (Groß-/Kleinschreibung, Bindestriche, Leerzeichen, Abschlusszusätze wie
+ *              „(Bachelor)“ egal) oder genau ein Listenname mit einem offensichtlichen Tippfehler (ein Zeichen, ab
+ *              8 Zeichen, kein zweiter ähnlicher).
+ *   vorschlag  Abkürzung, Schwerpunkt, Doppelangabe, mehrdeutiger Name oder ein Tippfehler mit zwei Zeichen bzw.
+ *              mehreren Kandidaten.
+ *   offen      keine Zuordnung (bleibt Freitext unter „Sonstiges“) oder leer.
+ * Unklare Fälle („BWL/ Medienwissenschaften“, „Geisteswissenschaften“) sind nie „sicher“.
+ */
+export function normalisiereStudiengang(rohwert: unknown): Normalisierung {
+  if (istLeer(rohwert)) return { wert: null, sicherheit: "offen" };
+  const text = bereinigeText(rohwert);
+  const k = schluessel(text);
+  if (!k) return { wert: text, sicherheit: "offen" };
+  const direkt = bewerteSchluessel(k, text);
+  if (direkt) return direkt;
+  // Zusätze wie „(Bachelor)“ oder „B.Sc.“ abschneiden und dann normal bewerten.
+  const kurz = ohneAbschluss(k);
+  if (kurz && kurz !== k) {
+    const ohne = bewerteSchluessel(kurz, text);
+    if (ohne) return ohne;
   }
   return { wert: text, sicherheit: "offen" };
 }
@@ -422,13 +501,17 @@ export function eindeutigerTreffer(text: string, { ohneKeinStudium = false } = {
 // Prüfung beim Speichern (Server)
 // ---------------------------------------------------------------------------------------------------
 
-export type StudiengangPruefung = { ok: true; wert: string } | { ok: false; fehler: string };
+export type StudiengangPruefung =
+  | { ok: true; wert: string }
+  | { ok: false; fehler: string; feld: "auswahl" | "freitext" };
 
 /**
  * Eingabe aus Auswahl + Freitext prüfen und den zu speichernden Text liefern.
  *   auswahl   Name aus der Liste (oder „Sonstiges“)
  *   freitext  nur bei „Sonstiges“: Text, der gespeichert wird (Längengrenze wie bisher, FIELD_LIMITS.studium)
- * Ein Freitext, der sicher einem Listennamen entspricht (z. B. „bwl“), wird als dieser Name gespeichert.
+ * Ein Freitext, der genau einem Listennamen oder Alias entspricht (z. B. „bwl“, „BWL (Bachelor)“), wird als dieser
+ * Name gespeichert. Tippfehler und Vorschläge werden nie still umgedeutet (Review M2). „Sonstiges“ oder
+ * „Kein Studium“ als Freitext ist keine Angabe. `feld` sagt, an welchem Feld der Fehler steht.
  */
 export function pruefeStudiengang(
   auswahl: unknown,
@@ -436,20 +519,20 @@ export function pruefeStudiengang(
   { ohneKeinStudium = false } = {}
 ): StudiengangPruefung {
   const a = typeof auswahl === "string" ? auswahl.trim() : "";
-  if (!a) return { ok: false, fehler: "Bitte wähl deinen Studiengang aus." };
-  if (!istListenName(a)) return { ok: false, fehler: "Bitte wähl deinen Studiengang aus der Liste." };
-  if (ohneKeinStudium && a === KEIN_STUDIUM) {
-    return { ok: false, fehler: "Bitte wähl deinen Studiengang aus der Liste." };
+  if (!a) return { ok: false, fehler: "Bitte wähl deinen Studiengang aus.", feld: "auswahl" };
+  if (!istListenName(a) || (ohneKeinStudium && a === KEIN_STUDIUM)) {
+    return { ok: false, fehler: "Bitte wähl deinen Studiengang aus der Liste.", feld: "auswahl" };
   }
   if (a !== SONSTIGES) return { ok: true, wert: a };
 
-  const roh = typeof freitext === "string" ? freitext : "";
-  const text = bereinigeText(roh);
-  if (!text || istLeer(text)) return { ok: false, fehler: "Bitte gib deinen Studiengang ein." };
+  const text = bereinigeText(typeof freitext === "string" ? freitext : "");
+  const keineAngabe = { ok: false as const, fehler: "Bitte gib deinen Studiengang ein.", feld: "freitext" as const };
+  if (!text || istLeer(text)) return keineAngabe;
   const fehler = checkText(text, "Studiengang", FIELD_LIMITS.studium);
-  if (fehler) return { ok: false, fehler };
-  const treffer = eindeutigerTreffer(text, { ohneKeinStudium });
-  return { ok: true, wert: treffer && treffer !== SONSTIGES ? treffer : text };
+  if (fehler) return { ok: false, fehler, feld: "freitext" };
+  const n = normalisiereStudiengang(text);
+  if (n.sicherheit === "sicher" && (n.wert === SONSTIGES || n.wert === KEIN_STUDIUM)) return keineAngabe;
+  return { ok: true, wert: exakterTreffer(text) ?? text };
 }
 
 /** Anzeige eines gespeicherten Werts in der Auswahl: Listenname → Auswahl, sonst „Sonstiges“ + Freitext. */

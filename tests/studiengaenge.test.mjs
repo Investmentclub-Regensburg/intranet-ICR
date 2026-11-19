@@ -1,5 +1,6 @@
 // Tests für lib/studiengaenge.ts (Studiengang als Auswahl). Schreibweisen aus der Zählung vom 19.11.2026
-// (studiengang-auswahl.md, nur Schreibweisen, keine Personen).
+// (studiengang-auswahl.md, nur Schreibweisen, keine Personen). Die Freigaben von Hannes für die Altwerte gelten nur
+// im Bereinigungsskript (tests/studiengang-skript.test.mjs) – hier bleiben sie „vorschlag“/„offen“.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -9,8 +10,10 @@ import {
   STUDIENGANG_NAMEN,
   auswahlAusWert,
   eindeutigerTreffer,
+  exakterTreffer,
   istLeer,
   normalisiereStudiengang,
+  ohneAbschluss,
   pruefeStudiengang,
   schluessel,
   sucheStudiengaenge,
@@ -116,8 +119,56 @@ test("Tippfehler: ein Zeichen sicher, zwei Zeichen nur Vorschlag, kurze Werte ni
   assert.deepEqual(normalisiereStudiengang("Wirtschftsinformatk"), { wert: "Wirtschaftsinformatik", sicherheit: "vorschlag" });
   // „Physk“ ist zu kurz für eine Tippfehler-Zuordnung.
   assert.equal(normalisiereStudiengang("Physk").sicherheit, "offen");
-  // Gibt es zwei ähnliche Listennamen, ist nichts sicher.
-  assert.notEqual(normalisiereStudiengang("Medieninformatk").sicherheit, "offen");
+  // Ein Tippfehler, nur ein Listenname in der Nähe: sicher.
+  assert.deepEqual(normalisiereStudiengang("Medieninformatk"), { wert: "Medieninformatik", sicherheit: "sicher" });
+  // Zwei ähnliche Listennamen (Osteuropastudien Abstand 1, Südosteuropastudien Abstand 2): nur Vorschlag.
+  assert.deepEqual(normalisiereStudiengang("Dosteuropastudien"), { wert: "Osteuropastudien", sicherheit: "vorschlag" });
+});
+
+test("Abschlusszusätze werden abgeschnitten und dann normal bewertet", () => {
+  for (const [roh, wert] of [
+    ["BWL (Bachelor)", "BWL"],
+    ["BWL B.Sc.", "BWL"],
+    ["M.Sc. Informatik", "Informatik"],
+    ["Bachelor of Science Wirtschaftsinformatik", "Wirtschaftsinformatik"],
+    ["Immobilienwirtschaft Master", "Immobilienwirtschaft"],
+    ["Jura Staatsexamen", "Jura"],
+    ["Controlling", "Controlling (MBA)"],
+  ]) {
+    assert.deepEqual(normalisiereStudiengang(roh), { wert, sicherheit: "sicher" }, roh);
+  }
+  // Vorschläge und Sammelbegriffe bleiben es auch mit Zusatz.
+  assert.equal(normalisiereStudiengang("BW (Bachelor)").sicherheit, "vorschlag");
+  assert.equal(normalisiereStudiengang("Geisteswissenschaften B.A.").sicherheit, "offen");
+  // Nur der Zusatz: keine Angabe.
+  assert.equal(normalisiereStudiengang("Master").sicherheit, "offen");
+  assert.equal(ohneAbschluss("master"), "");
+  assert.equal(ohneAbschluss("b sc bwl m sc"), "bwl");
+});
+
+test("Economics ist nur ein Vorschlag (mehrdeutig)", () => {
+  assert.deepEqual(normalisiereStudiengang("Economics"), { wert: "VWL", sicherheit: "vorschlag" });
+  assert.equal(eindeutigerTreffer("Economics"), null);
+  assert.equal(sucheStudiengaenge("Economics")[0].name, "VWL");
+});
+
+test("gleiches Fach, anderer Abschluss oder andere Sprache: ein Eintrag", () => {
+  for (const [roh, name] of [
+    ["Media Informatics", "Medieninformatik"],
+    ["Slavische Studien", "Slavistik"],
+    ["Englische Linguistik", "Englische Sprachwissenschaft"],
+    ["Deutsche Philologie", "Germanistik"],
+    ["Alte Geschichte - Klassikstudien", "Klassikstudien"],
+    ["Hebammenwissenschaft", "Hebammenkunde"],
+    ["Design", "Industriedesign"],
+    ["Computer Science", "Informatik"],
+    ["Britische Literatur- und Kulturwissenschaft", "Anglistik"],
+    ["Allgemeine und Vergleichende Medienwissenschaft", "Medienwissenschaft"],
+    ["Humanmedizin", "Medizin"],
+  ]) {
+    assert.deepEqual(normalisiereStudiengang(roh), { wert: name, sicherheit: "sicher" }, roh);
+    assert.ok(!STUDIENGANG_NAMEN.includes(roh), roh);
+  }
 });
 
 test("Liste: eindeutig, Reihenfolge, Sonstiges und Kein Studium am Ende", () => {
@@ -186,15 +237,31 @@ test("Prüfung auf dem Server: nur Liste oder Sonstiges mit Freitext", () => {
   assert.equal(pruefeStudiengang(SONSTIGES, "x".repeat(151)).ok, false);
   assert.equal(pruefeStudiengang(SONSTIGES, "x".repeat(150)).ok, true);
   assert.equal(pruefeStudiengang(SONSTIGES, "=HYPERLINK()").ok, false);
-  // Freitext, der sicher einem Listennamen entspricht, wird als Listenname gespeichert.
+  // Freitext, der genau einem Listennamen oder Alias entspricht, wird als Listenname gespeichert.
   assert.deepEqual(pruefeStudiengang(SONSTIGES, "bwl"), { ok: true, wert: "BWL" });
-  // „Sonstige“ im Freitext bleibt Freitext (sonst entstünde „Sonstiges“ ohne Angabe).
-  assert.deepEqual(pruefeStudiengang(SONSTIGES, "Sonstige"), { ok: true, wert: "Sonstige" });
-  // „Kein Student“ im Freitext nach „Ja, ich studiere“ wird nicht zu „Kein Studium“.
-  assert.deepEqual(pruefeStudiengang(SONSTIGES, "Kein Student", { ohneKeinStudium: true }), {
-    ok: true,
-    wert: "Kein Student",
-  });
+  assert.deepEqual(pruefeStudiengang(SONSTIGES, "BWL (Bachelor)"), { ok: true, wert: "BWL" });
+  // Tippfehler, Vorschläge und die Altwert-Freigaben werden nie still umgedeutet (Review M2).
+  for (const roh of ["BWL/ Medienwissenschaften", "Elektronik", "BW", "DBM", "Economics", "Wirtschaftsinformatk"]) {
+    assert.deepEqual(pruefeStudiengang(SONSTIGES, roh), { ok: true, wert: roh }, roh);
+  }
+  assert.deepEqual(pruefeStudiengang(SONSTIGES, "Geisteswissenschaften"), { ok: true, wert: "Geisteswissenschaften" });
+  // „Sonstiges“ oder „Kein Studium“ als Freitext ist keine Angabe (Review N1), mit Fehler am Textfeld.
+  for (const roh of ["Sonstiges", "sonstige", "Kein Studium", "Kein Student"]) {
+    assert.deepEqual(
+      pruefeStudiengang(SONSTIGES, roh, { ohneKeinStudium: true }),
+      { ok: false, fehler: "Bitte gib deinen Studiengang ein.", feld: "freitext" },
+      roh
+    );
+    assert.equal(pruefeStudiengang(SONSTIGES, roh).ok, false, roh);
+  }
+  // Fehler an der Auswahl bzw. am Textfeld.
+  assert.equal(pruefeStudiengang("", "").feld, "auswahl");
+  assert.equal(pruefeStudiengang("Erfundenes Fach", "").feld, "auswahl");
+  assert.equal(pruefeStudiengang(SONSTIGES, "").feld, "freitext");
+  assert.equal(pruefeStudiengang(SONSTIGES, "=1+1").feld, "freitext");
+  // Exakter Treffer kennt keine Tippfehler.
+  assert.equal(exakterTreffer("Wirtschaftsinformatk"), null);
+  assert.equal(exakterTreffer("wirtschaftsinformatik"), "Wirtschaftsinformatik");
 });
 
 test("gespeicherten Wert in der Auswahl anzeigen", () => {

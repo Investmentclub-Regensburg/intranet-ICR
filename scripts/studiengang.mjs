@@ -6,12 +6,27 @@
 //   npm run studiengang -- <befehl> --projekt <prod|test|lokal> [--url <supabase-url>] [Optionen]
 //
 // Befehle:
-//   pruefen                  Zählungen: richtig / sicher / vorschlag / offen / leer, je Zielwert.
+//   pruefen                  Zählungen: richtig / sicher / leeren / vorschlag / offen / leer, je Zielwert, dazu die
+//                            Registrierungsangaben, die liegen bleiben können (Konten mit Angaben in den Metadaten,
+//                            offene Registrierungen). Nur Zahlen, nichts wird gelöscht.
 //   reparieren --probelauf   Zählungen je Zielwert und wie viele Profile „reparieren“ ändern würde. Ändert nichts.
-//   reparieren               Schreibt nur „sicher“, nur bei aktiven Profilen (inkl. Vorstand und Alumni). Braucht
-//                            --vorstand <Profil-ID> (Protokoll in member_data_corrections, Feld „studiengang“) und
-//                            das Bestätigungswort „REPARIEREN <ziel> <anzahl>“. Strg+C beendet nach dem laufenden
-//                            Profil.
+//   reparieren               Schreibt nur „sicher“ (Listenname, inkl. der Freigaben von Hannes für Altwerte) und
+//                            „leeren“ (Sammelbegriffe), nur bei aktiven Profilen (inkl. Vorstand und Alumni). Über
+//                            die Datenbankfunktion save_member_studiengang: Compare-and-set und Protokoll in
+//                            member_data_corrections (Feld „studiengang“, Quelle „bereinigung“) in EINER Transaktion.
+//                            Braucht --vorstand <Profil-ID> und das Bestätigungswort „REPARIEREN <ziel> <anzahl>“.
+//                            Strg+C beendet nach dem laufenden Profil.
+//
+// Ziele (wie scripts/datenqualitaet.mjs, gleiche Argumente und Sicherungen):
+//   --projekt lokal --url http://127.0.0.1:<port>   nur Loopback, nicht Port 8100, nur Testdatenbank (≤ 200 Profile,
+//                                                    nur Konten @test.icr.local)
+//   --projekt prod --url <adresse>                   eigener Server, nur mit ausdrücklichem --url (z. B. Tunnel)
+//   --projekt test                                   Cloud-Testprojekt rkeg… – auch schreibend erreichbar, OHNE
+//                                                    Testdatenbank-Prüfung. Laut RAHMEN.md werden Cloud-Projekte
+//                                                    nicht angefasst; das Ziel bleibt nur für das gleiche Muster wie
+//                                                    bei datenqualitaet bestehen.
+// Braucht die Migration 20261119120000_member_studiengang.sql auf dem Ziel (sonst bricht „reparieren“ ab, bevor
+// etwas geschrieben wird).
 //
 // Ausgabe nur Zahlen und Namen aus der Liste – nie Altwerte, Namen, E-Mails oder Profil-IDs, auch nicht bei Fehlern.
 import path from "node:path";
@@ -27,7 +42,7 @@ import {
   schreibeAlle,
 } from "./lib/datenqualitaet.mjs";
 import {
-  PROTOKOLL_FELD,
+  PROTOKOLL_QUELLE,
   SPALTE,
   bewerteStudiengang,
   formatierePruefung,
@@ -36,6 +51,7 @@ import {
   neuesReparaturErgebnis,
   schreibeProfil,
   zaehleAlle,
+  zaehleRegistrierungsreste,
 } from "./lib/studiengang.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -153,48 +169,77 @@ async function main() {
     }
   }
 
-  /** Datenbankzugriffe für schreibeProfil (Compare-and-set auf die Spalte, Protokoll nur mit Feldnamen). */
+  /** Registrierungsangaben, die liegen bleiben können (Review N6): nur zählen. */
+  async function ladeRegistrierungsreste() {
+    const konten = [];
+    for (let seite = 1; ; seite++) {
+      const { data, error } = await admin.auth.admin.listUsers({ page: seite, perPage: 200 });
+      if (error || !data) throw new Error("Konten nicht lesbar");
+      for (const u of data.users) konten.push({ metadaten: u.user_metadata ?? null });
+      if (data.users.length < 200 || seite >= 100) break;
+    }
+    const offene = await ladeAlle(
+      (von, bis) =>
+        admin.from("pending_registrations").select("user_id", { count: "exact" }).order("user_id").range(von, bis),
+      "pending_registrations"
+    );
+    const profile = await ladeAlle(
+      (von, bis) =>
+        admin.from("profiles").select('id, user_id, "Status", "Rolle"', { count: "exact" }).order("id").range(von, bis),
+      "Profile"
+    );
+    return zaehleRegistrierungsreste({ konten, offene, profile });
+  }
+
+  /** Datenbankzugriffe für schreibeProfil: Speichern + Protokoll in einer Transaktion (save_member_studiengang). */
   const db = {
     async lese(id) {
       const { data, error } = await admin.from("profiles").select(SPALTEN).eq("id", id).maybeSingle();
       if (error) throw new Error("Profil nicht lesbar");
       return data;
     },
-    async schreibe(id, frisch, neu) {
-      const { data, error } = await admin
-        .from("profiles")
-        .update({ [SPALTE]: neu })
-        .eq("id", id)
-        .eq(SPALTE_SQL, frisch[SPALTE])
-        .select("id");
+    async speichere(id, alt, neu) {
+      const { data, error } = await admin.rpc("save_member_studiengang", {
+        p_profile_id: id,
+        p_expected: alt ?? null,
+        p_studiengang: neu,
+        p_corrected_by: vorstand,
+        p_quelle: PROTOKOLL_QUELLE,
+      });
       if (error) throw new Error("Speichern fehlgeschlagen");
-      return Array.isArray(data) ? data.length : 0;
-    },
-    async protokolliere(id) {
-      const { error } = await admin
-        .from("member_data_corrections")
-        .insert({ profile_id: id, corrected_by: vorstand, fields: [PROTOKOLL_FELD] });
-      if (error) throw new Error("Protokoll fehlgeschlagen");
+      return data === true;
     },
   };
+
+  /** Gibt es die Datenbankfunktion? Aufruf mit einer Profil-ID, die es nicht gibt (schreibt nichts). */
+  async function pruefeFunktion() {
+    const { data, error } = await admin.rpc("save_member_studiengang", {
+      p_profile_id: "00000000-0000-0000-0000-000000000000",
+      p_expected: "a",
+      p_studiengang: "b",
+    });
+    if (error || data !== false) fail("Datenbankfunktion save_member_studiengang fehlt (Migration 20261119120000).");
+  }
 
   try {
     if (befehl === "pruefen") {
       const eintraege = await ladeUndBewerte();
-      console.log(`\n${formatierePruefung(zaehleAlle(eintraege.map((e) => e.bewertung)))}`);
+      const reste = await ladeRegistrierungsreste();
+      console.log(`\n${formatierePruefung(zaehleAlle(eintraege.map((e) => e.bewertung)), reste)}`);
     } else if (probelauf) {
       const eintraege = await ladeUndBewerte();
       console.log(`\n${formatiereProbelauf(zaehleAlle(eintraege.map((e) => e.bewertung)))}`);
     } else {
       await pruefeVorstand();
+      await pruefeFunktion();
       const eintraege = await ladeUndBewerte();
       console.log(`\n${formatiereProbelauf(zaehleAlle(eintraege.map((e) => e.bewertung)))}`);
-      const offen = eintraege.filter((e) => e.bewertung.neu);
+      const offen = eintraege.filter((e) => e.bewertung.aendern);
       if (offen.length === 0) {
         console.log("\nNichts zu reparieren: 0 Profile geändert.");
         return;
       }
-      console.log(`\nSchreibt ${offen.length} Profile (protokolliert in member_data_corrections, Feld „${PROTOKOLL_FELD}“).`);
+      console.log(`\nSchreibt ${offen.length} Profile (protokolliert in member_data_corrections, Quelle „${PROTOKOLL_QUELLE}“).`);
       const wort = bestaetigungswort(ziel, offen.length);
       const antwort = await ask(`Zum Bestätigen „${wort}“ eingeben: `);
       if (antwort !== wort) fail("Nicht bestätigt – nichts geändert.");
@@ -208,12 +253,12 @@ async function main() {
       const schritt = async ({ id }) => {
         const ergebnis = await schreibeProfil(db, id);
         if (ergebnis === "geaendert") r.geaendert++;
-        else if (ergebnis === "erledigt") r.inzwischenErledigt++;
-        else if (ergebnis === "konflikt") r.konflikt++;
-        else if (ergebnis === "protokoll") {
+        else if (ergebnis === "geleert") {
           r.geaendert++;
-          r.protokollFehler++;
-        } else r.fehler++;
+          r.geleert++;
+        } else if (ergebnis === "erledigt") r.inzwischenErledigt++;
+        else if (ergebnis === "konflikt") r.konflikt++;
+        else r.fehler++;
       };
       const lauf = await schreibeAlle(offen, schritt, abbruch, (n) =>
         process.stdout.write(`\r  bearbeitet: ${n} von ${offen.length}   `)
@@ -225,7 +270,6 @@ async function main() {
       const nachher = await ladeUndBewerte();
       console.log(`\n${formatierePruefung(zaehleAlle(nachher.map((e) => e.bewertung)))}`);
       if (r.fehler > 0) fail(`${r.fehler} Profile nicht gespeichert – erneut ausführen ist unbedenklich.`);
-      if (r.protokollFehler > 0) fail(`${r.protokollFehler} Profile geändert, aber ohne Protokolleintrag.`);
     }
   } catch (err) {
     if (err instanceof Abbruch) throw err;
