@@ -344,7 +344,7 @@ function EmailEditField({ id, currentEmail, email }: { id: string; currentEmail:
         value={currentEmail}
         readOnly
         aria-describedby={email.waitingFor ? hintId : undefined}
-        className="cursor-not-allowed bg-muted text-muted-foreground focus-visible:border-input focus-visible:ring-0 dark:bg-muted"
+        className="cursor-not-allowed bg-muted text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/20 dark:bg-muted"
       />
       {email.waitingFor && <PendingEmailHint id={hintId} address={email.waitingFor} />}
       {email.open && (
