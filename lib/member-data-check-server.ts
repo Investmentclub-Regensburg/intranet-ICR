@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_COUNTRY, findCountry } from "./country-codes";
 import { normalizeIban } from "./member-crypto";
 import {
+  ANSCHRIFT_TEILE,
   formatiereHandyAnzeige,
   pruefeBestand,
   type Feld,
@@ -19,6 +20,7 @@ import {
   PLZ_DE_MELDUNG,
   handyFuerEingabe,
   landAusBestand,
+  ohneAnschrift,
   pruefeProfil,
   type FeldFehler,
   type Namen,
@@ -205,7 +207,8 @@ export function bestaetigungsAenderungen(
     if (neu !== (bestand[feld] ?? null)) secrets[feld] = neu;
   }
   if (landBekannt && werte.land !== undefined) {
-    const neu = leerZuNull(werte.land);
+    // Ohne Anschrift kein Land (Review N4, `ohneAnschrift` in lib/member-forms.ts).
+    const neu = ohneAnschrift({ ...bestand, ...secrets }) ? null : leerZuNull(werte.land);
     if (neu !== (bestand.land ?? null) && (Object.keys(secrets).length > 0 || neu !== landAusBestand(bestand.land))) {
       secrets.land = neu;
     }
@@ -290,7 +293,9 @@ export function bauDatenCheckAnsicht({
   // freiwillig; nur wenn sie trotzdem einen Mangel hat (IBAN außerhalb des EWR), eine Zeile für die ganze
   // Anschrift statt der Meldungen je Feld. Die Feldmarkierungen im Formular bleiben.
   const anschriftLeer = (["strasse", "hausnummer", "plz", "ort"] as const).every((f) => !text(bestand[f]).trim());
-  const anschriftMangel = ZEILEN.find((z) => z.key === "anschrift")!.felder.some((f) => b.fehler[f] !== undefined);
+  // Nur Mängel an Straße/Hausnummer/PLZ/Ort zählen (bei leerer Anschrift ist das immer „fehlt“, also der Bedarf
+  // wegen der IBAN); ein Mangel am Land (z. B. land_unbekannt) bleibt die Meldung am Land (Review N2).
+  const anschriftMangel = ANSCHRIFT_TEILE.some((f) => b.fehler[f] !== undefined);
   if (anschriftLeer) anzeige.anschrift = [];
 
   const zeilen: DatenCheckZeile[] = [];
@@ -421,7 +426,11 @@ export function pruefeDatenCheckAenderung(
     persoenlich[key] = eingabe[key];
   }
   const bank: Record<string, unknown> = { iban: eingabe.iban };
-  const p = pruefeProfil("personal", persoenlich, bestand, alumni, heute, landUnbekannt);
+  // Querbezug Anschrift ↔ IBAN: Im Fenster stehen beide im selben Formular, also zählt die eingegebene IBAN, nicht
+  // die gespeicherte (Wechsel CH → DE zusammen mit dem Leeren der Anschrift blockiert nicht, Review N1). Die
+  // Bewertung des Bestands danach (`bewerteBestand(nachher)`) prüft den Querbezug ohnehin noch einmal.
+  const ibanNeu = typeof eingabe.iban === "string" ? eingabe.iban : bestand.iban;
+  const p = pruefeProfil("personal", persoenlich, { ...bestand, iban: ibanNeu }, alumni, heute, landUnbekannt);
   // Pflicht-Anschrift bei einer IBAN außerhalb des EWR: Die Anschrift steht im selben Formular, das meldet die
   // Bewertung des Bestands danach am Feld (nicht an der IBAN wie im Profil).
   const k = pruefeProfil("bank", bank, bestand, alumni, heute, landUnbekannt, false);

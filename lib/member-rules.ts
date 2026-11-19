@@ -21,7 +21,7 @@
 import "server-only";
 import { parsePhoneNumberFromString, isSupportedCountry, type CountryCode as PhoneCountry } from "libphonenumber-js/max";
 import { normalizeIban } from "./member-crypto";
-import { SEPA_IBAN_LENGTHS, checkSepaIban } from "./iban";
+import { NICHT_EWR_SEPA_LAENDER, SEPA_IBAN_LENGTHS, checkSepaIban } from "./iban";
 import { FIELD_LIMITS, checkText } from "./member-fields";
 import { isValidEmail } from "./events";
 import { berlinToday } from "./berlin-date";
@@ -411,34 +411,12 @@ export function pruefeIban(eingabeIban: unknown, kontext: Kontext): RegelErgebni
  */
 
 /**
- * SEPA-Länder AUSSERHALB des EWR, nach IBAN-Länderkennung. Primärquelle: European Payments Council,
- * „EPC list of Countries in the SEPA Schemes' Geographical Scope“, EPC409-09 Version 8.0 vom 24.12.2025,
- * Abschnitt 2 (Tabelle „Non-EEA SEPA Countries“: Albanien, Andorra, Moldau, Monaco, Montenegro,
- * Nordmazedonien, San Marino, Serbien, Schweiz, Vereinigtes Königreich, Vatikanstadt; „Non-EEA Territories“:
- * Saint-Pierre-et-Miquelon, Guernsey, Jersey, Isle of Man) und Abschnitt 5 (Länderkennung in IBANs),
- * https://www.europeanpaymentscouncil.eu/sites/default/files/kb/file/2025-12/EPC409-09%20EPC%20List%20of%20SEPA%20Scheme%20Countries%20v8.0.pdf
- * (abgerufen 19.11.2026).
- * Dazu GI (Gibraltar): in Abschnitt 5 mit eigener IBAN-Kennung, aber nicht in der EU/EWR-Spalte (britisches
- * Überseegebiet, seit dem Brexit außerhalb von EU und EWR).
- * Grenzen: Guernsey, Jersey, Isle of Man nutzen „GB“ (damit erfasst); Saint-Pierre-et-Miquelon nutzt „FR“ und
- * ist nicht unterscheidbar (gilt hier wie Frankreich als EWR).
+ * SEPA-Länder außerhalb des EWR (IBAN-Länderkennung): Liste mit Quelle (EPC409-09 v8.0) steht seit Runde 2 in
+ * lib/iban.ts, damit auch der SEPA-Export (Browser) sie nutzen kann; hier unverändert weiter exportiert.
  * Bei einem Konto in diesen Ländern verlangt das EPC die Anschrift des Zahlers (EPC392-08 v11.0, EPC153-22 v2.0,
  * siehe pflichtfelder-recherche.md im internen Ordner), deshalb ist die Anschrift dann Pflicht.
  */
-export const NICHT_EWR_SEPA_LAENDER: readonly string[] = Object.freeze([
-  "AD", // Andorra
-  "AL", // Albanien
-  "CH", // Schweiz
-  "GB", // Vereinigtes Königreich (inkl. Guernsey, Jersey, Isle of Man)
-  "GI", // Gibraltar
-  "MC", // Monaco
-  "MD", // Moldau
-  "ME", // Montenegro
-  "MK", // Nordmazedonien
-  "RS", // Serbien
-  "SM", // San Marino
-  "VA", // Vatikanstadt
-]);
+export { NICHT_EWR_SEPA_LAENDER };
 
 /**
  * Länderkennung der IBAN, wenn sie zu einem SEPA-Land außerhalb des EWR gehört, sonst null. Es zählen nur die

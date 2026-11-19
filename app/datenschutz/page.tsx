@@ -317,7 +317,7 @@ export default function DatenschutzPage() {
       <h3>Prüfung der IBAN</h3>
       <p>
         Wenn Sie im Mitgliedsantrag Ihre IBAN eingeben, prüfen wir sie über den öffentlichen Prüfdienst openiban.com auf
-        Gültigkeit und ermitteln die zugehörige BIC. Übermittelt wird nur die IBAN, nicht Ihr Name, Ihre IP-Adresse oder
+        Gültigkeit und ermitteln den Namen Ihrer Bank. Übermittelt wird nur die IBAN, nicht Ihr Name, Ihre IP-Adresse oder
         andere Angaben. Nach Angaben des Dienstes werden dort keine Daten gespeichert. Eine Verarbeitung außerhalb der
         EU ist nicht ausgeschlossen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f
         DSGVO; wir haben ein berechtigtes Interesse daran, Tippfehler in der Bankverbindung früh zu erkennen und
@@ -375,11 +375,11 @@ export default function DatenschutzPage() {
       <h3>Zugriff durch Vorstand und Admins</h3>
       <p>
         Der Vorstand kann einzelne Mitglieder mit Verwaltungsaufgaben betrauen (Rolle „Admin“). Admins sehen in der
-        Mitgliederliste Name, Studiengang, E-Mail-Adresse, Handynummer, Status und Rolle, die Teilnehmerlisten von
+        Mitgliederliste Name, Studiengang, E-Mail-Adresse, Handynummer (sofern angegeben), Status und Rolle, die Teilnehmerlisten von
         Veranstaltungen sowie Anträge auf Alumni-Status und Zeitschriftenzugang (Name, E-Mail-Adresse, Datum).
       </p>
       <p>
-        Der Vorstand sieht zusätzlich Anschrift und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
+        Der Vorstand sieht zusätzlich Anschrift (sofern angegeben) und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
         sieht Kündigungen mit Kündigungsgrund und erstellt die Dateien für den Beitragseinzug und den Zeitschriftenzugang
         (siehe unten). Bei Korrekturen protokollieren wir, wer wann welche Felder geändert hat; die Werte selbst nicht.
         Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
@@ -414,7 +414,7 @@ export default function DatenschutzPage() {
       <p>
         Wenn Sie im Intranet einen Zugang zu den Zeitschriften des Bundesverbands der Börsenvereine an deutschen
         Hochschulen (BVH) e.V., Mannheim, beantragen, übermittelt der Vorstand dem BVH Ihren Namen, Ihre E-Mail-Adresse,
-        Ihr Geschlecht, Ihre Telefonnummer, Ihr Geburtsdatum und Ihre Anschrift, damit der BVH Ihnen einen Zugang
+        Ihr Geschlecht, Ihre Telefonnummer (sofern angegeben), Ihr Geburtsdatum und Ihre Anschrift (sofern angegeben), damit der BVH Ihnen einen Zugang
         einrichtet. Ab dann ist der BVH für die Verarbeitung selbst verantwortlich; es gelten die{" "}
         <a href="https://bvh.org/homepage/datenschutz.php" rel="noopener">
           Datenschutzhinweise des BVH

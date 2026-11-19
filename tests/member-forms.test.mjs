@@ -215,7 +215,8 @@ test("Profil: Pflichtfeld leeren → Fehler am Feld, nichts zu speichern", () =>
 test("Profil: Handy und ganze Anschrift lassen sich leeren (freiwillig seit 20.11.2026)", () => {
   const r = pruefeProfil("personal", persoenlich({ ...OHNE_ANSCHRIFT, handynummer: "" }), bestand(), false, HEUTE);
   assert.equal(r.gueltig, true, r.ersterFehler ?? "");
-  assert.deepEqual(r.aenderungen, { strasse: null, hausnummer: null, plz: null, ort: null, handynummer: null, land: "DE" });
+  // Ohne Anschrift kein Land (Review N4): Bestand hat kein Land, also auch nichts zu schreiben.
+  assert.deepEqual(r.aenderungen, { strasse: null, hausnummer: null, plz: null, ort: null, handynummer: null });
   // Bei einer IBAN außerhalb des EWR nicht: dann ist die Anschrift Pflicht.
   const ch = bestand({ iban: IBAN_CH });
   const k = pruefeProfil("personal", persoenlich(OHNE_ANSCHRIFT), ch, false, HEUTE);
@@ -537,4 +538,44 @@ test("G1: im Rückfall geladenes Formular überschreibt kein Land", () => {
   const k = pruefeKorrektur({ ...basis, land: "AT", ort: "Wien" }, basis, bestand({ land: null }), HEUTE, true);
   assert.equal(k.gueltig, true, k.ersterFehler ?? "");
   assert.deepEqual(k.aenderungen, { ort: "Wien" });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Review Pflichtfelder, Runde 2 (N4: ohne Anschrift kein Land)
+// ---------------------------------------------------------------------------------------------------
+
+test("N4: Registrierung ohne Anschrift speichert kein Land, mit Anschrift schon", () => {
+  assert.equal(pruefeRegistrierung(antrag({ ...OHNE_ANSCHRIFT, land: "DE" }), HEUTE).aenderungen.land, null);
+  assert.equal(pruefeRegistrierung(antrag({ ...OHNE_ANSCHRIFT, land: "AT" }), HEUTE).aenderungen.land, null);
+  assert.equal(pruefeRegistrierung(antrag(), HEUTE).aenderungen.land, "DE");
+});
+
+test("N4: Profil – Anschrift leeren leert ein gespeichertes Land; nur das Land ohne Anschrift wird nicht gespeichert", () => {
+  const mitLand = bestand({ land: "DE" });
+  const r = pruefeProfil("personal", persoenlich(OHNE_ANSCHRIFT), mitLand, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal(r.aenderungen.land, null);
+  const ohne = bestand({ strasse: null, hausnummer: null, plz: null, ort: null, land: null });
+  const nurLand = pruefeProfil("personal", persoenlich({ ...OHNE_ANSCHRIFT, land: "AT" }), ohne, false, HEUTE);
+  assert.equal(nurLand.gueltig, true, nurLand.ersterFehler ?? "");
+  assert.equal("land" in nurLand.aenderungen, false);
+});
+
+test("N4: Vorstand – Anschrift leeren leert das Land, nur Land ohne Anschrift wird nicht gespeichert", () => {
+  const mitLand = bestand({ land: "DE" });
+  const basis = korrekturWerte(mitLand);
+  const r = pruefeKorrektur({ ...basis, ...OHNE_ANSCHRIFT }, basis, mitLand, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.deepEqual(r.aenderungen, { strasse: null, hausnummer: null, plz: null, ort: null, land: null });
+  assert.ok(r.felder.includes("land"));
+  const ohne = bestand({ strasse: null, hausnummer: null, plz: null, ort: null, land: null });
+  const b2 = korrekturWerte(ohne);
+  const nurLand = pruefeKorrektur({ ...b2, land: "AT" }, b2, ohne, HEUTE);
+  assert.equal(nurLand.gueltig, true);
+  assert.deepEqual(nurLand.aenderungen, {});
+  assert.equal(nurLand.felder.includes("land"), false);
+  // Altdaten (Land ohne Anschrift), die der Vorstand nicht anfasst, bleiben unberührt.
+  const alt = bestand({ strasse: null, hausnummer: null, plz: null, ort: null, land: "AT" });
+  const b3 = korrekturWerte(alt);
+  assert.deepEqual(pruefeKorrektur({ ...b3, geburtsdatum: "2002-05-06" }, b3, alt, HEUTE).aenderungen, { geburtsdatum: "2002-05-06" });
 });

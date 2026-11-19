@@ -56,6 +56,40 @@ export const SEPA_IBAN_LENGTHS: Readonly<Record<string, number>> = {
 };
 
 /**
+ * SEPA-Länder AUSSERHALB des EWR, nach IBAN-Länderkennung. Primärquelle: European Payments Council,
+ * „EPC list of Countries in the SEPA Schemes' Geographical Scope“, EPC409-09 Version 8.0 vom 24.12.2025,
+ * Abschnitt 2 (Tabelle „Non-EEA SEPA Countries“: Albanien, Andorra, Moldau, Monaco, Montenegro,
+ * Nordmazedonien, San Marino, Serbien, Schweiz, Vereinigtes Königreich, Vatikanstadt; „Non-EEA Territories“:
+ * Saint-Pierre-et-Miquelon, Guernsey, Jersey, Isle of Man) und Abschnitt 5 (Länderkennung in IBANs),
+ * https://www.europeanpaymentscouncil.eu/sites/default/files/kb/file/2025-12/EPC409-09%20EPC%20List%20of%20SEPA%20Scheme%20Countries%20v8.0.pdf
+ * (abgerufen 19.11.2026).
+ * Dazu GI (Gibraltar): in Abschnitt 5 mit eigener IBAN-Kennung, aber nicht in der EU/EWR-Spalte (britisches
+ * Überseegebiet, seit dem Brexit außerhalb von EU und EWR).
+ * Grenzen: Guernsey, Jersey, Isle of Man nutzen „GB“ (damit erfasst); Saint-Pierre-et-Miquelon nutzt „FR“ und
+ * ist nicht unterscheidbar (gilt hier wie Frankreich als EWR).
+ * Genutzt von lib/member-rules.ts (Pflicht-Anschrift) und lib/finance-category.ts (SEPA-Export).
+ */
+export const NICHT_EWR_SEPA_LAENDER: readonly string[] = Object.freeze([
+  "AD", // Andorra
+  "AL", // Albanien
+  "CH", // Schweiz
+  "GB", // Vereinigtes Königreich (inkl. Guernsey, Jersey, Isle of Man)
+  "GI", // Gibraltar
+  "MC", // Monaco
+  "MD", // Moldau
+  "ME", // Montenegro
+  "MK", // Nordmazedonien
+  "RS", // Serbien
+  "SM", // San Marino
+  "VA", // Vatikanstadt
+]);
+
+/** Gehört die (normalisierte) IBAN zu einem SEPA-Land außerhalb des EWR? Nur die Länderkennung zählt. */
+export function istNichtEwrIban(iban: string): boolean {
+  return NICHT_EWR_SEPA_LAENDER.includes(iban.trim().toUpperCase().slice(0, 2));
+}
+
+/**
  * Aufbau der BBAN (IBAN ohne Land und Prüfziffer) für die häufigsten Länder laut IBAN Registry:
  * DE 8 Ziffern Bankleitzahl + 10 Ziffern Konto, AT 5 Ziffern Bankleitzahl + 11 Ziffern Konto.
  * Andere Länder: nur Länge + Prüfziffer.

@@ -124,6 +124,16 @@ function anschriftFehltFuerIban(iban: unknown, anschrift: Mitgliederdaten, alumn
   return r.maengel.some((m) => ANSCHRIFT_TEILE.includes(m.feld) && m.code === "fehlt");
 }
 
+/**
+ * Ist nach dem Speichern keine Anschrift da (Straße, Hausnummer, PLZ, Ort alle leer)? Dann wird auch kein Land
+ * gespeichert (Review N4): Das Land ist das Land der Anschrift und ohne Anschrift keine Angabe des Mitglieds,
+ * sondern nur die Vorauswahl DE im Formular. Angezeigt wird ein leeres Land weiter als Deutschland
+ * (`landAusBestand`). Wer seine Anschrift leert, verliert so auch das gespeicherte Land.
+ */
+export function ohneAnschrift(werte: Partial<Record<string, string | null | undefined>>): boolean {
+  return ANSCHRIFT_TEILE.every((feld) => !text(werte[feld]).trim());
+}
+
 function leerZuNull(wert: string | undefined): string | null {
   return wert ? wert : null;
 }
@@ -218,7 +228,7 @@ export function pruefeRegistrierung(
           hausnummer: leerZuNull(w.hausnummer),
           plz: leerZuNull(w.plz),
           ort: leerZuNull(w.ort),
-          land: leerZuNull(w.land),
+          land: ohneAnschrift(w) ? null : leerZuNull(w.land),
           handynummer: leerZuNull(w.handynummer),
           iban: leerZuNull(w.iban),
           geburtsdatum: leerZuNull(w.geburtsdatum),
@@ -391,7 +401,8 @@ export function pruefeProfil(
       }
     }
     if (felder.includes("land") && !landUnbekannt) {
-      const land = leerZuNull(r.werte.land);
+      // Ohne Anschrift kein Land (Review N4); die Anschriftfelder sind im Abschnitt Persönliches immer dabei.
+      const land = ohneAnschrift(r.werte) ? null : leerZuNull(r.werte.land);
       if (land !== (bestand.land ?? null) && (Object.keys(aenderungen).length > 0 || land !== landAusBestand(bestand.land))) {
         aenderungen.land = land;
       }
@@ -518,6 +529,20 @@ export function pruefeKorrektur(
     if (out.iban && bicMitleeren(out.iban, bestand)) {
       out.bic = null;
       felder.push("bic");
+    }
+    // Ohne Anschrift kein Land (Review N4): leert der Vorstand die Anschrift oder setzt nur das Land, wird das Land
+    // geleert bzw. nicht gespeichert. Altdaten, die er nicht anfasst, bleiben unberührt.
+    const anschriftGeaendert = ANSCHRIFT_TEILE.some((f) => f in out) || "land" in out;
+    const nachher = { ...bestand, ...out } as Partial<Record<string, string | null | undefined>>;
+    if (anschriftGeaendert && ohneAnschrift(nachher) && (out.land !== undefined || (bestand.land ?? null) !== null)) {
+      if ((bestand.land ?? null) === null) {
+        delete out.land;
+        const i = felder.indexOf("land");
+        if (i >= 0) felder.splice(i, 1);
+      } else {
+        out.land = null;
+        if (!felder.includes("land")) felder.push("land");
+      }
     }
   }
   return { gueltig: r.gueltig, fehler, ersterFehler: ersterFehler(fehler), aenderungen: out, felder, namen };

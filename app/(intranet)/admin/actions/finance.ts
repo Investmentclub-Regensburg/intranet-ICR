@@ -6,6 +6,14 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { berlinToday, checkCollectionDate, sanitizeForSEPA } from "@/lib/sepa";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import { readMemberSecretsMany } from "@/lib/member-secrets-server";
+import {
+  debitorBic,
+  financeKategorie,
+  type FinanceCategory,
+  type FinanceOverrideAction,
+} from "@/lib/finance-category";
+
+export type { FinanceCategory, FinanceOverrideAction };
 
 export type Semester = "SoSe" | "WiSe";
 
@@ -22,19 +30,6 @@ export type FinanceMemberRow = {
   /** IBAN seit dem letzten SEPA-XML-Export geändert → Mandatsänderung (AmdmntInd, SMNDA). */
   amended: boolean;
 };
-
-/** Manuelle Anpassung je Semester (Tabelle finance_export_overrides). */
-export type FinanceOverrideAction = "include" | "exclude" | "free_semester";
-
-/** Wohin ein Profil im Export fällt. */
-export type FinanceCategory =
-  | "debit"
-  | "alumni"
-  | "cancelled"
-  | "free_semester"
-  | "no_iban"
-  | "invalid"
-  | "removed";
 
 /** Eine Zeile der Vorschau (alle Profile, IBAN gekürzt). */
 export type FinancePreviewRow = {
@@ -148,16 +143,11 @@ function day(value: unknown): string | null {
 }
 
 /**
- * Regeln je Profil (Reihenfolge):
- *   1. Manuelle Anpassung „entfernen“ / „Freisemester“ gewinnt immer.
- *   2. Ohne Anpassung „aufnehmen“: Alumni, gekündigt vor dem Stichtag, Eintritt ab dem
- *      Stichtag (Freisemester) fallen heraus.
- *   3. Ohne IBAN bzw. mit ungültiger IBAN: nicht im Export (auch bei „aufnehmen“).
- *   4. Sonst Lastschrift über FEE_PER_SEMESTER.
- * BIC: wird seit 20.11.2026 nicht mehr abgefragt (Entscheidung Hannes; im EWR genügt die IBAN). Eine
- * gespeicherte BIC im gültigen Format geht weiter in CSV und XML (DbtrAgt/BIC), sonst „NOTPROVIDED“. Eine BIC
- * mit falschem Format wird ignoriert, statt das Mitglied als „ungültig“ aus dem Einzug zu nehmen: Mitglieder
- * können sie nicht mehr selbst korrigieren, und das Bereinigungsskript leert sie nicht mehr.
+ * Einordnung je Profil: `financeKategorie` (lib/finance-category.ts): Anpassungen, Alumni, Kündigung,
+ * Freisemester, ohne/ungültige IBAN, Konto außerhalb des EWR (`non_eea`, nicht in der Datei), sonst Lastschrift
+ * über FEE_PER_SEMESTER.
+ * BIC: wird seit 20.11.2026 nicht mehr abgefragt. Bei EWR-IBANs geht nie eine gespeicherte BIC in CSV/XML
+ * („NOTPROVIDED“), siehe `debitorBic`. Eine BIC macht ein Mitglied nie „ungültig“.
  */
 export async function getFinanceExportData(
   semester: Semester,
@@ -214,7 +204,7 @@ export async function getFinanceExportData(
   const abort = (message: string): FinanceExportResult => ({
     validMembers: [],
     rows: [],
-    stats: { total: 0, debit: 0, alumni: 0, cancelled: 0, free_semester: 0, no_iban: 0, invalid: 0, removed: 0 },
+    stats: { total: 0, debit: 0, alumni: 0, cancelled: 0, free_semester: 0, no_iban: 0, invalid: 0, non_eea: 0, removed: 0 },
     overridesAvailable: !overridesRes.error,
     creditor: null,
     lastXmlExportAt,
@@ -253,6 +243,7 @@ export async function getFinanceExportData(
     free_semester: 0,
     no_iban: 0,
     invalid: 0,
+    non_eea: 0,
     removed: 0,
   };
 
@@ -264,32 +255,15 @@ export async function getFinanceExportData(
     const bank = secrets.get(id);
     const bankValues = bank && bank !== "unreadable" ? bank : null;
     const ibanClean = text(bankValues?.iban).replace(/\s/g, "").toUpperCase();
-    const bicRoh = text(bankValues?.bic).replace(/\s/g, "").toUpperCase();
-    const bicClean = bicRoh && validateBICFormat(bicRoh) ? bicRoh : "";
+    // BIC für CSV/XML: bei EWR-IBANs nie (NOTPROVIDED), sonst nur im gültigen Format (lib/finance-category.ts).
+    const bicClean = debitorBic(ibanClean, text(bankValues?.bic));
     const joinedAt = day(profile["Datum_Antrag"]);
     const cancelledAt = day(profile["Datum_Kündigung"]);
     const ibanChangedAt = typeof profile["iban_changed_at"] === "string" ? profile["iban_changed_at"] : null;
     // Ohne bisherigen XML-Export zählt jede erfasste Änderung (erster Einzug nach der Umstellung).
     const amended = Boolean(ibanChangedAt) && (!lastXmlExportAt || ibanChangedAt! > lastXmlExportAt);
 
-    let category: FinanceCategory;
-    if (override === "exclude") {
-      category = "removed";
-    } else if (override === "free_semester") {
-      category = "free_semester";
-    } else if (override !== "include" && (role === "alumni" || status === "alumni")) {
-      category = "alumni";
-    } else if (override !== "include" && cancelledAt && cancelledAt < periodStartDay) {
-      category = "cancelled";
-    } else if (override !== "include" && joinedAt && joinedAt >= periodStartDay) {
-      category = "free_semester";
-    } else if (!ibanClean) {
-      category = "no_iban";
-    } else if (!validateIBAN(ibanClean)) {
-      category = "invalid";
-    } else {
-      category = "debit";
-    }
+    const category = financeKategorie({ override, status, role, joinedAt, cancelledAt, periodStartDay, iban: ibanClean });
     stats[category]++;
 
     const firstName = sanitizeForSEPA(text(profile["Vorname"]));
@@ -320,7 +294,7 @@ export async function getFinanceExportData(
         override,
         iban,
         bic: bicClean,
-        email: category === "no_iban" || category === "invalid" ? text(profile["E-Mail"]) : "",
+        email: category === "no_iban" || category === "invalid" || category === "non_eea" ? text(profile["E-Mail"]) : "",
         joinedAt,
         cancelledAt,
         amount,

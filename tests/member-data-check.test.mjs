@@ -631,3 +631,40 @@ test("B3: Anschrift ganz leer → ohne Mangel (freiwillig); mit IBAN außerhalb 
   assert.notEqual(teil.fehler, ANSCHRIFT_FEHLT);
   assert.ok(teil.wert.length > 0);
 });
+
+// ---------------------------------------------------------------------------------------------------
+// Review Pflichtfelder, Runde 2 (N1, N2)
+// ---------------------------------------------------------------------------------------------------
+
+test("N1: Wechsel von Nicht-EWR- auf EWR-IBAN zusammen mit dem Leeren der Anschrift blockiert nicht", () => {
+  const ch = gut({ iban: "CH9300762011623852957", land: "CH", strasse: "Bahnhofstrasse", hausnummer: "1", plz: "8001", ort: "Zürich" });
+  const leer = { strasse: "", hausnummer: "", plz: "", ort: "" };
+  const r = pruefeDatenCheckAenderung(formular({ ...leer, land: "CH", iban: IBAN_DE }), ch, false, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal(r.secrets.iban, IBAN_DE);
+  assert.equal(r.secrets.strasse, null);
+  // Bleibt die CH-IBAN, ist die Anschrift weiter Pflicht.
+  const bleibt = pruefeDatenCheckAenderung(formular({ ...leer, land: "CH", iban: "CH9300762011623852957" }), ch, false, false, HEUTE);
+  assert.equal(bleibt.gueltig, false);
+  assert.ok(bleibt.fehler.strasse);
+});
+
+test("N2: leere Anschrift mit Mangel nur am Land → Meldung des Lands, nicht die IBAN-Sammelmeldung", () => {
+  const a = ansicht(gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: "XX" }));
+  const zeile = a.zeilen.find((zl) => zl.key === "anschrift");
+  assert.ok(zeile.fehler);
+  assert.notEqual(zeile.fehler, ANSCHRIFT_FEHLT);
+  assert.ok(a.formularFehler.land);
+});
+
+test("N4: „Stimmt alles“ leert ein Land ohne Anschrift, Ändern ohne Anschrift speichert kein Land", () => {
+  const altLand = gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: "DE" });
+  const b = bewerteBestand(altLand, false, HEUTE);
+  assert.equal(b.gueltig, true);
+  assert.deepEqual(bestaetigungsAenderungen(altLand, b.werte, false).secrets, { land: null });
+  const ohneLand = gut({ strasse: null, hausnummer: null, plz: null, ort: null, land: null });
+  assert.deepEqual(bestaetigungsAenderungen(ohneLand, bewerteBestand(ohneLand, false, HEUTE).werte, false).secrets, {});
+  const r = pruefeDatenCheckAenderung(formular({ strasse: "", hausnummer: "", plz: "", ort: "", land: "AT" }), ohneLand, false, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal("land" in r.secrets, false);
+});
