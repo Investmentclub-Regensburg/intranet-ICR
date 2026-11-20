@@ -26,3 +26,14 @@ export function checkText(value: string, label: string, max: number): string | n
   if (FORMULA_START.test(value)) return `${label} darf nicht mit = + - oder @ beginnen.`;
   return null;
 }
+
+/**
+ * Führendes Hochkomma (Excel-Altlast: „'+49 176 …“ markiert eine Zelle als Text), auch typografisch (’ ‘ ´ `):
+ * harmlos, wird vor der Prüfung einer Handynummer entfernt (Klickrunde 20.11.2026). Nur am Anfang; ein
+ * Hochkomma mitten in der Nummer bleibt ein Formatfehler. Rein, ohne Importe (Server und Browser).
+ */
+const HOCHKOMMA_AM_ANFANG = /^\s*['‘’´`]+/;
+
+export function ohneHochkommaAmAnfang(text: string): string {
+  return text.replace(HOCHKOMMA_AM_ANFANG, "");
+}

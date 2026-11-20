@@ -6,6 +6,17 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { berlinToday, checkCollectionDate, sanitizeForSEPA } from "@/lib/sepa";
 import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import { readMemberSecretsMany } from "@/lib/member-secrets-server";
+import {
+  debitorBic,
+  financeDatum,
+  financeIban,
+  financeKategorieFuerProfil,
+  financeStichtag,
+  type FinanceCategory,
+  type FinanceOverrideAction,
+} from "@/lib/finance-category";
+
+export type { FinanceCategory, FinanceOverrideAction };
 
 export type Semester = "SoSe" | "WiSe";
 
@@ -22,19 +33,6 @@ export type FinanceMemberRow = {
   /** IBAN seit dem letzten SEPA-XML-Export geändert → Mandatsänderung (AmdmntInd, SMNDA). */
   amended: boolean;
 };
-
-/** Manuelle Anpassung je Semester (Tabelle finance_export_overrides). */
-export type FinanceOverrideAction = "include" | "exclude" | "free_semester";
-
-/** Wohin ein Profil im Export fällt. */
-export type FinanceCategory =
-  | "debit"
-  | "alumni"
-  | "cancelled"
-  | "free_semester"
-  | "no_iban"
-  | "invalid"
-  | "removed";
 
 /** Eine Zeile der Vorschau (alle Profile, IBAN gekürzt). */
 export type FinancePreviewRow = {
@@ -117,11 +115,6 @@ function maskIban(iban: string): string {
  */
 export type FinanceExportMode = "preview" | "export";
 
-/** Semesterbeginn als YYYY-MM-DD – Vergleich mit Datumsspalten als Text, unabhängig von der Zeitzone. */
-function getPeriodStartDay(semester: Semester, year: number): string {
-  return semester === "SoSe" ? `${year}-03-15` : `${year}-10-01`;
-}
-
 const FEE_PER_SEMESTER = MEMBERSHIP_FEE_PER_SEMESTER;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OVERRIDE_ACTIONS: readonly FinanceOverrideAction[] = ["include", "exclude", "free_semester"];
@@ -140,20 +133,13 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Datum als YYYY-MM-DD oder null. */
-function day(value: unknown): string | null {
-  if (typeof value !== "string" || !value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
-
 /**
- * Regeln je Profil (Reihenfolge):
- *   1. Manuelle Anpassung „entfernen“ / „Freisemester“ gewinnt immer.
- *   2. Ohne Anpassung „aufnehmen“: Alumni, gekündigt vor dem Stichtag, Eintritt ab dem
- *      Stichtag (Freisemester) fallen heraus.
- *   3. Ohne IBAN bzw. mit ungültiger IBAN/BIC: nicht im Export (auch bei „aufnehmen“).
- *   4. Sonst Lastschrift über FEE_PER_SEMESTER.
+ * Einordnung je Profil: `financeKategorieFuerProfil` (lib/finance-category.ts, dieselbe Funktion nutzt die
+ * Insights-Kachel „Nächster Einzug“): Anpassungen, Alumni, Kündigung,
+ * Freisemester, ohne/ungültige IBAN, Konto außerhalb des EWR (`non_eea`, nicht in der Datei), sonst Lastschrift
+ * über FEE_PER_SEMESTER.
+ * BIC: wird seit 20.11.2026 nicht mehr abgefragt. Bei EWR-IBANs geht nie eine gespeicherte BIC in CSV/XML
+ * („NOTPROVIDED“), siehe `debitorBic`. Eine BIC macht ein Mitglied nie „ungültig“.
  */
 export async function getFinanceExportData(
   semester: Semester,
@@ -178,7 +164,8 @@ export async function getFinanceExportData(
   }
 
   const supabase = createServiceClient();
-  const periodStartDay = getPeriodStartDay(semester, year);
+  // Semesterbeginn als YYYY-MM-DD – Vergleich mit Datumsspalten als Text, unabhängig von der Zeitzone.
+  const periodStartDay = financeStichtag(semester, year);
 
   const [profilesRes, overridesRes, lastXmlRes] = await Promise.all([
     supabase
@@ -210,7 +197,18 @@ export async function getFinanceExportData(
   const abort = (message: string): FinanceExportResult => ({
     validMembers: [],
     rows: [],
-    stats: { total: 0, debit: 0, alumni: 0, cancelled: 0, free_semester: 0, no_iban: 0, invalid: 0, removed: 0 },
+    stats: {
+      total: 0,
+      debit: 0,
+      alumni: 0,
+      cancelled: 0,
+      applicant: 0,
+      free_semester: 0,
+      no_iban: 0,
+      invalid: 0,
+      non_eea: 0,
+      removed: 0,
+    },
     overridesAvailable: !overridesRes.error,
     creditor: null,
     lastXmlExportAt,
@@ -246,9 +244,11 @@ export async function getFinanceExportData(
     debit: 0,
     alumni: 0,
     cancelled: 0,
+    applicant: 0,
     free_semester: 0,
     no_iban: 0,
     invalid: 0,
+    non_eea: 0,
     removed: 0,
   };
 
@@ -256,35 +256,18 @@ export async function getFinanceExportData(
     const id = String(profile["id"] ?? "");
     const override = overrides.get(id) ?? null;
     const status = text(profile["Status"]).toLowerCase();
-    const role = text(profile["Rolle"]).toLowerCase();
     const bank = secrets.get(id);
     const bankValues = bank && bank !== "unreadable" ? bank : null;
-    const ibanClean = text(bankValues?.iban).replace(/\s/g, "").toUpperCase();
-    const bicClean = text(bankValues?.bic).replace(/\s/g, "").toUpperCase();
-    const joinedAt = day(profile["Datum_Antrag"]);
-    const cancelledAt = day(profile["Datum_Kündigung"]);
+    const ibanClean = financeIban(bankValues?.iban);
+    // BIC für CSV/XML: bei EWR-IBANs nie (NOTPROVIDED), sonst nur im gültigen Format (lib/finance-category.ts).
+    const bicClean = debitorBic(ibanClean, text(bankValues?.bic));
+    const joinedAt = financeDatum(profile["Datum_Antrag"]);
+    const cancelledAt = financeDatum(profile["Datum_Kündigung"]);
     const ibanChangedAt = typeof profile["iban_changed_at"] === "string" ? profile["iban_changed_at"] : null;
     // Ohne bisherigen XML-Export zählt jede erfasste Änderung (erster Einzug nach der Umstellung).
     const amended = Boolean(ibanChangedAt) && (!lastXmlExportAt || ibanChangedAt! > lastXmlExportAt);
 
-    let category: FinanceCategory;
-    if (override === "exclude") {
-      category = "removed";
-    } else if (override === "free_semester") {
-      category = "free_semester";
-    } else if (override !== "include" && (role === "alumni" || status === "alumni")) {
-      category = "alumni";
-    } else if (override !== "include" && cancelledAt && cancelledAt < periodStartDay) {
-      category = "cancelled";
-    } else if (override !== "include" && joinedAt && joinedAt >= periodStartDay) {
-      category = "free_semester";
-    } else if (!ibanClean) {
-      category = "no_iban";
-    } else if (!validateIBAN(ibanClean) || (bicClean && !validateBICFormat(bicClean))) {
-      category = "invalid";
-    } else {
-      category = "debit";
-    }
+    const category = financeKategorieFuerProfil(profile, ibanClean, override, periodStartDay);
     stats[category]++;
 
     const firstName = sanitizeForSEPA(text(profile["Vorname"]));
@@ -315,7 +298,7 @@ export async function getFinanceExportData(
         override,
         iban,
         bic: bicClean,
-        email: category === "no_iban" || category === "invalid" ? text(profile["E-Mail"]) : "",
+        email: category === "no_iban" || category === "invalid" || category === "non_eea" ? text(profile["E-Mail"]) : "",
         joinedAt,
         cancelledAt,
         amount,

@@ -14,12 +14,13 @@ import {
 import { speichereNamen } from "@/lib/member-names-server";
 import type { FeldFehler } from "@/lib/member-forms";
 import { istAbfrageFaellig, spaeterBis } from "@/lib/member-data-check";
+import { withinRateLimits } from "@/lib/bot-protection";
 import {
-  AENDERN_FELDER,
   bestaetigeStand,
   bestaetigungsAenderungen,
   bewerteBestand,
   datenCheckEinstellungen,
+  eingabeMitBestand,
   pruefeDatenCheckAenderung,
   type DatenBestand,
 } from "@/lib/member-data-check-server";
@@ -27,8 +28,8 @@ import {
 /**
  * Abfrage „Stimmen deine Daten noch?“ (Paket „Mitgliederdaten“, PR 4). Jede Action liest frisch und prüft auf dem
  * Server neu (nie dem Browser glauben); geschrieben wird nur die eigene Zeile mit Service Role. Kein Mailversand.
- * Kein revalidatePath: Das Fenster sitzt im Layout und würde sonst vor dem Haken verschwinden; der Browser lädt
- * nach der Animation neu (router.refresh).
+ * Kein revalidatePath: Die Seite /daten-bestaetigen leitet ohne fällige Abfrage weiter und würde sonst vor dem Danke
+ * verschwinden; der Browser geht danach selbst zum Rückkehrziel.
  */
 
 export type DatenCheckState = {
@@ -36,6 +37,11 @@ export type DatenCheckState = {
   error: string;
   /** Meldungen je Feld (Mangel nach lib/member-rules.ts). */
   fehler?: FeldFehler;
+  /**
+   * Mit `fehler`: true = der ganze Bestand (danach) ist bewertet, `fehler` ist alles; false = nur Formularfehler
+   * (siehe `pruefeDatenCheckAenderung`).
+   */
+  vollstaendig?: boolean;
 };
 
 const GEAENDERT_MELDUNG = "Deine Daten wurden inzwischen geändert. Bitte lade die Seite neu.";
@@ -164,7 +170,7 @@ export async function confirmMemberData(input: {
     return { success: false, error: GEAENDERT_MELDUNG };
   }
   const b = bewerteBestand(g.bestand, g.alumni);
-  if (!b.gueltig) return { success: false, error: MAENGEL_MELDUNG, fehler: b.fehler };
+  if (!b.gueltig) return { success: false, error: MAENGEL_MELDUNG, fehler: b.fehler, vollstaendig: true };
   const { secrets, namen } = bestaetigungsAenderungen(g.bestand, b.werte, g.alumni, g.landBekannt);
   return speichereUndBestaetige(admin, g, auth.user.id, secrets, namen);
 }
@@ -188,13 +194,48 @@ export async function saveMemberDataCheck(formData: FormData): Promise<DatenChec
     return { success: false, error: GEAENDERT_MELDUNG };
   }
 
-  const eingabe: Record<string, unknown> = {};
-  for (const key of AENDERN_FELDER) eingabe[key] = formData.get(key);
+  // Die Seite schickt nur geänderte Felder; der Rest kommt aus dem frisch gelesenen Bestand.
+  const eingabe = eingabeMitBestand((feld) => formData.get(feld), g.bestand);
   // Land unbekannt bestimmt nur der Server (gelesen ohne Spalte land), nie das Formular (Review A3).
   const landUnbekannt = !g.landBekannt;
   const r = pruefeDatenCheckAenderung(eingabe, g.bestand, g.alumni, landUnbekannt);
-  if (!r.gueltig) return { success: false, error: r.ersterFehler ?? MAENGEL_MELDUNG, fehler: r.fehler };
+  if (!r.gueltig) {
+    return { success: false, error: r.ersterFehler ?? MAENGEL_MELDUNG, fehler: r.fehler, vollstaendig: r.vollstaendig };
+  }
   return speichereUndBestaetige(admin, g, auth.user.id, r.secrets, r.namen);
+}
+
+export type DatenCheckPruefung = {
+  success: boolean;
+  /** Meldungen je Feld nach denselben Regeln wie beim Speichern. */
+  fehler: FeldFehler;
+  /**
+   * true: die Eingabe war als Formular gültig und der Bestand danach ist vollständig bewertet (`fehler` ist dann
+   * alles). false: nur die Formularfehler; Mängel unveränderter Felder behält die Seite aus der ersten Bewertung.
+   */
+  vollstaendig: boolean;
+};
+
+/**
+ * Prüfen während der Eingabe (beim Verlassen eines geänderten Felds): dieselbe Prüfung wie „Speichern“
+ * (`pruefeDatenCheckAenderung`), aber ohne zu speichern. Liefert nur Meldungen je Feld, nie Werte. Eigenes
+ * Rate-Limit (großzügig, je Konto), damit die Entschlüsselung nicht beliebig oft angestoßen werden kann.
+ */
+export async function pruefeMemberDataCheck(formData: FormData): Promise<DatenCheckPruefung> {
+  const nichts: DatenCheckPruefung = { success: false, fehler: {}, vollstaendig: false };
+  const auth = await requireUser();
+  if (!auth.ok) return nichts;
+  const erlaubt = await withinRateLimits([
+    { scope: "data-check-pruefen", value: auth.user.id, max: 150, windowSeconds: 10 * 60 },
+  ]);
+  // Gebremst: einfach keine neue Bewertung (die Markierungen bleiben, „Speichern“ prüft ohnehin neu).
+  if (!erlaubt) return nichts;
+  const admin = createServiceClient();
+  const g = await lade(admin, auth.user.id);
+  if (!istGeladen(g)) return nichts;
+  const eingabe = eingabeMitBestand((feld) => formData.get(feld), g.bestand);
+  const r = pruefeDatenCheckAenderung(eingabe, g.bestand, g.alumni, !g.landBekannt);
+  return { success: true, fehler: r.fehler, vollstaendig: r.vollstaendig };
 }
 
 /**

@@ -21,8 +21,8 @@
 import "server-only";
 import { parsePhoneNumberFromString, isSupportedCountry, type CountryCode as PhoneCountry } from "libphonenumber-js/max";
 import { normalizeIban } from "./member-crypto";
-import { SEPA_IBAN_LENGTHS, checkSepaIban } from "./iban";
-import { FIELD_LIMITS, checkText } from "./member-fields";
+import { NICHT_EWR_SEPA_LAENDER, SEPA_IBAN_LENGTHS, checkSepaIban } from "./iban";
+import { FIELD_LIMITS, checkText, ohneHochkommaAmAnfang } from "./member-fields";
 import { isValidEmail } from "./events";
 import { berlinToday } from "./berlin-date";
 import { DEFAULT_COUNTRY, findCountry } from "./country-codes";
@@ -43,13 +43,12 @@ export type Feld =
   | "land"
   | "handynummer"
   | "iban"
-  | "bic"
   | "geburtsdatum";
 
 /**
  * Stabile Mängel-Codes (Vorstandsübersicht, Abfrage-Fenster, Skript-Zählungen). Nicht umbenennen.
- *   fehlt                  Pflichtfeld leer
- *   format                 Wert passt nicht zum Muster (Datum, PLZ, Hausnummer, BIC, Name, E-Mail, Handy,
+ *   fehlt                  Pflichtfeld leer (Anschrift: siehe `anschriftPflichtGrund`)
+ *   format                 Wert passt nicht zum Muster (Datum, PLZ, Hausnummer, Name, E-Mail, Handy,
  *                          IBAN-Aufbau) oder ist keine Zeichenkette
  *   zu_lang                länger als FIELD_LIMITS
  *   zeichen                Steuerzeichen, Formelanfang (= + - @) oder Format-Zeichen (Cf: Zero-Width, Bidi …)
@@ -99,13 +98,16 @@ export const MANGEL_CODES: readonly MangelCode[] = [
 
 /**
  * Stabile Hinweis-Codes (blockieren nie; Skript zählt sie, das Abfrage-Fenster zeigt sie am Feld).
- *   vorwahl_ergaenzt  Handy wurde nur per Annahme „deutsche Nummer“ zu E.164 (ohne Vorwahl und ohne 0, oder
- *                     „+49“ direkt vor 15x/16x/17x aus der alten Vorauswahl). Nur `pruefeBestand` ohne
- *                     gewähltes Handy-Land, nie im Formular. „Stimmt alles“ bestätigt ihn.
- *   bic_land          BIC-Land (Stellen 5–6) weicht vom Land der IBAN ab (z. B. Neobanken). Kein Fehler.
+ *   vorwahl_ergaenzt  Handy wurde nur per Annahme „deutsche Nummer“ zu E.164. Seit 19.11.2026 werden
+ *                     15/16/17 ohne 0 und „+49 1[567]…“ ohne 0 als „sicher“ korrigiert; der Hinweis kommt
+ *                     bei deutschen Nummern praktisch nicht mehr vor (nur noch Code, kein echter Fall).
+ *                     Bleibt aus Abwärtskompatibilität bestehen. Nur `pruefeBestand` ohne gewähltes
+ *                     Handy-Land, nie im Formular.
+ * Bis 20.11.2026 gab es zusätzlich `bic_land` (BIC-Land ≠ IBAN-Land). Die BIC wird seitdem weder abgefragt
+ * noch geprüft (Entscheidung Hannes, pflichtfelder-entscheidung.md); der Hinweis kann nicht mehr entstehen.
  */
-export type HinweisCode = "vorwahl_ergaenzt" | "bic_land";
-export const HINWEIS_CODES: readonly HinweisCode[] = ["vorwahl_ergaenzt", "bic_land"];
+export type HinweisCode = "vorwahl_ergaenzt";
+export const HINWEIS_CODES: readonly HinweisCode[] = ["vorwahl_ergaenzt"];
 
 export type Mangel = { feld: Feld; code: MangelCode };
 export type Hinweis = { feld: Feld; code: HinweisCode };
@@ -119,11 +121,18 @@ export type RegelErgebnis = {
 
 /**
  * Wer prüft:
- *   registrierung  neuer Antrag (alle Pflichtfelder, IBAN Pflicht)
+ *   registrierung  neuer Antrag (Pflichtfelder, IBAN Pflicht)
  *   mitglied       Profil / Abfrage-Fenster (Pflichtfelder nicht leerbar; IBAN außer bei Alumni)
  *   vorstand       Korrektur: nichts außer Geburtsdatum, Name, E-Mail ist Pflicht, Auslands-PLZ locker
  */
 export type Wer = "mitglied" | "vorstand" | "registrierung";
+
+/**
+ * Warum die Anschrift Pflicht ist (sonst ist sie freiwillig, Entscheidung Hannes 20.11.2026):
+ *   angegeben  mindestens ein Teil (Straße, Hausnummer, PLZ, Ort) ist ausgefüllt → vollständig angeben
+ *   iban       IBAN aus einem SEPA-Land außerhalb des EWR (NICHT_EWR_SEPA_LAENDER), nicht bei Alumni
+ */
+export type AnschriftGrund = "angegeben" | "iban";
 
 export type Kontext = {
   /** Alumni zahlen keinen Beitrag: IBAN optional (wenn angegeben, wird sie geprüft). `isAlumniProfile`. */
@@ -131,6 +140,12 @@ export type Kontext = {
   wer: Wer;
   /** Heutiges Datum YYYY-MM-DD (nur für Tests); Standard: Berliner Datum. */
   heute?: string;
+  /**
+   * Nur für die Anschriftfelder: Grund, warum die Anschrift Pflicht ist (null/fehlt = freiwillig). Die
+   * Gesamtprüfung setzt ihn selbst aus dem Datensatz (`anschriftPflichtGrund`); einzeln aufgerufene
+   * Feldregeln (`pruefeStrasse` …) behandeln die Anschrift ohne ihn als freiwillig.
+   */
+  anschrift?: AnschriftGrund | null;
 };
 
 /** Eingabe für die Gesamtprüfung. `undefined` bei vorname/nachname/email = nicht prüfen. */
@@ -148,7 +163,6 @@ export const STAMMFELDER: readonly Feld[] = [
   "land",
   "handynummer",
   "iban",
-  "bic",
   "geburtsdatum",
 ];
 /** Felder, die nur geprüft werden, wenn sie übergeben werden (nicht `undefined`). */
@@ -175,7 +189,7 @@ function alsText(v: unknown): string | null {
   return null;
 }
 
-/** Für Querbezüge (z. B. IBAN bei der BIC): Nicht-Strings zählen als leer, ihr eigenes Feld meldet sie. */
+/** Für Querbezüge (z. B. IBAN bei der Anschrift): Nicht-Strings zählen als leer, ihr eigenes Feld meldet sie. */
 function textOderLeer(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
@@ -229,22 +243,30 @@ const LEER_MELDUNG: Record<Feld, string> = {
   land: "Bitte wähl ein Land.",
   handynummer: "Bitte trag deine Handynummer ein.",
   iban: "Bitte trag deine IBAN ein.",
-  bic: "Bitte trag die BIC ein.",
   geburtsdatum: "Bitte trag dein Geburtsdatum ein.",
 };
+
+/** Teile der Anschrift, die zählen, ob eine Anschrift „angegeben“ ist (das Land allein ist eine Vorauswahl). */
+export const ANSCHRIFT_TEILE: readonly Feld[] = ["strasse", "hausnummer", "plz", "ort"];
+const ANSCHRIFT_FELDER: readonly Feld[] = [...ANSCHRIFT_TEILE, "land"];
+
+/** Meldung an einem leeren Anschriftfeld, wenn die Anschrift wegen der IBAN Pflicht ist. */
+export const ANSCHRIFT_IBAN_MELDUNG = "Für eine IBAN außerhalb des EWR brauchen wir die Anschrift.";
 
 /**
  * Ist das Feld Pflicht?
  *   immer:            Geburtsdatum, Vorname, Nachname, E-Mail (auch der Vorstand darf sie nicht leeren)
  *   Vorstand:         sonst nichts (er darf leeren)
- *   Mitglied/Antrag:  alles außer BIC; IBAN nicht für Alumni; Hausnummer nur in DE; PLZ nur in Ländern mit
- *                     PLZ-Muster (sonst gibt es evtl. keine Postleitzahl)
+ *   Mitglied/Antrag:  IBAN (nicht für Alumni). Handynummer nie (freiwillig seit 20.11.2026). BIC wird nicht
+ *                     mehr erhoben. Anschrift nur mit Grund (`kontext.anschrift`, siehe `anschriftPflichtGrund`),
+ *                     dann Straße und Ort, Hausnummer nur in DE, PLZ nur in Ländern mit PLZ-Muster (sonst gibt
+ *                     es evtl. keine Postleitzahl).
  */
 export function istPflicht(feld: Feld, kontext: Kontext, land: unknown = DEFAULT_COUNTRY): boolean {
   if (feld === "geburtsdatum" || feld === "vorname" || feld === "nachname" || feld === "email") return true;
   if (kontext.wer === "vorstand") return false;
-  if (feld === "bic") return false;
   if (feld === "iban") return kontext.alumni !== true; // nur echtes `true` macht zum Alumnus (G4)
+  if (!ANSCHRIFT_FELDER.includes(feld) || !kontext.anschrift) return false;
   if (feld === "hausnummer") return landOderStandard(land) === "DE";
   if (feld === "plz") return Object.prototype.hasOwnProperty.call(PLZ_MUSTER, landOderStandard(land));
   return true;
@@ -255,6 +277,7 @@ function leer(feld: Feld, kontext: Kontext, land?: unknown): RegelErgebnis {
   if (feld === "geburtsdatum" && kontext.wer === "vorstand") {
     return MANGEL("", "fehlt", "Das Geburtsdatum kann nicht gelöscht werden. Bitte ein vollständiges Datum eingeben.");
   }
+  if (kontext.anschrift === "iban" && ANSCHRIFT_FELDER.includes(feld)) return MANGEL("", "fehlt", ANSCHRIFT_IBAN_MELDUNG);
   return MANGEL("", "fehlt", LEER_MELDUNG[feld]);
 }
 
@@ -287,25 +310,41 @@ export type HandyErgebnis = RegelErgebnis & {
 /**
  * Wurde die Nummer nur per Annahme „deutsch“ zu E.164? Ohne Vorwahl und ohne 0 (`176 1234…`) oder „+49“
  * direkt vor der Nummer ohne 0 (`+49 151…`, typisch aus der alten Vorauswahl der Registrierung), solange
- * die Eingabe nicht schon genau die E.164-Form ist. Chinesische Mobilnummern sehen genauso aus.
- * Deckt sich mit `repariereHandy` → „vorschlag“ für deutsche Nummern.
+ * die Eingabe nicht schon genau die E.164-Form ist.
+ * Seit 19.11.2026 liefert `repariereHandy` für diese deutschen Fälle „sicher“, nicht „vorschlag“; der
+ * Hinweis ist daher bei deutschen Nummern praktisch nicht mehr erreichbar (Code bleibt, s. HinweisCode).
+ * Akzeptiertes Restrisiko (Entscheidung Hannes 19.11.2026): Chinesische Mobilnummern (15x/17x, 11 Stellen)
+ * und nordamerikanische Nummern ohne „+“ bzw. hinter „+49“ (`1 602 555 1234`) sehen genauso aus und werden
+ * als deutsche Nummer „sicher“ umgeschrieben.
  */
 function vorwahlNurAngenommen(roh: string, e164: string): boolean {
   const t = roh.trim();
   if (t === e164) return false;
   const kompakt = t.replace(HANDY_TRENNER, "");
-  return /^[1-9]/.test(kompakt) || /^\+49[1-9]/.test(kompakt);
+  if (!(/^[1-9]/.test(kompakt) || /^\+49[1-9]/.test(kompakt))) return false;
+  // Hinweis ⇔ Reparatur-Vorschlag: Was „sicher“ korrigiert wird (seit 19.11.2026 auch 15/16/17 ohne 0),
+  // fragt niemand mehr nach.
+  return repariereHandy(roh).status === "vorschlag";
+}
+
+/**
+ * Handy-Eingabe vor der Prüfung: harmlose Format-Zeichen (Kurzprüfung K3) und ein führendes Hochkomma aus Excel
+ * (`'+49 176 …`, auch ’ ‘ ´ `, Klickrunde 20.11.2026) weg, außen getrimmt. Eine Stelle für Formular, Bestand,
+ * Anzeige und Skript (`pruefeHandy`, `repariereHandy`).
+ */
+function handyRoh(text: string): string {
+  return ohneHochkommaAmAnfang(ohneHarmloseZeichen(text).trim()).trim();
 }
 
 /**
  * Handynummer: Land (ISO, Standard DE) + Nummer → E.164 (`+491761234567`).
  * DE: nur Mobilnummern. Andere Länder: gültig nach Metadaten, Typ Mobil, Mobil-oder-Festnetz oder unbekannt.
- * Pflicht außer für den Vorstand. Liefert keinen Hinweis (`vorwahl_ergaenzt` setzt nur `pruefeBestand`).
+ * Freiwillig (seit 20.11.2026): leer ist gültig, eine angegebene Nummer wird voll geprüft. Liefert keinen Hinweis (`vorwahl_ergaenzt` setzt nur `pruefeBestand`).
  */
 export function pruefeHandy(eingabe: unknown, land: unknown, kontext: Kontext): HandyErgebnis {
   const text = alsText(eingabe);
   if (text === null) return { ...KEIN_TEXT(), land: null };
-  const roh = ohneHarmloseZeichen(text).trim(); // Kurzprüfung K3
+  const roh = handyRoh(text);
   if (!roh) return { ...leer("handynummer", kontext), land: null };
   const fehlerFormat = (): HandyErgebnis => ({
     ...MANGEL(roh, "format", "Die Nummer stimmt so nicht. Vertippt?"),
@@ -348,7 +387,7 @@ export function formatiereHandyAnzeige(e164: unknown): string {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// IBAN / BIC
+// IBAN
 // ---------------------------------------------------------------------------------------------------
 
 /** IBAN: `normalizeIban`, nur SEPA, Länge je Land, BBAN-Aufbau DE/AT, mod 97. Pflicht außer Alumni/Vorstand. */
@@ -374,41 +413,45 @@ export function pruefeIban(eingabeIban: unknown, kontext: Kontext): RegelErgebni
   }
 }
 
-/**
- * BIC-Länder, die zu einem IBAN-Land gehören, obwohl der Code abweicht (Gebiete ohne eigenes IBAN-Präfix):
- * GB-IBAN bei Banken auf Jersey/Guernsey/Isle of Man, FR-IBAN in Überseegebieten, FI-IBAN auf Åland.
+/*
+ * BIC: Seit 20.11.2026 weder abgefragt noch geprüft, nie ein Mangel (Entscheidung Hannes,
+ * pflichtfelder-entscheidung.md; Art. 5 Abs. 7 VO (EU) 260/2012: im EWR genügt die IBAN). Gespeicherte Werte
+ * bleiben vorerst in member_secrets; der SEPA-Export nutzt sie nur, wenn sie das BIC-Format haben.
  */
-const BIC_LAENDER_ZU_IBAN: Readonly<Record<string, readonly string[]>> = {
-  GB: ["GB", "JE", "GG", "IM"],
-  FR: ["FR", "GF", "GP", "MQ", "RE", "YT", "PM", "BL", "MF", "NC", "PF", "WF"],
-  FI: ["FI", "AX"],
-};
 
-/** BIC normalisieren: Großbuchstaben, ohne Leerzeichen. */
-export function normalisiereBic(eingabeBic: unknown): string {
-  return ohneHarmloseZeichen(textOderLeer(eingabeBic)).replace(/\s/g, "").toUpperCase();
+/**
+ * SEPA-Länder außerhalb des EWR (IBAN-Länderkennung): Liste mit Quelle (EPC409-09 v8.0) steht seit Runde 2 in
+ * lib/iban.ts, damit auch der SEPA-Export (Browser) sie nutzen kann; hier unverändert weiter exportiert.
+ * Bei einem Konto in diesen Ländern verlangt das EPC die Anschrift des Zahlers (EPC392-08 v11.0, EPC153-22 v2.0,
+ * siehe pflichtfelder-recherche.md im internen Ordner), deshalb ist die Anschrift dann Pflicht.
+ */
+export { NICHT_EWR_SEPA_LAENDER };
+
+/**
+ * Länderkennung der IBAN, wenn sie zu einem SEPA-Land außerhalb des EWR gehört, sonst null. Es zählen nur die
+ * ersten zwei Zeichen nach `normalizeIban`, auch bei sonst ungültiger IBAN: So kommen alle Meldungen auf
+ * einmal (die IBAN meldet ihren eigenen Mangel).
+ */
+export function nichtEwrIbanLand(iban: unknown): string | null {
+  const land = normalizeIban(textOderLeer(iban)).slice(0, 2);
+  return NICHT_EWR_SEPA_LAENDER.includes(land) ? land : null;
 }
 
 /**
- * BIC: optional für alle. Wenn angegeben: 8 oder 11 Zeichen (sonst Mangel `format`). Weicht das BIC-Land
- * (Stellen 5–6) vom Land einer GÜLTIGEN IBAN ab, ist das nur der Hinweis `bic_land` (Neobanken wie N26
- * vergeben ausländische IBANs mit deutscher BIC); gegen eine ungültige IBAN wird nicht abgeglichen.
+ * Ist die Anschrift Pflicht, und warum? (Entscheidung Hannes 20.11.2026: freiwillig, außer bei einer IBAN aus
+ * einem SEPA-Land außerhalb des EWR.)
+ *   angegeben  Ein Teil (Straße, Hausnummer, PLZ, Ort) ist ausgefüllt: Dann muss die Anschrift vollständig
+ *              sein (Straße, Ort; Hausnummer in DE; PLZ in Ländern mit PLZ-Muster). Eigene Festlegung: Eine
+ *              halbe Anschrift (z. B. nur die PLZ) taugt weder für einen Brief noch fürs Lastschriftmandat;
+ *              „alles oder nichts“ ist am einfachsten zu erklären und nutzt die bisherigen Länderregeln.
+ *   iban       IBAN aus NICHT_EWR_SEPA_LAENDER (nicht bei Alumni: kein Einzug, also kein Mandat)
+ *   null       freiwillig (für den Vorstand immer: er darf leeren und wird nie blockiert)
  */
-export function pruefeBic(eingabeBic: unknown, iban: unknown, kontext: Kontext): RegelErgebnis {
-  const text = alsText(eingabeBic);
-  if (text === null) return KEIN_TEXT();
-  const wert = normalisiereBic(text);
-  if (!wert) return leer("bic", kontext);
-  if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(wert)) {
-    return MANGEL(wert, "format", "Die BIC hat 8 oder 11 Zeichen.");
-  }
-  const ibanWert = normalizeIban(textOderLeer(iban));
-  if (checkSepaIban(ibanWert) === "ok") {
-    const ibanLand = ibanWert.slice(0, 2);
-    const erlaubt = BIC_LAENDER_ZU_IBAN[ibanLand] ?? [ibanLand];
-    if (!erlaubt.includes(wert.slice(4, 6))) return OK(wert, "bic_land");
-  }
-  return OK(wert);
+export function anschriftPflichtGrund(daten: Mitgliederdaten, kontext: Kontext): AnschriftGrund | null {
+  if (kontext.wer === "vorstand") return null;
+  if (ANSCHRIFT_TEILE.some((feld) => normalisiereText(daten[feld]) !== "")) return "angegeben";
+  if (kontext.alumni !== true && nichtEwrIbanLand(daten.iban)) return "iban";
+  return null;
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -639,7 +682,7 @@ export type Pruefergebnis = {
   /** Normalisierte Werte der geprüften Felder (bei Mangel der normalisierte Eingabewert). */
   werte: Partial<Record<Feld, string>>;
   maengel: Mangel[];
-  /** Nicht blockierende Hinweise (`vorwahl_ergaenzt`, `bic_land`). */
+  /** Nicht blockierende Hinweise (`vorwahl_ergaenzt`). */
   hinweise: Hinweis[];
   /** Meldung je Feld mit Mangel. */
   fehler: Partial<Record<Feld, string>>;
@@ -649,9 +692,15 @@ export type Pruefergebnis = {
   gueltig: boolean;
 };
 
-/** Ein Feld mit allen Werten des Datensatzes prüfen (Querbezüge: Land, Hausnummer, IBAN). */
-export function pruefeFeld(feld: Feld, daten: Mitgliederdaten, kontext: Kontext): RegelErgebnis {
+/**
+ * Ein Feld mit allen Werten des Datensatzes prüfen (Querbezüge: Land, Hausnummer; für die Anschrift ob sie
+ * angegeben ist und die IBAN, siehe `anschriftPflichtGrund`).
+ */
+export function pruefeFeld(feld: Feld, daten: Mitgliederdaten, kontextEingabe: Kontext): RegelErgebnis {
   const land = daten.land;
+  const kontext: Kontext = ANSCHRIFT_FELDER.includes(feld)
+    ? { ...kontextEingabe, anschrift: anschriftPflichtGrund(daten, kontextEingabe) }
+    : kontextEingabe;
   switch (feld) {
     case "vorname":
     case "nachname":
@@ -674,8 +723,6 @@ export function pruefeFeld(feld: Feld, daten: Mitgliederdaten, kontext: Kontext)
     }
     case "iban":
       return pruefeIban(daten.iban, kontext);
-    case "bic":
-      return pruefeBic(daten.bic, daten.iban, kontext);
     case "geburtsdatum":
       return pruefeGeburtsdatum(daten.geburtsdatum, kontext);
   }
@@ -730,16 +777,48 @@ export function pruefeFormular(daten: Mitgliederdaten, kontext: Kontext): Pruefe
 }
 
 /**
+ * Ist das Feld im GESPEICHERTEN Bestand Pflicht? Nur dann kann es ein Mangel sein (Klickrunde 20.11.2026, Hannes:
+ * „Unvollständig oder ungültig“ nur für Pflichtfelder):
+ *   Geburtsdatum, Vorname, Nachname, E-Mail  immer
+ *   IBAN                                     außer bei Alumni (Entscheidung Hannes 3)
+ *   Anschrift (Straße, Hausnummer, PLZ, Ort, Land)  nur, wenn sie wegen einer IBAN außerhalb des EWR Pflicht ist
+ *                                            (nicht Alumni, nicht Vorstand); dann zählt die Anschrift als Ganzes,
+ *                                            jeder ihrer Mängel (auch PLZ-Format oder unbekanntes Land)
+ *   Handynummer                              nie
+ * Eine halb oder falsch angegebene freiwillige Anschrift (Grund „angegeben“) und eine ungültige Handynummer sind
+ * im Bestand KEIN Mangel; `pruefeBestand` liefert sie getrennt als `freiwillig`. Wer ein freiwilliges Feld im
+ * Formular ändert, wird weiter voll geprüft (`pruefeFormular`): Neu speichern lässt sich nichts Ungültiges.
+ */
+export function istPflichtImBestand(feld: Feld, daten: Mitgliederdaten, kontext: Kontext): boolean {
+  if (feld === "handynummer") return false;
+  if (feld === "iban") return kontext.alumni !== true;
+  if (ANSCHRIFT_FELDER.includes(feld)) {
+    return kontext.wer !== "vorstand" && kontext.alumni !== true && nichtEwrIbanLand(daten.iban) !== null;
+  }
+  return true;
+}
+
+/** Ergebnis der Bestandsprüfung: `maengel` nur an Pflichtfeldern, ungültige freiwillige Angaben in `freiwillig`. */
+export type Bestandsergebnis = Pruefergebnis & {
+  /** Mängel freiwilliger Felder (Handy, freiwillige Anschrift, IBAN bei Alumni): blockieren nie, nur gezählt. */
+  freiwillig: Mangel[];
+};
+
+/**
  * Mängel des GESPEICHERTEN Bestands (`{ feld, code }`) – Abfrage-Fenster (gültig/ungültig),
- * Vorstandsübersicht (Feldnamen), Skript (Zählungen). Bei Alumni sind IBAN und BIC nie ein Mangel, auch
- * nicht ungültig gespeicherte (Entscheidung Hannes 3).
+ * Vorstandsübersicht (Feldnamen), Skript (Zählungen). Nur Pflichtfelder (`istPflichtImBestand`): Bei Alumni ist
+ * die IBAN nie ein Mangel, auch nicht eine ungültig gespeicherte (Entscheidung Hannes 3); Handy und freiwillige
+ * Anschrift ebenso nie (Klickrunde 20.11.2026).
  */
 export function pruefeMitgliederdaten(daten: Mitgliederdaten, kontext: Kontext): Mangel[] {
   return pruefeBestand(daten, kontext).maengel;
 }
 
-/** Wie `pruefeMitgliederdaten`, aber mit Werten und Hinweisen (Skript zählt Hinweise, PR 4 zeigt sie). */
-export function pruefeBestand(daten: Mitgliederdaten, kontext: Kontext): Pruefergebnis {
+/**
+ * Wie `pruefeMitgliederdaten`, aber mit Werten, Hinweisen (Skript zählt Hinweise, PR 4 zeigt sie) und den
+ * ungültigen freiwilligen Angaben (`freiwillig`, Skript zählt sie in einer eigenen Zeile).
+ */
+export function pruefeBestand(daten: Mitgliederdaten, kontext: Kontext): Bestandsergebnis {
   const r = pruefeFormular(daten, kontext);
   // `vorwahl_ergaenzt` nur im Bestand: dort gibt es kein ausdrücklich gewähltes Handy-Land. Im Formular hat
   // das Mitglied das Land gewählt, dann ist nichts angenommen (Gegenprüfung G2/N2).
@@ -755,24 +834,26 @@ export function pruefeBestand(daten: Mitgliederdaten, kontext: Kontext): Pruefer
   ) {
     r.hinweise = [{ feld: "handynummer", code: "vorwahl_ergaenzt" }, ...r.hinweise];
   }
-  if (kontext.alumni !== true) return r;
-  const bank = (feld: Feld) => feld === "iban" || feld === "bic";
-  const maengel = r.maengel.filter((m) => !bank(m.feld));
-  const fehler = { ...r.fehler };
-  delete fehler.iban;
-  delete fehler.bic;
+  const pflicht = (feld: Feld) => istPflichtImBestand(feld, sauber, kontext);
+  const maengel = r.maengel.filter((m) => pflicht(m.feld));
+  const freiwillig = r.maengel.filter((m) => !pflicht(m.feld));
+  const fehler: Partial<Record<Feld, string>> = {};
+  for (const m of maengel) if (r.fehler[m.feld] !== undefined) fehler[m.feld] = r.fehler[m.feld];
   const ersterFehler = FELD_REIHENFOLGE.map((f) => fehler[f]).find((f) => f !== undefined) ?? null;
-  return { ...r, maengel, fehler, ersterFehler, hinweise: r.hinweise.filter((h) => !bank(h.feld)), gueltig: maengel.length === 0 };
+  // Alumni: auch keine Hinweise an der IBAN (es gibt dort derzeit keine, Absicherung wie bisher).
+  const hinweise = kontext.alumni === true ? r.hinweise.filter((h) => h.feld !== "iban") : r.hinweise;
+  return { ...r, maengel, freiwillig, fehler, ersterFehler, hinweise, gueltig: maengel.length === 0 };
 }
 
 /**
  * Korrektur durch den Vorstand: geprüft werden NUR die geänderten Felder (`aenderungen`, eigene Schlüssel
  * aus der festen Feldliste, Wert nicht `undefined`), damit alte fehlerhafte Felder das Speichern nicht
- * blockieren. Querbezüge (Land, Hausnummer, IBAN für die BIC) kommen aus `bestehend` + `aenderungen`.
- * Leeren ist erlaubt außer bei Geburtsdatum, Name und E-Mail; Auslands-PLZ mit lockerer Regel.
+ * blockieren. Querbezüge (Land, Hausnummer) kommen aus `bestehend` + `aenderungen`.
+ * Leeren ist erlaubt außer bei Geburtsdatum, Name und E-Mail; Auslands-PLZ mit lockerer Regel. Die Anschrift
+ * ist für den Vorstand nie Pflicht, auch nicht bei einer IBAN außerhalb des EWR.
  * `werte` enthält nur die geänderten Felder.
  *
- * Bewusst (Review F8): Ändert der Vorstand nur `land` oder `iban`, werden PLZ bzw. BIC NICHT neu geprüft –
+ * Bewusst (Review F8): Ändert der Vorstand nur `land`, wird die PLZ NICHT neu geprüft –
  * der Vorstand soll nie durch Altdaten blockiert werden; Widersprüche zeigt die Gesamtprüfung danach.
  */
 export function pruefeVorstandskorrektur(
@@ -813,12 +894,15 @@ function gueltigOderSicher(roh: string, wert: string): Reparatur {
  * Handy (Altdaten, Land unbekannt → DE). „sicher“ NUR mit Beleg für eine deutsche Nummer und deutschem
  * Ergebnis bei Standardland DE:
  *   führende 0 (`0176…`), `0049…` oder `+49 0…`/`+49 (0)…` → `+49176…`
+ * Ebenfalls „sicher“ (Entscheidung Hannes 19.11.2026, der Verein korrigiert selbst statt nachzufragen):
+ *   ohne Vorwahl und ohne 0: nur 10–11 Ziffern, Beginn 15/16/17, gültige deutsche Mobilnummer
+ *   `+49 151…`/`+49 16…`/`+49 17…` ohne 0, gültige deutsche Mobilnummer
  * „vorschlag“ (Mitglied bestätigt), wenn gültig, aber nicht belegt:
- *   ohne Vorwahl und ohne 0: nur 10–11 Ziffern, Beginn 15/16/17, deutsche Mobilnummer (chinesische Nummern
- *     sehen gleich aus)
- *   `+49 151…` ohne 0 (Vorwahl stammt evtl. aus der alten Vorauswahl der Registrierung)
  *   anderes Land als das Standardland (`+43 664…`, Tippfehler `0015…` → USA)
+ *   `+49` mit anderer Vorwahl als 15/16/17
  * Schon E.164 → gueltig. Alles andere (Mailadresse, Festnetz, zu kurz) → offen.
+ * Ein führendes Hochkomma aus Excel (`'0176…`, `'+49 176…`) ist harmlos: Es fällt weg, der Rest wird wie oben
+ * bewertet (Klickrunde 20.11.2026), also z. B. `'+49 176 1234567` → „sicher“.
  */
 export function repariereHandy(
   eingabeHandy: unknown,
@@ -828,7 +912,7 @@ export function repariereHandy(
   const text = alsText(eingabeHandy);
   if (text === null) return { status: "offen", wert: "", code: "format" };
   const roh = text;
-  const t = ohneHarmloseZeichen(roh).trim();
+  const t = handyRoh(roh);
   if (!t) {
     const r = pruefeHandy("", land, kontext);
     return r.code ? { status: "offen", wert: roh, code: r.code } : { status: "gueltig", wert: "", code: null };
@@ -839,10 +923,12 @@ export function repariereHandy(
   const kompakt = t.replace(HANDY_TRENNER, "");
   const ohnePraefix = !/^(\+|0)/.test(kompakt);
   if (ohnePraefix) {
-    // Nur reine Ziffern, 10–11 Stellen, deutsche Mobilvorwahl ohne 0.
+    // Nur reine Ziffern, 10–11 Stellen, deutsche Mobilvorwahl ohne 0. Seit 19.11.2026 „sicher“
+    // (Entscheidung Hannes: deutsche Handynummern mit 15/16/17 korrigiert der Verein selbst).
+    // Restrisiko akzeptiert (Entscheidung Hannes 19.11.2026): China 15x/17x, USA/Kanada ohne +1.
     if (standardLand === "DE" && /^1[567]\d{8,9}$/.test(kompakt)) {
       const r = pruefeHandy(`0${kompakt}`, "DE", kontext);
-      if (!r.code && r.land === "DE") return { status: "vorschlag", wert: r.wert, code: null };
+      if (!r.code && r.land === "DE") return { status: "sicher", wert: r.wert, code: null };
     }
     const r = pruefeHandy(t, land, kontext);
     return { status: "offen", wert: roh, code: r.code ?? "format" };
@@ -851,9 +937,13 @@ export function repariereHandy(
   const r = pruefeHandy(t, land, kontext);
   if (r.code) return { status: "offen", wert: roh, code: r.code };
   if (r.wert === roh) return { status: "gueltig", wert: roh, code: null };
-  if (r.wert === t) return { status: "sicher", wert: r.wert, code: null }; // nur Leerraum/harmlose Zeichen
+  if (r.wert === t) return { status: "sicher", wert: r.wert, code: null }; // nur Leerraum/harmlose Zeichen/Hochkomma
   const deBeleg = /^0[1-9]/.test(kompakt) || /^0049/.test(kompakt) || /^\+490/.test(kompakt);
   if (deBeleg && r.land === "DE" && standardLand === "DE") return { status: "sicher", wert: r.wert, code: null };
+  // `+49 151…` ohne 0: Mobilvorwahl 15/16/17 → „sicher“ (Entscheidung Hannes 19.11.2026).
+  if (/^\+491[567]/.test(kompakt) && r.land === "DE" && standardLand === "DE") {
+    return { status: "sicher", wert: r.wert, code: null };
+  }
   return { status: "vorschlag", wert: r.wert, code: null };
 }
 
@@ -865,17 +955,11 @@ export function repariereIban(eingabeIban: unknown, kontext: Kontext = MITGLIED)
   return r.code ? { status: "offen", wert: text, code: r.code } : gueltigOderSicher(text, r.wert);
 }
 
-/**
- * BIC: normalisieren; falsches FORMAT → geleert (Entscheidung 6) → sicher. Abweichendes Land zur IBAN ist
- * nur ein Hinweis und wird NICHT geleert; gegen eine ungültige IBAN wird nicht abgeglichen.
+/*
+ * BIC: Die Reparatur „BIC mit falschem Format leeren“ (Entscheidung 6) entfällt seit 20.11.2026. Die BIC wird
+ * nicht mehr geprüft, also gibt es nichts mehr zu reparieren; und vorhandene Werte bleiben laut Entscheidung
+ * vorerst gespeichert, das Skript löscht sie nicht. Eine BIC mit falschem Format nutzt der SEPA-Export nicht.
  */
-export function repariereBic(eingabeBic: unknown, iban: unknown, kontext: Kontext = MITGLIED): Reparatur {
-  const text = alsText(eingabeBic);
-  if (text === null) return { status: "sicher", wert: "", code: "format" };
-  const r = pruefeBic(text, iban, kontext);
-  if (!r.code) return gueltigOderSicher(text, r.wert);
-  return { status: "sicher", wert: "", code: r.code };
-}
 
 export type StrassenReparatur = { status: ReparaturStatus; strasse: string; hausnummer: string };
 
@@ -957,8 +1041,8 @@ export type Datenreparatur = {
 };
 
 /**
- * Alle Reparaturen eines Datensatzes (Handy, IBAN, BIC, Straße/Hausnummer). Die BIC wird gegen die
- * reparierte IBAN geprüft. Bei Alumni wird eine ungültige IBAN nicht als „offen“ gemeldet (kein Mangel).
+ * Alle Reparaturen eines Datensatzes (Handy, IBAN, Straße/Hausnummer). Bei Alumni wird eine ungültige IBAN
+ * nicht als „offen“ gemeldet (kein Mangel).
  * Was danach noch fehlt, liefert `pruefeMitgliederdaten` auf den reparierten Werten.
  */
 export function repariereMitgliederdaten(daten: Mitgliederdaten, kontext: Kontext = MITGLIED): Datenreparatur {
@@ -972,7 +1056,6 @@ export function repariereMitgliederdaten(daten: Mitgliederdaten, kontext: Kontex
   merke("handynummer", repariereHandy(d.handynummer, d.handyLand ?? DEFAULT_COUNTRY, kontext));
   const iban = repariereIban(d.iban, kontext);
   if (!(kontext.alumni === true && iban.status === "offen")) merke("iban", iban);
-  merke("bic", repariereBic(d.bic, iban.status === "sicher" ? iban.wert : d.iban, kontext));
   const adresse = repariereStrasse(d.strasse, d.hausnummer);
   out.status.strasse = adresse.status;
   if (adresse.status === "sicher") {

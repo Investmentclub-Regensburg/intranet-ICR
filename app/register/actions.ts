@@ -4,8 +4,10 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { assertKeyRegistered, buildRegistrationSecrets, type MemberSecretValues } from "@/lib/member-secrets-server";
 import { DEFAULT_COUNTRY, countryFromSelectValue } from "@/lib/country-codes";
 import { FIELD_LIMITS, checkText } from "@/lib/member-fields";
+import { KEIN_STUDIUM, pruefeStudiengang } from "@/lib/studiengaenge";
 import {
   REGISTRIERUNG_SCHRITTE,
+  REGISTRIERUNG_SCHRITT_BEZUEGE,
   istRegistrierungSchritt,
   pruefeRegistrierung,
   pruefeRegistrierungSchritt,
@@ -31,19 +33,20 @@ export type RegisterSavedState = {
   landesvorwahl: string;
   handynummer: string;
   student: string;
+  /** Name aus der Studiengangsliste (lib/studiengaenge.ts) oder „Sonstiges“. */
   studiengang: string;
+  /** Freitext, nur bei „Sonstiges“. */
+  studiengangSonstiges: string;
   abschluss: string;
-  semester: string;
   iban: string;
-  bic: string;
   hochschultyp: string;
   sepa: boolean;
 };
 
 export type RegisterActionState = {
   error: string;
-  /** Meldungen je Feld (lib/member-rules.ts), Schlüssel = Feldname der Regeln. */
-  fieldErrors?: FeldFehler;
+  /** Meldungen je Feld (lib/member-rules.ts), Schlüssel = Feldname der Regeln; dazu Auswahl und Freitext Studiengang. */
+  fieldErrors?: FeldFehler & { studiengang?: string; studiengangSonstiges?: string };
   redirect?: string;
   saved?: RegisterSavedState;
   confirmationMessage?: string;
@@ -73,10 +76,11 @@ export async function registerAction(
   const handynummerRaw = text("handynummer").trim();
   const student = text("student");
   const studiengang = text("studiengang").trim();
+  const studiengangSonstiges = text("studiengangSonstiges");
   const abschluss = text("abschluss").trim();
-  const semester = text("semester").trim();
+  // Semester und BIC werden seit 20.11.2026 nicht mehr abgefragt (Entscheidung Hannes); auch alte Formulare,
+  // die sie noch schicken, speichern sie nicht.
   const iban = text("iban").trim();
-  const bic = text("bic").trim();
   const hochschultyp = text("hochschultyp");
   const sepa = formData.get("sepa") === "on";
 
@@ -95,16 +99,16 @@ export async function registerAction(
     handynummer: handynummerRaw,
     student,
     studiengang,
+    studiengangSonstiges,
     abschluss,
-    semester,
     iban,
-    bic,
     hochschultyp,
     sepa,
   };
 
   // Mitgliederdaten ausschließlich nach lib/member-rules.ts (Kontext „registrierung“): Pflichtfelder,
-  // Formate, E-Mail (isValidEmail), Handy → E.164, IBAN nur SEPA, BIC optional, PLZ je Land.
+  // Formate, E-Mail (isValidEmail), Handy → E.164 (freiwillig), IBAN nur SEPA, Anschrift freiwillig (Pflicht bei
+  // IBAN außerhalb des EWR oder wenn ein Teil angegeben ist), PLZ je Land.
   const pruefung = pruefeRegistrierung({
     vorname,
     nachname,
@@ -119,7 +123,6 @@ export async function registerAction(
     handyLand: handyLand ?? text("landesvorwahl"),
     handynummer: handynummerRaw,
     iban,
-    bic,
   });
   if (!pruefung.gueltig) {
     return { error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fieldErrors: pruefung.fehler, saved };
@@ -127,11 +130,9 @@ export async function registerAction(
 
   // Übrige Pflichtangaben (Passwort, Studium)
   const required: Record<string, unknown> = { password, passwordRepeat, student };
-  // Studiendaten sind nur Pflicht, wenn "Student = Ja"
+  // Studiendaten sind nur Pflicht, wenn "Student = Ja". Den Studiengang prüft pruefeStudiengang (mit Feldfehler).
   if (student === "Ja") {
-    required.studiengang = studiengang;
     required.abschluss = abschluss;
-    required.semester = semester;
     required.hochschultyp = hochschultyp;
   }
   if (Object.values(required).some((v) => !v)) {
@@ -142,8 +143,19 @@ export async function registerAction(
     return { error: "Die SEPA-Bestätigung ist erforderlich.", saved };
   }
 
+  // Studiengang nur aus der Liste oder als „Sonstiges“ mit Freitext (Längengrenze wie bisher). Gespeichert wird der
+  // geprüfte Text; ohne Studium „Kein Studium“ (Entscheidung Hannes 4).
+  let fach: string = KEIN_STUDIUM;
+  if (student === "Ja") {
+    const studium = pruefeStudiengang(studiengang, studiengangSonstiges, { ohneKeinStudium: true });
+    if (!studium.ok) {
+      const feld = studium.feld === "freitext" ? "studiengangSonstiges" : "studiengang";
+      return { error: studium.fehler, fieldErrors: { [feld]: studium.fehler }, saved };
+    }
+    fach = studium.wert;
+  }
+
   const fieldError =
-    checkText(studiengang, "Studiengang", FIELD_LIMITS.studium) ??
     checkText(abschluss, "Abschluss", FIELD_LIMITS.studium) ??
     checkText(hochschultyp, "Hochschulart", FIELD_LIMITS.studium);
   if (fieldError) {
@@ -157,14 +169,6 @@ export async function registerAction(
   const passwordError = checkPasswordLength(password);
   if (passwordError) {
     return { error: passwordError, saved };
-  }
-
-  const semesterNumber = Number(semester);
-  if (
-    student === "Ja" &&
-    (!Number.isInteger(semesterNumber) || semesterNumber < 1 || semesterNumber > 99)
-  ) {
-    return { error: "Bitte gib ein gültiges Semester als Zahl ein.", saved };
   }
 
   // Bremse gegen Massen-Registrierungen je IP, dann Turnstile (VOR signUp).
@@ -192,9 +196,8 @@ export async function registerAction(
   const registration = {
     Vorname: pruefung.werte.vorname,
     Nachname: pruefung.werte.nachname,
-    Fach: studiengang || null,
+    Fach: fach,
     Abschluss: abschluss || null,
-    Semester: student === "Ja" ? String(semesterNumber) : "",
     "Uni/OTH": hochschultyp || null,
     "Sepa-Bestätigung": formData.get("sepa") === "on" || formData.get("sepa") === "true",
     // Der letzte Schritt lautet „Mit der Registrierung akzeptierst du die Vereinssatzung“.
@@ -287,7 +290,7 @@ export async function pruefeRegistrierungsSchritt(
 
   // Nur bekannte Schlüssel des Schritts übernehmen, nur Zeichenketten bis 300 Zeichen.
   const eingabe: Record<string, string> = {};
-  const schluessel: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...(schritt === "contact" ? ["handyLand"] : [])];
+  const schluessel: readonly string[] = [...REGISTRIERUNG_SCHRITTE[schritt], ...REGISTRIERUNG_SCHRITT_BEZUEGE[schritt]];
   for (const key of schluessel) {
     if (!Object.prototype.hasOwnProperty.call(felder, key)) continue;
     const v = (felder as Record<string, unknown>)[key];

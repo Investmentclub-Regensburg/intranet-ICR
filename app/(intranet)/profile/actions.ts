@@ -35,7 +35,7 @@ const GEAENDERT_MELDUNG = "Deine Daten wurden inzwischen geändert. Bitte lade d
 /** Felder je Abschnitt, wie sie das Formular sendet. */
 const FORM_FIELDS: Record<ProfilAbschnitt, readonly string[]> = {
   personal: ["vorname", "nachname", "strasse", "hausnummer", "plz", "ort", "land", "handyLand", "handynummer", "geburtsdatum"],
-  bank: ["iban", "bic"],
+  bank: ["iban"],
 };
 
 /**

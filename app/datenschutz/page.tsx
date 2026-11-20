@@ -60,14 +60,45 @@ export default function DatenschutzPage() {
 
       <h2>2. Hosting und Datenbank</h2>
 
-      <h3>Hosting bei Vercel</h3>
+      {/* Abschnitt „Externes Hosting“ und „Auftragsverarbeitung“: eRecht24-Baustein wie in der Datenschutzerklärung
+          der Website (eRecht24-Projekt „ICR“, Hoster setup/Hetzner). */}
+      <h3>Externes Hosting</h3>
       <p>
-        Das Intranet wird bei Vercel betrieben. Anbieter ist die Vercel Inc., 440 N Barranca Avenue #4133, Covina, CA
-        91723, USA. Die Anwendung läuft in einem Rechenzentrum in der EU.
+        Diese Website wird extern gehostet. Die personenbezogenen Daten, die auf dieser Website erfasst werden, werden
+        auf den Servern des Hosters / der Hoster gespeichert. Hierbei kann es sich v. a. um IP-Adressen,
+        Kontaktanfragen, Meta- und Kommunikationsdaten, Vertragsdaten, Kontaktdaten, Namen, Websitezugriffe und
+        sonstige Daten, die über eine Website generiert werden, handeln.
       </p>
       <p>
-        Beim Aufruf des Intranets verarbeitet Vercel technisch notwendige Daten und speichert sie für einen begrenzten
-        Zeitraum in Protokolldateien. Das sind insbesondere:
+        Das externe Hosting erfolgt zum Zwecke der Vertragserfüllung gegenüber unseren potenziellen und bestehenden
+        Kunden (Art. 6 Abs. 1 lit. b DSGVO) und im Interesse einer sicheren, schnellen und effizienten Bereitstellung
+        unseres Online-Angebots durch einen professionellen Anbieter (Art. 6 Abs. 1 lit. f DSGVO). Sofern eine
+        entsprechende Einwilligung abgefragt wurde, erfolgt die Verarbeitung ausschließlich auf Grundlage von Art. 6
+        Abs. 1 lit. a DSGVO und § 25 Abs. 1 TDDDG, soweit die Einwilligung die Speicherung von Cookies oder den Zugriff
+        auf Informationen im Endgerät des Nutzers (z. B. Device-Fingerprinting) im Sinne des TDDDG umfasst. Die
+        Einwilligung ist jederzeit widerrufbar.
+      </p>
+      <p>
+        Unser(e) Hoster wird bzw. werden Ihre Daten nur insoweit verarbeiten, wie dies zur Erfüllung seiner
+        Leistungspflichten erforderlich ist und unsere Weisungen in Bezug auf diese Daten befolgen.
+      </p>
+      <p>Wir setzen folgende(n) Hoster ein:</p>
+      <p>
+        Bolfrey &amp; Zweyer setup GbR, Bahnhofstraße 17, 93047 Regensburg. Die Server betreibt setup bei der Hetzner
+        Online GmbH, Industriestr. 25, 91710 Gunzenhausen (Rechenzentrum in Nürnberg, Deutschland).
+      </p>
+      <h4>Auftragsverarbeitung</h4>
+      <p>
+        Wir haben einen Vertrag über Auftragsverarbeitung (AVV) zur Nutzung des oben genannten Dienstes geschlossen.
+        Hierbei handelt es sich um einen datenschutzrechtlich vorgeschriebenen Vertrag, der gewährleistet, dass dieser
+        die personenbezogenen Daten unserer Websitebesucher nur nach unseren Weisungen und unter Einhaltung der DSGVO
+        verarbeitet.
+      </p>
+
+      <h3>Protokolldateien</h3>
+      <p>
+        Beim Aufruf des Intranets verarbeiten die Server technisch notwendige Daten und speichern sie für einen
+        begrenzten Zeitraum in Protokolldateien. Das sind insbesondere:
       </p>
       <ul>
         <li>IP-Adresse</li>
@@ -81,25 +112,18 @@ export default function DatenschutzPage() {
         Grundlage von Art. 6 Abs. 1 lit. f DSGVO; wir haben ein berechtigtes Interesse an einer sicheren, schnellen und
         fehlerfreien Bereitstellung des Intranets.
       </p>
-      <p>
-        Mit Vercel besteht ein Vertrag über Auftragsverarbeitung. Eine Verarbeitung außerhalb der EU, insbesondere in
-        den USA, ist nicht ausgeschlossen;
-        Vercel ist nach dem EU-US Data Privacy Framework zertifiziert (Art. 45 DSGVO), zusätzlich gelten die
-        EU-Standardvertragsklauseln.
-      </p>
 
-      <h3>Datenbank und Anmeldung bei Supabase</h3>
+      <h3>Datenbank und Anmeldung</h3>
       <p>
-        Die Daten des Intranets speichern wir bei Supabase: Mitglieds- und Kontodaten, Anmeldungen zu Veranstaltungen,
-        Beiträge am Schwarzen Brett und Bilder zu Veranstaltungen. Supabase übernimmt außerdem die Anmeldung mit E-Mail
-        und Passwort. Anbieter ist die Supabase Pte. Ltd., Singapur. Unsere Datenbank liegt in einem Rechenzentrum in
-        der EU. Passwörter werden nicht im Klartext gespeichert.
+        Die Daten des Intranets speichern wir in einer Datenbank auf den Servern unseres Hosters (siehe oben):
+        Mitglieds- und Kontodaten, Anmeldungen zu Veranstaltungen, Beiträge am Schwarzen Brett und Bilder zu
+        Veranstaltungen. Dort läuft auch die Anmeldung mit E-Mail und Passwort. Wir nutzen dafür die quelloffene
+        Software Supabase, die unser Hoster selbst betreibt; an den Hersteller der Software werden keine Daten
+        übermittelt. Passwörter werden nicht im Klartext gespeichert.
       </p>
       <p>
-        Mit Supabase besteht ein Vertrag über Auftragsverarbeitung. Soweit Supabase oder seine Unterauftragnehmer von
-        außerhalb der EU auf Daten zugreifen, etwa für Wartung und Support, gelten die EU-Standardvertragsklauseln
-        (Art. 46 Abs. 2 lit. c DSGVO). Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Durchführung der Mitgliedschaft)
-        und Art. 6 Abs. 1 lit. f DSGVO (zuverlässiger Betrieb des Intranets).
+        Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Durchführung der Mitgliedschaft) und Art. 6 Abs. 1 lit. f DSGVO
+        (zuverlässiger Betrieb des Intranets).
       </p>
 
       <h3>Verschlüsselung sensibler Angaben</h3>
@@ -293,17 +317,18 @@ export default function DatenschutzPage() {
       <ul>
         <li>Vorname und Nachname</li>
         <li>Geburtsdatum</li>
-        <li>Anschrift (Straße, Hausnummer, Postleitzahl, Ort)</li>
-        <li>E-Mail-Adresse und Handynummer</li>
         <li>
-          ob Sie studieren; falls ja, Studiengang, angestrebter Abschluss, Semester und Hochschule
+          freiwillig Ihre Anschrift (Straße, Hausnummer, Postleitzahl, Ort); Pflicht ist sie nur bei einem Konto in einem
+          SEPA-Land außerhalb des Europäischen Wirtschaftsraums (z. B. Schweiz, Vereinigtes Königreich)
         </li>
-        <li>IBAN und BIC sowie Ihre Bestätigung des SEPA-Lastschriftmandats</li>
+        <li>E-Mail-Adresse und freiwillig Ihre Handynummer</li>
+        <li>ob Sie studieren; falls ja, Studiengang, angestrebter Abschluss und Hochschule</li>
+        <li>IBAN sowie Ihre Bestätigung des SEPA-Lastschriftmandats</li>
         <li>ein Passwort für Ihr Konto</li>
       </ul>
       <p>
-        Alle Angaben sind Pflichtangaben. Ohne sie können wir Ihre Mitgliedschaft nicht führen und den Beitrag nicht
-        einziehen. Ihr Konto wird erst aktiv, wenn Sie Ihre E-Mail-Adresse über den Link in unserer Bestätigungs-E-Mail
+        Alle Angaben außer den freiwilligen sind Pflichtangaben. Ohne sie können wir Ihre Mitgliedschaft nicht führen und
+        den Beitrag nicht einziehen. Ihr Konto wird erst aktiv, wenn Sie Ihre E-Mail-Adresse über den Link in unserer Bestätigungs-E-Mail
         bestätigt haben. Bis dahin speichern wir Ihre Angaben vorläufig. Über jede neue Registrierung informieren wir den
         Vorstand per E-Mail (Name, E-Mail-Adresse, Studienangaben, Datum des Antrags).
       </p>
@@ -316,7 +341,7 @@ export default function DatenschutzPage() {
       <h3>Prüfung der IBAN</h3>
       <p>
         Wenn Sie im Mitgliedsantrag Ihre IBAN eingeben, prüfen wir sie über den öffentlichen Prüfdienst openiban.com auf
-        Gültigkeit und ermitteln die zugehörige BIC. Übermittelt wird nur die IBAN, nicht Ihr Name, Ihre IP-Adresse oder
+        Gültigkeit und ermitteln den Namen Ihrer Bank. Übermittelt wird nur die IBAN, nicht Ihr Name, Ihre IP-Adresse oder
         andere Angaben. Nach Angaben des Dienstes werden dort keine Daten gespeichert. Eine Verarbeitung außerhalb der
         EU ist nicht ausgeschlossen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f
         DSGVO; wir haben ein berechtigtes Interesse daran, Tippfehler in der Bankverbindung früh zu erkennen und
@@ -371,22 +396,25 @@ export default function DatenschutzPage() {
         Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Austausch der Mitglieder untereinander als Vereinszweck).
       </p>
 
-      <h3>Zugriff durch Vorstand und Admins</h3>
+      <h3>Zugriff durch Vorstand und Engagierte</h3>
       <p>
-        Der Vorstand kann einzelne Mitglieder mit Verwaltungsaufgaben betrauen (Rolle „Admin“). Admins sehen in der
-        Mitgliederliste Name, Studiengang, E-Mail-Adresse, Handynummer, Status und Rolle, die Teilnehmerlisten von
+        Der Vorstand kann einzelne Mitglieder mit Verwaltungsaufgaben betrauen (Rolle „Engagierte“). Engagierte sehen in der
+        Mitgliederliste Name, Studiengang, E-Mail-Adresse, Handynummer (sofern angegeben), Status und Rolle, die Teilnehmerlisten von
         Veranstaltungen sowie Anträge auf Alumni-Status und Zeitschriftenzugang (Name, E-Mail-Adresse, Datum).
       </p>
       <p>
-        Der Vorstand sieht zusätzlich Anschrift und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
+        Der Vorstand sieht zusätzlich Anschrift (sofern angegeben) und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
         sieht Kündigungen mit Kündigungsgrund und erstellt die Dateien für den Beitragseinzug und den Zeitschriftenzugang
         (siehe unten). Bei Korrekturen protokollieren wir, wer wann welche Felder geändert hat; die Werte selbst nicht.
-        Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
+        Für interne Statistiken wertet der Vorstand Angaben wie Alter, Studiengang, Hochschule und Abschluss nur
+        zusammengefasst aus, als Anzahl je Gruppe und ohne Namen; das Geburtsdatum wird dafür nur in eine Altersgruppe
+        umgerechnet. Für den nächsten Beitragseinzug wird ebenso nur gezählt, wie viele Lastschriften anfallen würden; die
+        Bankverbindung wird dafür nur auf Gültigkeit geprüft. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
       </p>
 
       <h3>Veranstaltungen</h3>
       <p>
-        Wenn Sie sich zu einer Veranstaltung anmelden, speichern wir, wer sich wann angemeldet hat. Vorstand und Admins
+        Wenn Sie sich zu einer Veranstaltung anmelden, speichern wir, wer sich wann angemeldet hat. Vorstand und Engagierte
         sehen die Teilnehmerliste mit Name, Studiengang, Rolle und Zeitpunkt der Anmeldung, um die Veranstaltung zu
         organisieren (Art. 6 Abs. 1 lit. b DSGVO). Titel, Datum, Uhrzeit, Ort und Veranstalter der Termine erscheinen
         auch auf unserer öffentlichen Website; Angaben zu Teilnehmenden werden dorthin nicht übertragen. Bilder zu
@@ -402,7 +430,7 @@ export default function DatenschutzPage() {
 
       <h3>Mitgliedsbeitrag und SEPA-Lastschrift</h3>
       <p>
-        Für den Einzug des Mitgliedsbeitrags erstellt der Vorstand je Semester eine Datei mit Name, IBAN, BIC, Betrag,
+        Für den Einzug des Mitgliedsbeitrags erstellt der Vorstand je Semester eine Datei mit Name, IBAN, BIC (sofern gespeichert), Betrag,
         Mandatsreferenz und Datum des Mandats und reicht sie bei unserem Kreditinstitut ein. Wir protokollieren, wer wann
         eine solche Datei erstellt hat und wie viele Buchungen sie enthält. Ändern Sie Ihre IBAN im Profil, informieren
         wir den Vorstand per E-Mail mit Ihrem Namen, Ihrer E-Mail-Adresse und den letzten vier Stellen der alten und der
@@ -413,7 +441,7 @@ export default function DatenschutzPage() {
       <p>
         Wenn Sie im Intranet einen Zugang zu den Zeitschriften des Bundesverbands der Börsenvereine an deutschen
         Hochschulen (BVH) e.V., Mannheim, beantragen, übermittelt der Vorstand dem BVH Ihren Namen, Ihre E-Mail-Adresse,
-        Ihr Geschlecht, Ihre Telefonnummer, Ihr Geburtsdatum und Ihre Anschrift, damit der BVH Ihnen einen Zugang
+        Ihr Geschlecht, Ihre Telefonnummer (sofern angegeben), Ihr Geburtsdatum und Ihre Anschrift (sofern angegeben), damit der BVH Ihnen einen Zugang
         einrichtet. Ab dann ist der BVH für die Verarbeitung selbst verantwortlich; es gelten die{" "}
         <a href="https://bvh.org/homepage/datenschutz.php" rel="noopener">
           Datenschutzhinweise des BVH
@@ -466,7 +494,7 @@ export default function DatenschutzPage() {
         <li>Bestätigungen zu Ihrer Kündigung und die Entscheidung über einen Alumni-Antrag</li>
         <li>Einladungen zu Veranstaltungen an alle aktiven Mitglieder oder an einzelne Adressen, die der Vorstand eingibt</li>
         <li>Benachrichtigungen an den Vorstand zu Registrierungen, Kündigungen, Alumni-Anträgen und IBAN-Änderungen</li>
-        <li>Erinnerungen an Aufgaben für Vorstand und Admins</li>
+        <li>Erinnerungen an Aufgaben für Vorstand und Engagierte</li>
       </ul>
       <p>
         Anbieter ist die Plus Five Five, Inc. (Resend), 2261 Market Street #5039, San Francisco, CA 94114, USA. Resend

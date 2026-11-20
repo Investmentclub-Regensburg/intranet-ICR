@@ -16,7 +16,6 @@ import {
 } from "@/lib/member-secrets-server";
 import {
   KORREKTUR_FELDER,
-  bicHinweis,
   korrekturWerte,
   pruefeKorrektur,
   type FeldFehler,
@@ -85,45 +84,6 @@ export async function getAdminMembers(): Promise<AdminMemberRow[]> {
   return adminMitgliederZeilen(profiles, secrets, { vorstand: auth.role === "board", bestaetigtBekannt });
 }
 
-export type CancellationRow = {
-  id: string;
-  name: string;
-  /** ISO-Zeitpunkt */
-  cancelledAt: string;
-  reason: string | null;
-  reasonText: string | null;
-};
-
-/** Kündigungen mit freiwilligem Grund (Selbstkündigung im Intranet), neueste zuerst. Nur Vorstand. */
-export async function getCancellations(): Promise<CancellationRow[]> {
-  const auth = await requireRole(["board"]);
-  if (!auth.ok) return [];
-
-  const admin = createServiceClient();
-  const { data, error } = await admin
-    .from("membership_cancellations")
-    .select('id, cancelled_at, reason, reason_text, profiles("Vorname", "Nachname")')
-    .order("cancelled_at", { ascending: false })
-    .limit(500);
-  if (error) {
-    console.error("getCancellations:", error.code);
-    return [];
-  }
-
-  return (data ?? []).map((row) => {
-    const r = row as Record<string, unknown>;
-    const p = (Array.isArray(r.profiles) ? r.profiles[0] : r.profiles) as Record<string, unknown> | null;
-    const name = [p?.Vorname, p?.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
-    return {
-      id: String(r.id ?? ""),
-      name,
-      cancelledAt: String(r.cancelled_at ?? ""),
-      reason: r.reason ? String(r.reason) : null,
-      reasonText: r.reason_text ? String(r.reason_text) : null,
-    };
-  });
-}
-
 /**
  * Daten für den Korrekturdialog (Vorstand). Handy aufgeteilt in Länderauswahl + Nummer (Altwerte roh mit DE),
  * Land der Anschrift mit Standard DE. Die IBAN nur gekürzt – ersetzt wird sie durch Neueingabe.
@@ -131,8 +91,6 @@ export async function getCancellations(): Promise<CancellationRow[]> {
 export type MemberCorrectionData = KorrekturWerte & {
   name: string;
   ibanMasked: string;
-  /** Nicht blockierender Hinweis zur BIC (Land weicht von der IBAN ab), sonst null. */
-  bicHinweis: string | null;
   /** Version der verschlüsselten Zeile beim Öffnen (0 = keine): optimistische Sperre. */
   version: number;
   /** Ohne Spalte land geladen (Übergang): ein übermitteltes Land wird ignoriert. */
@@ -199,7 +157,6 @@ export async function getMemberCorrectionData(
       name: loaded.name,
       ...korrekturWerte({ ...v, ...loaded.namen }),
       ibanMasked: v.iban ? maskIban(v.iban) : "",
-      bicHinweis: bicHinweis(v.bic, v.iban),
       version: loaded.version,
       landUnbekannt: !loaded.landBekannt,
     },

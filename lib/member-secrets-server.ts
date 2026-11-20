@@ -249,6 +249,49 @@ export async function readMemberSecretsMany(
   return result;
 }
 
+/**
+ * Nur EIN Feld mehrerer Mitglieder entschlüsseln (Datenminimierung, z. B. Geburtsdatum für die Altersgruppen
+ * in Insights). Gelesen werden nur `profile_id`, `wrapped_dek` und dieses Feld; die übrigen Felder kommen nie
+ * aus der Datenbank. Ohne Zeile: null; nicht entschlüsselbar: "unreadable". Wirft, wenn member_secrets nicht
+ * lesbar ist.
+ */
+export async function readMemberSecretFieldMany(
+  admin: SupabaseClient,
+  profileIds: ReadonlyArray<string>,
+  field: PlainSecretField,
+): Promise<Map<string, string | null | "unreadable">> {
+  const ids = [...new Set(profileIds.filter(Boolean))];
+  const rows = new Map<string, { profile_id: string; wrapped_dek: string; value: string | null }>();
+  for (let i = 0; i < ids.length; i += BULK_CHUNK) {
+    const { data, error } = await admin
+      .from("member_secrets")
+      .select(`profile_id, wrapped_dek, ${field}`)
+      .in("profile_id", ids.slice(i, i + BULK_CHUNK));
+    if (error) throw new MemberCryptoError("Verschlüsselte Daten nicht lesbar");
+    for (const raw of (data ?? []) as unknown as Record<string, unknown>[]) {
+      const id = String(raw.profile_id ?? "");
+      const value = raw[field];
+      rows.set(id, { profile_id: id, wrapped_dek: String(raw.wrapped_dek ?? ""), value: typeof value === "string" ? value : null });
+    }
+  }
+
+  if (rows.size > 0) getKeyring();
+  const result = new Map<string, string | null | "unreadable">();
+  for (const id of ids) {
+    const row = rows.get(id);
+    if (!row) {
+      result.set(id, null);
+      continue;
+    }
+    try {
+      result.set(id, withDataKey(getKeyring(), row.profile_id, row.wrapped_dek, (dek) => decryptField(dek, row.profile_id, field, row.value)));
+    } catch {
+      result.set(id, "unreadable");
+    }
+  }
+  return result;
+}
+
 /** Alle Felder leer: Mitglied ohne member_secrets-Zeile. */
 export function emptySecretValues(): MemberSecretValues {
   const values = {} as MemberSecretValues;

@@ -53,7 +53,13 @@ const FAELLE = [
     w: gueltig({ iban: "DE89370400440532013001", handynummer: "+499411234567", ort: "Probeort-Kaputt" }),
   },
   { p: profil("alumni", { Rolle: "alumni" }), w: gueltig({ iban: null, bic: null, strasse: null, hausnummer: null }) },
-  { p: profil("ausland", { daten_bestaetigt_am: "2026-09-14T21:00:00Z" }), w: gueltig({ land: "XX", plz: "ZZ-777" }) },
+  // IBAN außerhalb des EWR: Anschrift Pflicht, das unbekannte Land ist dann ein Mangel.
+  {
+    p: profil("ausland", { daten_bestaetigt_am: "2026-09-14T21:00:00Z" }),
+    w: gueltig({ land: "XX", plz: "ZZ-777", iban: "CH9300762011623852957" }),
+  },
+  // Freiwillige Anschrift unbekanntes Land: kein Mangel (Klickrunde 20.11.2026).
+  { p: profil("auslandfrei"), w: gueltig({ land: "XX", plz: "ZZ-777" }) },
   { p: profil("vorwahl"), w: gueltig({ handynummer: "1761234567" }) },
   { p: profil("ohnezeile", { daten_bestaetigt_am: null }), w: leer() },
   { p: profil("gekuendigt", { Status: "cancelled", daten_bestaetigt_am: null }), w: leer() },
@@ -71,20 +77,15 @@ const nachId = (rows) => Object.fromEntries(rows.map((r) => [r.id, r]));
 test("Vorstand: Feldnamen je aktivem Mitglied, Alumni ohne Bank, land_unbekannt nur am Land, Hinweise nicht", () => {
   const r = nachId(zeilen(true));
   assert.deepEqual(r.vorstand.datenMaengel, []);
-  assert.deepEqual(r.kaputt.datenMaengel, ["Handy", "IBAN"]);
-  assert.deepEqual(r.alumni.datenMaengel, ["Straße", "Hausnummer"]);
+  // Handy und freiwillige Anschrift sind nie ein Mangel, auch angegeben und ungültig (Klickrunde 20.11.2026).
+  assert.deepEqual(r.kaputt.datenMaengel, ["IBAN"]);
+  assert.deepEqual(r.alumni.datenMaengel, []);
   assert.deepEqual(r.ausland.datenMaengel, ["Land"]);
+  assert.deepEqual(r.auslandfrei.datenMaengel, []);
   // vorwahl_ergaenzt ist ein Hinweis, kein Mangel → kein Symbol
   assert.deepEqual(r.vorwahl.datenMaengel, []);
-  assert.deepEqual(r.ohnezeile.datenMaengel, [
-    "Straße",
-    "Hausnummer",
-    "PLZ",
-    "Ort",
-    "Handy",
-    "IBAN",
-    "Geburtsdatum",
-  ]);
+  // Handy und Anschrift sind freiwillig (seit 20.11.2026): ohne Daten fehlen nur IBAN und Geburtsdatum.
+  assert.deepEqual(r.ohnezeile.datenMaengel, ["IBAN", "Geburtsdatum"]);
   // Status „alumni“ (Altdaten) zählt als Alumni: leere Bankdaten kein Mangel
   assert.deepEqual(r.altstatus.datenMaengel, []);
   // Nicht aktiv oder nicht lesbar: keine Aussage, Eigenschaft fehlt
@@ -152,7 +153,7 @@ test("Zähler der Filter stimmen mit den Fake-Daten", () => {
   const board = zeilen(true);
   assert.equal(zaehle(board, "all"), FAELLE.length);
   assert.equal(zaehle(board, "unbestaetigt"), 4); // kaputt, ausland, ohnezeile, unlesbar
-  assert.equal(zaehle(board, "unvollstaendig"), 4); // kaputt, alumni, ausland, ohnezeile
+  assert.equal(zaehle(board, "unvollstaendig"), 3); // kaputt, ausland, ohnezeile
   const admin = zeilen(false);
   assert.equal(zaehle(admin, "unbestaetigt"), 4);
   assert.equal(zaehle(admin, "unvollstaendig"), 0);
@@ -169,10 +170,29 @@ test("member_secrets nicht lesbar: alle nicht lesbar, keine Mängel", () => {
 
 test("maengelFelder: ohne handyLand (Altnummer ohne Vorwahl ist kein Mangel), Reihenfolge fest", () => {
   assert.deepEqual(maengelFelder(gueltig({ handynummer: "01761234567" }), { Rolle: "member" }, HEUTE), []);
+  // BIC wird nicht mehr bewertet: auch eine kaputte BIC ist kein Mangel.
   assert.deepEqual(
-    maengelFelder(gueltig({ geburtsdatum: "2030-01-01", bic: "XYZ", ort: "" }), { Rolle: "member" }, HEUTE),
-    ["ort", "bic", "geburtsdatum"]
+    maengelFelder(gueltig({ geburtsdatum: "2030-01-01", bic: "XYZ", iban: "DE89370400440532013001" }), { Rolle: "member" }, HEUTE),
+    ["iban", "geburtsdatum"]
   );
+  assert.equal(Object.hasOwn(FELD_NAMEN, "bic"), false);
+});
+
+test("maengelFelder: Handy/Anschrift nur Mangel, wenn Pflicht wegen IBAN außerhalb des EWR (Klickrunde 20.11.2026)", () => {
+  const ohne = { handynummer: null, strasse: null, hausnummer: null, plz: null, ort: null, land: null };
+  assert.deepEqual(maengelFelder(gueltig(ohne), { Rolle: "member" }, HEUTE), []);
+  // Angegeben, aber ungültig: freiwillig, kein Mangel.
+  assert.deepEqual(maengelFelder(gueltig({ handynummer: "+499411234567" }), { Rolle: "member" }, HEUTE), []);
+  assert.deepEqual(maengelFelder(gueltig({ handynummer: "kaputt" }), { Rolle: "member" }, HEUTE), []);
+  assert.deepEqual(maengelFelder(gueltig({ ort: "" }), { Rolle: "member" }, HEUTE), []);
+  assert.deepEqual(maengelFelder(gueltig({ plz: "9304" }), { Rolle: "member" }, HEUTE), []);
+  assert.deepEqual(maengelFelder(gueltig({ plz: "9304", iban: "CH9300762011623852957" }), { Rolle: "member" }, HEUTE), ["plz"]);
+  assert.deepEqual(
+    maengelFelder(gueltig({ ...ohne, iban: "CH9300762011623852957" }), { Rolle: "member" }, HEUTE),
+    ["strasse", "hausnummer", "plz", "ort"]
+  );
+  // Alumni: keine Pflicht-Anschrift.
+  assert.deepEqual(maengelFelder(gueltig({ ...ohne, iban: "CH9300762011623852957" }), { Rolle: "alumni" }, HEUTE), []);
 });
 
 test("Bestehende Felder der Liste unverändert (Name, Rolle, Status)", () => {
@@ -213,7 +233,7 @@ test("Nicht bestätigt (einmal berechneter Stichtag) = istBestaetigungOffen, auc
 test("Nicht lesbar: Zahl nur aktiver, Prüfung unmöglich nur, wenn nichts lesbar ist", () => {
   assert.deepEqual(datenLesbarkeit(zeilen(true)), { nichtLesbar: 1, pruefungMoeglich: true });
   const nichts = adminMitgliederZeilen(profiles, null, { vorstand: true, jetzt: JETZT, heute: HEUTE });
-  // 8 aktive (gekündigt und Antrag zählen nicht), Prüfung nicht möglich → kein „0“ beim Filter
-  assert.deepEqual(datenLesbarkeit(nichts), { nichtLesbar: 8, pruefungMoeglich: false });
+  // 9 aktive (gekündigt und Antrag zählen nicht), Prüfung nicht möglich → kein „0“ beim Filter
+  assert.deepEqual(datenLesbarkeit(nichts), { nichtLesbar: 9, pruefungMoeglich: false });
   assert.deepEqual(datenLesbarkeit([]), { nichtLesbar: 0, pruefungMoeglich: true });
 });

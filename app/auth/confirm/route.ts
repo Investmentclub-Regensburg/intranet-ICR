@@ -58,10 +58,10 @@ export async function GET(request: NextRequest) {
   // change“) antwortet Supabase ohne Sitzung und ohne Nutzer – dann fehlt die Bestätigung der anderen Adresse.
   // Ohne eigene Anmeldung in diesem Browser (z. B. Link am Handy geöffnet) geht der Hinweis an die Login-Seite.
   if (type === "email_change") {
-    let path = "/profile?tab=daten&email=geaendert";
+    let path = "/profile?email=geaendert";
     if (!data.session) {
       const { data: current } = await supabase.auth.getUser();
-      path = current.user ? "/profile?tab=daten&email=ausstehend" : "/login?email=ausstehend";
+      path = current.user ? "/profile?email=ausstehend" : "/login?email=ausstehend";
     }
     const target = NextResponse.redirect(siteRedirectUrl(path, request.url));
     for (const cookie of response.cookies.getAll()) target.cookies.set(cookie);

@@ -62,7 +62,7 @@ const BASE_COLUMNS =
 const TASK_COLUMNS = `${BASE_COLUMNS}, board_task_assignees(profile_id)`;
 
 async function guard() {
-  return requireRole(["admin", "board"], "Nur für Vorstand und Admins.");
+  return requireRole(["admin", "board"], "Nur für Vorstand und Engagierte.");
 }
 
 function toTask(raw: Record<string, unknown>): BoardTask {
@@ -170,7 +170,7 @@ async function validate(input: TaskInput, admin: ReturnType<typeof createService
   if (assigneeIds.length > 0) {
     const members = new Set((await loadMembers(admin)).map((m) => m.id));
     if (assigneeIds.some((id) => !members.has(id))) {
-      return { ok: false, error: "Zuweisen geht nur an Vorstand oder Admins." };
+      return { ok: false, error: "Zuweisen geht nur an Vorstand oder Engagierte." };
     }
   }
 

@@ -6,7 +6,7 @@
  * Speichern. Nur Eingabehilfen (lib/member-rules-client.ts): Gültig ist, was der Server sagt.
  */
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { Check } from "lucide-react";
+import { Check, CircleAlert } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { countryCodes, DEFAULT_COUNTRY } from "@/lib/country-codes";
 import { handyPlatzhalter, ibanInViererbloecken } from "@/lib/member-rules-client";
@@ -22,9 +22,22 @@ const LAENDER_NACH_NAME = [...countryCodes].sort((a, b) =>
   a.code === DEFAULT_COUNTRY ? -1 : b.code === DEFAULT_COUNTRY ? 1 : a.name.localeCompare(b.name, "de")
 );
 
-/** Fehler direkt unter dem Feld (kurz, Du-Form). */
-export function FeldFehler({ id, children }: { id: string; children?: ReactNode }) {
+/**
+ * Fehler direkt unter dem Feld (kurz, Du-Form). `symbol`: mit Warnsymbol und etwas größer (Seite „Daten prüfen“,
+ * Skizze DatenPruefen.dc.html), dann ohne role="alert": Die Seite prüft beim Verlassen jedes Felds und sagt den Stand
+ * über ihren Zähler (aria-live) an; das Feld verweist per aria-describedby auf die Meldung. Sonst würde jede Meldung
+ * zusätzlich als Alarm vorgelesen, während man schon im nächsten Feld ist.
+ */
+export function FeldFehler({ id, children, symbol = false }: { id: string; children?: ReactNode; symbol?: boolean }) {
   if (!children) return null;
+  if (symbol) {
+    return (
+      <p id={id} className="flex items-start gap-1.5 text-[0.8125rem] text-destructive">
+        <CircleAlert className="mt-[0.1875rem] size-3.5 shrink-0" aria-hidden />
+        <span className="min-w-0">{children}</span>
+      </p>
+    );
+  }
   return (
     <p id={id} role="alert" className="text-xs text-destructive">
       {children}
@@ -66,6 +79,7 @@ export function HandyEingabe({
   required,
   className,
   autoComplete = "tel-national",
+  fehlerSymbol = false,
 }: {
   id: string;
   wert: HandyWert;
@@ -76,6 +90,8 @@ export function HandyEingabe({
   required?: boolean;
   className?: string;
   autoComplete?: string;
+  /** Fehler mit Warnsymbol (FeldFehler `symbol`). */
+  fehlerSymbol?: boolean;
 }) {
   const fehlerId = `${id}-fehler`;
   // Hat die Person in dieser Bearbeitung Nummer oder Land geändert? Erst dann wird formatiert.
@@ -124,7 +140,9 @@ export function HandyEingabe({
           className="min-w-0 flex-1"
         />
       </div>
-      <FeldFehler id={fehlerId}>{fehler}</FeldFehler>
+      <FeldFehler id={fehlerId} symbol={fehlerSymbol}>
+        {fehler}
+      </FeldFehler>
     </div>
   );
 }
@@ -137,6 +155,7 @@ export function LandAuswahl({
   onChange,
   fehler,
   className,
+  fehlerSymbol = false,
 }: {
   id: string;
   name?: string;
@@ -144,6 +163,8 @@ export function LandAuswahl({
   onChange: (land: string) => void;
   fehler?: string;
   className?: string;
+  /** Fehler mit Warnsymbol (FeldFehler `symbol`). */
+  fehlerSymbol?: boolean;
 }) {
   const fehlerId = `${id}-fehler`;
   return (
@@ -164,7 +185,9 @@ export function LandAuswahl({
           </option>
         ))}
       </select>
-      <FeldFehler id={fehlerId}>{fehler}</FeldFehler>
+      <FeldFehler id={fehlerId} symbol={fehlerSymbol}>
+        {fehler}
+      </FeldFehler>
     </div>
   );
 }
@@ -194,6 +217,7 @@ export function IbanEingabe({
   describedBy,
   required,
   inputRef,
+  fehlerSymbol = false,
 }: {
   id: string;
   name?: string;
@@ -205,6 +229,8 @@ export function IbanEingabe({
   describedBy?: string;
   required?: boolean;
   inputRef?: React.Ref<HTMLInputElement>;
+  /** Fehler mit Warnsymbol (FeldFehler `symbol`). */
+  fehlerSymbol?: boolean;
 }) {
   const fehlerId = `${id}-fehler`;
   return (
@@ -229,7 +255,9 @@ export function IbanEingabe({
         aria-describedby={[fehler ? fehlerId : null, describedBy].filter(Boolean).join(" ") || undefined}
         className="font-mono tracking-wide"
       />
-      <FeldFehler id={fehlerId}>{fehler}</FeldFehler>
+      <FeldFehler id={fehlerId} symbol={fehlerSymbol}>
+        {fehler}
+      </FeldFehler>
     </div>
   );
 }

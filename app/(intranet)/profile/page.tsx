@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { ProfileTabs } from "@/components/profile/ProfileTabs";
-import { ProfileOverview } from "@/components/profile/ProfileOverview";
 import { ProfileDataSections } from "@/components/profile/ProfileDataSections";
 import { MyEventsSection } from "@/components/profile/MyEventsSection";
 import { MembershipSection } from "@/components/profile/MembershipSection";
@@ -9,15 +8,13 @@ import {
   ROLE_LABELS,
   STATUS_LABELS,
   formatDate,
-  initials,
-  maskIban,
   membershipDuration,
   nextFeeStop,
 } from "@/components/profile/profile-format";
 import { getCachedAuth, getCachedSupabase } from "@/utils/supabase/cached-auth";
 import { createServiceClient } from "@/utils/supabase/service";
 import { emptySecretValues, readMemberSecretsWithMeta, type MemberSecretValues } from "@/lib/member-secrets-server";
-import { bicHinweis, handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-forms";
+import { handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-forms";
 import { findCountry } from "@/lib/country-codes";
 import { isAlumniProfile } from "@/lib/profile-status";
 import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
@@ -88,7 +85,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     land: landAusBestand(sensitive.land),
     mobil: sensitive.handynummer ?? "",
     iban: sensitive.iban ?? "",
-    bic: sensitive.bic ?? "",
   };
   const handy = handyFuerEingabe(sensitive.handynummer);
 
@@ -120,20 +116,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       )}
       <ProfileTabs
         panels={{
-          ueberblick: (
-            <ProfileOverview
-              data={{
-                vorname: p.vorname,
-                nachname: p.nachname,
-                email: p.email,
-                initials: initials(p.vorname, p.nachname),
-                roleLabel,
-                statusLabel,
-                memberSince,
-                duration: membershipDuration(p.datumAntrag),
-              }}
-            />
-          ),
           daten: secretsUnavailable ? (
             <p role="alert" className="rounded-2xl border border-destructive/25 bg-card p-5 text-sm">
               Deine Adresse und Bankverbindung können gerade nicht angezeigt werden. Bitte versuche es später
@@ -151,15 +133,15 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 plz: p.plz,
                 ort: p.ort,
                 land: p.land,
-                landName: p.land === "DE" ? "" : (findCountry(p.land)?.name ?? p.land),
+                landName: findCountry(p.land)?.name ?? p.land,
                 handyLand: handy.land,
                 handyNummer: handy.nummer,
                 handyAnzeige: handyAnzeige(p.mobil),
                 geburtsdatum: (sensitive.geburtsdatum ?? "").trim(),
                 alumni: isAlumniProfile(profile as Record<string, unknown> | null),
                 iban: p.iban,
-                bic: p.bic,
-                bicHinweis: bicHinweis(p.bic, p.iban),
+                zahltBeitrag: paysFee,
+                mandatVom: formatDate(p.datumMandat),
                 version: secretsVersion,
                 landUnbekannt,
               }}
@@ -178,8 +160,6 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 memberSince,
                 duration: membershipDuration(p.datumAntrag),
                 feeStop: paysFee ? nextFeeStop() : null,
-                ibanMasked: maskIban(p.iban),
-                mandateDate: formatDate(p.datumMandat),
               }}
             />
           ),

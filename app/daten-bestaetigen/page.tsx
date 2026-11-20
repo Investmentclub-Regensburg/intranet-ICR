@@ -1,32 +1,44 @@
 import { redirect } from "next/navigation";
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
-import { IntranetMotion } from "@/components/layout/IntranetMotion";
-import { DatenCheckFenster } from "@/components/member/DatenCheckFenster";
+import { DatenPruefenSeite } from "@/components/member/DatenPruefenSeite";
+import { rueckkehrZiel } from "@/lib/member-data-check";
 import { eigenerDatenCheck } from "@/lib/member-data-check-sperre";
 
-export const metadata = { title: "Bitte aktualisiere deine Daten · ICR Intranet" };
+export const metadata = { title: "Deine Daten · ICR Intranet" };
 
 /**
- * Abfrage „Stimmen deine Daten noch?“ bei Mängeln (Paket „Mitgliederdaten“, PR 4, Review A1/B1): bewusst außerhalb
- * des Intranet-Layouts, damit kein Seiteninhalt mitkommt. Nur das Fenster auf leerem Grund (ohne JavaScript mit
- * Hinweis und Abmelden). Nicht fällig oder gültig → zurück ins Intranet. Geschützt in middleware.ts.
+ * Abfrage „Stimmen deine Daten noch?“ als eigene Seite (Design-Runde 19.11.2026, Skizze DatenPruefen.dc.html):
+ * bewusst außerhalb des Intranet-Layouts, ohne Seitenleiste und ohne Seiteninhalt. Die Sperre leitet jede fällige
+ * Abfrage hierher, mit dem ursprünglichen Ziel in `?weiter=` (geprüft über rueckkehrZiel). Nicht (mehr) fällig →
+ * dorthin zurück. Ohne JavaScript Hinweis und Abmelden. Geschützt in middleware.ts.
  */
-export default async function DatenBestaetigenPage() {
+export default async function DatenBestaetigenPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ weiter?: string | string[] }>;
+}) {
   const { user } = await getCachedAuth();
   if (!user) redirect("/login");
 
+  const { weiter: roh } = await searchParams;
+  const weiter = rueckkehrZiel(Array.isArray(roh) ? roh[0] : roh);
   const datenCheck = await eigenerDatenCheck();
-  if (!datenCheck || datenCheck.gueltig) redirect("/dashboard");
+  if (!datenCheck) redirect(weiter);
 
+  const f = datenCheck.formular;
   return (
-    <IntranetMotion>
-      <DatenCheckFenster
-        key={`${datenCheck.formular.version}|${datenCheck.formular.vorname}|${datenCheck.formular.nachname}`}
-        ansicht={datenCheck}
-        weiter="/dashboard"
-      >
-        <div className="min-h-screen bg-background" />
-      </DatenCheckFenster>
-    </IntranetMotion>
+    <DatenPruefenSeite
+      // Neuer Stand (Version, Name) → Seite neu aufbauen.
+      key={`${f.version}|${f.vorname}|${f.nachname}`}
+      ansicht={{
+        gueltig: datenCheck.gueltig,
+        spaeterErlaubt: datenCheck.spaeterErlaubt,
+        formular: f,
+        formularFehler: datenCheck.formularFehler,
+        handyHinweis: datenCheck.zeilen.find((z) => z.key === "handy")?.hinweis,
+      }}
+      email={user.email ?? ""}
+      weiter={weiter}
+    />
   );
 }

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { StatusCard } from "@/components/kit/StatusCard";
+import { TileIcon } from "@/components/profile/ProfileCard";
 import { requestAlumniStatus, type AlumniRequestStatus } from "@/app/(intranet)/profile/actions";
 
 export type AlumniInfo = {
@@ -73,14 +74,12 @@ export function AlumniStatusCard({ rolle, info }: { rolle: string; info: AlumniI
   }
 
   return (
-    <section className="flex h-full flex-col gap-4 rounded-2xl border border-border bg-card p-5 sm:flex-row sm:items-center sm:gap-5 sm:p-6">
-      <div className="flex min-w-0 flex-1 items-start gap-4">
-        <span className="tile-icon size-11 rounded-xl">
-          <GraduationCap className="size-5" aria-hidden />
-        </span>
-        <div className="min-w-0 space-y-1">
-          <h2 className="text-base leading-snug font-bold tracking-[-0.02em]">Alumni-Status</h2>
-          <p className="text-sm text-muted-foreground">Studium abgeschlossen? Dann wechsle zu den Alumni.</p>
+    <section className="flex h-full flex-col gap-4 rounded-2xl border border-border bg-card px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-[1.375rem]">
+      <div className="flex min-w-0 items-center gap-3">
+        <TileIcon Icon={GraduationCap} />
+        <div className="min-w-0 space-y-0.5">
+          <h2 className="text-[0.9375rem] leading-snug font-bold tracking-[-0.02em]">Alumni-Status</h2>
+          <p className="text-[0.8125rem] text-muted-foreground">Studium abgeschlossen? Dann wechsle zu den Alumni.</p>
         </div>
       </div>
       <div className="shrink-0">
@@ -120,7 +119,7 @@ function RequestButton({ again = false }: { again?: boolean }) {
   return (
     <AlertDialog open={open} onOpenChange={(next) => !loading && setOpen(next)}>
       <AlertDialogTrigger asChild>
-        <Button variant={again ? "outline" : "default"} className="w-full sm:w-auto">
+        <Button variant="outline" className="h-10 w-full px-4 sm:w-auto">
           {again ? "Erneut beantragen" : "Beantragen"}
         </Button>
       </AlertDialogTrigger>
