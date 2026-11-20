@@ -590,8 +590,11 @@ export function Sidebar({ profile }: { profile: Profile }) {
           </button>
           <LogoutButton />
         </div>
-        <ThemeToggle layoutId={`${idPrefix}-theme`} className="mt-2" />
-        <LegalLinks className="mt-2 px-2" />
+        {/* Eine Zeile: links Impressum/Datenschutz, rechts der Umschalter Hell/Dunkel/System (Klickrunde 20.11.2026). */}
+        <div className="mt-2 flex items-center justify-between gap-3 pl-2">
+          <LegalLinks className="min-w-0 gap-x-3" />
+          <ThemeToggle layoutId={`${idPrefix}-theme`} />
+        </div>
       </div>
     );
   };
