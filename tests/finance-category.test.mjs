@@ -113,18 +113,24 @@ test("Einordnung direkt aus der profiles-Zeile (Finanzexport und Insights, eine 
   assert.equal(financeIban(" at61 1904 3002 3457 3201 "), IBAN_AT);
 });
 
-test("Status gekündigt oder offener Antrag: nie eingezogen, auch nicht mit „aufnehmen“ (Klickrunde 20.11.2026)", () => {
+test("Gekündigt ohne Datum oder vor dem Stichtag und offene Anträge: nie eingezogen, auch nicht mit „aufnehmen“", () => {
   assert.ok(FINANCE_CATEGORIES.includes("applicant"));
   // Bis 20.11.2026 (auch origin/dev) wäre jeder dieser Fälle eine Lastschrift gewesen.
   for (const extra of [
     { status: "cancelled", cancelledAt: null }, // ohne Kündigungsdatum
-    { status: "cancelled", cancelledAt: "2026-10-01" }, // am Stichtag gekündigt
-    { status: "cancelled", cancelledAt: "2026-11-15" }, // nach dem Stichtag gekündigt
+    { status: "cancelled", cancelledAt: null, override: "include" },
     { status: "cancelled", cancelledAt: "2026-09-30", override: "include" }, // „aufnehmen“ hebt nicht auf
     { status: "cancelled", cancelledAt: null, role: "alumni", override: "include" },
   ]) {
     assert.equal(financeKategorie(basis(extra)), "cancelled", JSON.stringify(extra));
   }
+  // Gekündigt am oder nach dem Stichtag: das laufende Semester wird noch eingezogen (wie Kündigungsmail/Profil).
+  assert.equal(financeKategorie(basis({ status: "cancelled", cancelledAt: "2026-10-01" })), "debit");
+  assert.equal(financeKategorie(basis({ status: "cancelled", cancelledAt: "2026-11-15" })), "debit");
+  // ... aber die übrigen Regeln gelten weiter (Alumni, Freisemester, entfernen, IBAN).
+  assert.equal(financeKategorie(basis({ status: "cancelled", cancelledAt: "2026-11-15", role: "alumni" })), "alumni");
+  assert.equal(financeKategorie(basis({ status: "cancelled", cancelledAt: "2026-11-15", override: "exclude" })), "removed");
+  assert.equal(financeKategorie(basis({ status: "cancelled", cancelledAt: "2026-11-15", iban: "" })), "no_iban");
   for (const extra of [
     { status: "applicant" },
     { status: "applicant", joinedAt: "2025-01-10" }, // Antrag vor dem Stichtag
@@ -139,6 +145,7 @@ test("Status gekündigt oder offener Antrag: nie eingezogen, auch nicht mit „a
   assert.equal(financeKategorieFuerProfil({ Status: " Cancelled " }, IBAN_DE, "include", start), "cancelled");
   assert.equal(financeKategorieFuerProfil({ Status: "APPLICANT", Datum_Antrag: "2025-01-10" }, IBAN_DE, null, start), "applicant");
   assert.equal(financeBrauchtIban({ Status: "cancelled" }, "include", start), false);
+  assert.equal(financeBrauchtIban({ Status: "cancelled", "Datum_Kündigung": "2026-10-02" }, null, start), true);
   // Export zählt die Kategorie, Vorschau zeigt sie (nur mit Treffern).
   const server = readFileSync(new URL("../app/(intranet)/admin/actions/finance.ts", import.meta.url), "utf8");
   assert.equal((server.match(/applicant: 0,/g) ?? []).length, 2);

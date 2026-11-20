@@ -120,7 +120,7 @@ test("Nächster Einzug: nur, was der Finanzexport als Lastschrift führen würde
     zeile("d", { Rolle: "alumni" }), // Alumni zahlen nicht
     zeile("e", { Status: "alumni" }), // Altstatus Alumni
     zeile("f", { Status: "cancelled", "Datum_Kündigung": "2027-03-14" }), // vor dem Stichtag gekündigt
-    zeile("g", { Status: "cancelled", "Datum_Kündigung": "2027-03-15" }), // Status gekündigt: nie (auch am Stichtag)
+    zeile("g", { Status: "cancelled", "Datum_Kündigung": "2027-03-15" }), // am Stichtag gekündigt: zahlt SoSe 2027 noch
     zeile("o", { Status: "applicant", Datum_Antrag: "2026-11-01" }), // offener Antrag: nie
     zeile("p", { Status: "cancelled" }), // gekündigt ohne Datum: nie
     zeile("h"), // keine IBAN
@@ -138,7 +138,7 @@ test("Nächster Einzug: nur, was der Finanzexport als Lastschrift führen würde
   ]);
   // Entschlüsselt wird nur, wo die IBAN entscheidet.
   const bedarf = einzugIbanBedarf(profiles, semester, anpassungen);
-  assert.deepEqual(bedarf, ["a", "b", "h", "i", "j", "l", "n"]);
+  assert.deepEqual(bedarf, ["a", "b", "g", "h", "i", "j", "l", "n"]);
   const ibans = new Map([
     ["a", IBAN_DE],
     ["b", "de89 3704 0044 0532 0130 00"],
@@ -151,10 +151,10 @@ test("Nächster Einzug: nur, was der Finanzexport als Lastschrift führen würde
     ["l", IBAN_DE],
   ]);
   const e = naechsterEinzug(profiles, semester, anpassungen, ibans);
-  assert.deepEqual(e, { label: "SoSe 2027", stichtag: "2027-03-15", zahlend: 3, total: 3 * FEE_PER_SEMESTER, nichtLesbar: 0 });
+  assert.deepEqual(e, { label: "SoSe 2027", stichtag: "2027-03-15", zahlend: 4, total: 4 * FEE_PER_SEMESTER, nichtLesbar: 0 });
   assert.equal(
     einzugHerleitung(e),
-    "3 Lastschriften × 15 € zum 15.03.2027, wie im Finanzexport: ohne Alumni, Gekündigte, Erstsemester (erstes Semester frei), fehlende oder ungültige IBAN und Konten außerhalb des EWR",
+    "4 Lastschriften × 15 € zum 15.03.2027, wie im Finanzexport: ohne Alumni, Gekündigte, Erstsemester (erstes Semester frei), fehlende oder ungültige IBAN und Konten außerhalb des EWR",
   );
   // Nicht lesbare IBAN: Betrag unbekannt (der Export bricht dann ab).
   const kaputt = naechsterEinzug(profiles, semester, anpassungen, new Map([...ibans, ["a", "unreadable"]]));

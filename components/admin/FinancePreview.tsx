@@ -38,7 +38,7 @@ type CategoryMeta = { label: string; hint: string; Icon: LucideIcon; badge?: str
 const CATEGORIES: Record<FinanceCategory, CategoryMeta> = {
   debit: { label: "Lastschriften", badge: "Lastschrift", hint: "Werden eingezogen.", Icon: WalletCards },
   alumni: { label: "Alumni", hint: "Alumni zahlen keinen Beitrag.", Icon: GraduationCap },
-  cancelled: { label: "Gekündigt", hint: "Gekündigt oder Kündigung vor dem Stichtag. Wird nie eingezogen.", Icon: UserMinus },
+  cancelled: { label: "Gekündigt", hint: "Kündigung vor dem Stichtag oder ohne Datum.", Icon: UserMinus },
   applicant: { label: "Antrag offen", hint: "Noch kein Mitglied. Wird nie eingezogen.", Icon: Hourglass },
   free_semester: {
     label: "Freisemester",
