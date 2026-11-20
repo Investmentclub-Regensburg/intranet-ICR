@@ -60,14 +60,45 @@ export default function DatenschutzPage() {
 
       <h2>2. Hosting und Datenbank</h2>
 
-      <h3>Hosting bei Vercel</h3>
+      {/* Abschnitt „Externes Hosting“ und „Auftragsverarbeitung“: eRecht24-Baustein wie in der Datenschutzerklärung
+          der Website (eRecht24-Projekt „ICR“, Hoster setup/Hetzner). */}
+      <h3>Externes Hosting</h3>
       <p>
-        Das Intranet wird bei Vercel betrieben. Anbieter ist die Vercel Inc., 440 N Barranca Avenue #4133, Covina, CA
-        91723, USA. Die Anwendung läuft in einem Rechenzentrum in der EU.
+        Diese Website wird extern gehostet. Die personenbezogenen Daten, die auf dieser Website erfasst werden, werden
+        auf den Servern des Hosters / der Hoster gespeichert. Hierbei kann es sich v. a. um IP-Adressen,
+        Kontaktanfragen, Meta- und Kommunikationsdaten, Vertragsdaten, Kontaktdaten, Namen, Websitezugriffe und
+        sonstige Daten, die über eine Website generiert werden, handeln.
       </p>
       <p>
-        Beim Aufruf des Intranets verarbeitet Vercel technisch notwendige Daten und speichert sie für einen begrenzten
-        Zeitraum in Protokolldateien. Das sind insbesondere:
+        Das externe Hosting erfolgt zum Zwecke der Vertragserfüllung gegenüber unseren potenziellen und bestehenden
+        Kunden (Art. 6 Abs. 1 lit. b DSGVO) und im Interesse einer sicheren, schnellen und effizienten Bereitstellung
+        unseres Online-Angebots durch einen professionellen Anbieter (Art. 6 Abs. 1 lit. f DSGVO). Sofern eine
+        entsprechende Einwilligung abgefragt wurde, erfolgt die Verarbeitung ausschließlich auf Grundlage von Art. 6
+        Abs. 1 lit. a DSGVO und § 25 Abs. 1 TDDDG, soweit die Einwilligung die Speicherung von Cookies oder den Zugriff
+        auf Informationen im Endgerät des Nutzers (z. B. Device-Fingerprinting) im Sinne des TDDDG umfasst. Die
+        Einwilligung ist jederzeit widerrufbar.
+      </p>
+      <p>
+        Unser(e) Hoster wird bzw. werden Ihre Daten nur insoweit verarbeiten, wie dies zur Erfüllung seiner
+        Leistungspflichten erforderlich ist und unsere Weisungen in Bezug auf diese Daten befolgen.
+      </p>
+      <p>Wir setzen folgende(n) Hoster ein:</p>
+      <p>
+        Bolfrey &amp; Zweyer setup GbR, Bahnhofstraße 17, 93047 Regensburg. Die Server betreibt setup bei der Hetzner
+        Online GmbH, Industriestr. 25, 91710 Gunzenhausen (Rechenzentrum in Nürnberg, Deutschland).
+      </p>
+      <h4>Auftragsverarbeitung</h4>
+      <p>
+        Wir haben einen Vertrag über Auftragsverarbeitung (AVV) zur Nutzung des oben genannten Dienstes geschlossen.
+        Hierbei handelt es sich um einen datenschutzrechtlich vorgeschriebenen Vertrag, der gewährleistet, dass dieser
+        die personenbezogenen Daten unserer Websitebesucher nur nach unseren Weisungen und unter Einhaltung der DSGVO
+        verarbeitet.
+      </p>
+
+      <h3>Protokolldateien</h3>
+      <p>
+        Beim Aufruf des Intranets verarbeiten die Server technisch notwendige Daten und speichern sie für einen
+        begrenzten Zeitraum in Protokolldateien. Das sind insbesondere:
       </p>
       <ul>
         <li>IP-Adresse</li>
@@ -81,25 +112,18 @@ export default function DatenschutzPage() {
         Grundlage von Art. 6 Abs. 1 lit. f DSGVO; wir haben ein berechtigtes Interesse an einer sicheren, schnellen und
         fehlerfreien Bereitstellung des Intranets.
       </p>
-      <p>
-        Mit Vercel besteht ein Vertrag über Auftragsverarbeitung. Eine Verarbeitung außerhalb der EU, insbesondere in
-        den USA, ist nicht ausgeschlossen;
-        Vercel ist nach dem EU-US Data Privacy Framework zertifiziert (Art. 45 DSGVO), zusätzlich gelten die
-        EU-Standardvertragsklauseln.
-      </p>
 
-      <h3>Datenbank und Anmeldung bei Supabase</h3>
+      <h3>Datenbank und Anmeldung</h3>
       <p>
-        Die Daten des Intranets speichern wir bei Supabase: Mitglieds- und Kontodaten, Anmeldungen zu Veranstaltungen,
-        Beiträge am Schwarzen Brett und Bilder zu Veranstaltungen. Supabase übernimmt außerdem die Anmeldung mit E-Mail
-        und Passwort. Anbieter ist die Supabase Pte. Ltd., Singapur. Unsere Datenbank liegt in einem Rechenzentrum in
-        der EU. Passwörter werden nicht im Klartext gespeichert.
+        Die Daten des Intranets speichern wir in einer Datenbank auf den Servern unseres Hosters (siehe oben):
+        Mitglieds- und Kontodaten, Anmeldungen zu Veranstaltungen, Beiträge am Schwarzen Brett und Bilder zu
+        Veranstaltungen. Dort läuft auch die Anmeldung mit E-Mail und Passwort. Wir nutzen dafür die quelloffene
+        Software Supabase, die unser Hoster selbst betreibt; an den Hersteller der Software werden keine Daten
+        übermittelt. Passwörter werden nicht im Klartext gespeichert.
       </p>
       <p>
-        Mit Supabase besteht ein Vertrag über Auftragsverarbeitung. Soweit Supabase oder seine Unterauftragnehmer von
-        außerhalb der EU auf Daten zugreifen, etwa für Wartung und Support, gelten die EU-Standardvertragsklauseln
-        (Art. 46 Abs. 2 lit. c DSGVO). Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Durchführung der Mitgliedschaft)
-        und Art. 6 Abs. 1 lit. f DSGVO (zuverlässiger Betrieb des Intranets).
+        Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Durchführung der Mitgliedschaft) und Art. 6 Abs. 1 lit. f DSGVO
+        (zuverlässiger Betrieb des Intranets).
       </p>
 
       <h3>Verschlüsselung sensibler Angaben</h3>
