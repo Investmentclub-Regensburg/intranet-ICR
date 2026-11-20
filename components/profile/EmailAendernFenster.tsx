@@ -66,6 +66,9 @@ export function EmailAendernFenster(props: Props) {
     zuletzt.current = { email, neueAdresse, stand, fertig };
   }, [email, neueAdresse, stand, fertig]);
   const timer = useRef<number[]>([]);
+  // Zähler der eigenen Aktionen (Anfragen, erneut senden): Eine Abfrage, die vor einer Aktion startete, darf deren
+  // Ergebnis nicht mit einem alten Stand überschreiben (erneut senden setzt den Stand bei GoTrue auf 0 zurück).
+  const aktion = useRef(0);
 
   useEffect(() => {
     const laufend = timer.current;
@@ -107,8 +110,9 @@ export function EmailAendernFenster(props: Props) {
       if (laeuft || document.visibilityState !== "visible") return;
       laeuft = true;
       try {
+        const nr = aktion.current;
         const info = await readEmailChange();
-        if (!aktiv || !info) return;
+        if (!aktiv || !info || nr !== aktion.current) return;
         const z = zuletzt.current;
         if (!info.stand.offen) {
           // Änderung durch: Die bisher gewartete Adresse ist jetzt die gültige.
@@ -144,6 +148,7 @@ export function EmailAendernFenster(props: Props) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     setMeldung("");
+    aktion.current += 1;
     startTransition(async () => {
       try {
         const result = await requestEmailChange(formData);
@@ -158,12 +163,15 @@ export function EmailAendernFenster(props: Props) {
         }
       } catch {
         setMeldung("Die Änderung konnte nicht gestartet werden. Bitte versuch es noch einmal.");
+      } finally {
+        aktion.current += 1;
       }
     });
   }
 
   function erneutSenden() {
     setMeldung("");
+    aktion.current += 1;
     startTransition(async () => {
       try {
         const result = await resendEmailChange();
@@ -182,6 +190,9 @@ export function EmailAendernFenster(props: Props) {
         }
       } catch {
         setMeldung("Die Mails konnten nicht gesendet werden. Bitte versuch es noch einmal.");
+      } finally {
+        // Abfragen, die während des Sendens starteten, gelten ebenfalls nicht.
+        aktion.current += 1;
       }
     });
   }
@@ -198,6 +209,8 @@ export function EmailAendernFenster(props: Props) {
         onOpenAutoFocus={(e) => {
           if (ansicht !== "eingabe") e.preventDefault();
         }}
+        // Keine Beschreibung unter dem Titel (keine Untertexte); Radix warnt sonst.
+        aria-describedby={undefined}
         className="block max-h-[calc(100dvh-2rem)] gap-0 overflow-y-auto rounded-[18px] p-0 sm:max-w-[560px]"
       >
         {ansicht === "eingabe" && (
