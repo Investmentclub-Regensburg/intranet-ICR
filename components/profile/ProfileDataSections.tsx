@@ -31,6 +31,8 @@ import { ibanInViererbloecken } from "@/lib/member-rules-client";
 import { plzInputMode } from "@/lib/member-inputs";
 import { cn } from "@/lib/utils";
 import { EmailAendernFenster, type FensterErgebnis, type Postfach } from "@/components/profile/EmailAendernFenster";
+import { StudiengangAuswahl, type StudiengangWert } from "@/components/member/StudiengangAuswahl";
+import { auswahlAusWert, studiengangAnzeige } from "@/lib/studiengaenge";
 import {
   geradeBestaetigt,
   startAnsicht,
@@ -64,6 +66,8 @@ export type ProfileContactData = {
   handyAnzeige: string;
   /** Geburtsdatum YYYY-MM-DD oder leer (das Mitglied ändert es selbst, Entscheidung 11). */
   geburtsdatum: string;
+  /** Studiengang wie gespeichert (Klartext, leer = nicht angegeben); Auswahl wie bei der Registrierung. */
+  studiengang: string;
   /** Alumni zahlen keinen Beitrag: IBAN nicht Pflicht. */
   alumni: boolean;
   iban: string;
@@ -100,6 +104,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
   const email = useEmailFenster(profile);
   const [land, setLand] = useState(profile.land);
   const [handy, setHandy] = useState<HandyWert>({ land: profile.handyLand, nummer: profile.handyNummer });
+  const [studiengang, setStudiengang] = useState<StudiengangWert>(() => auswahlAusWert(profile.studiengang));
   const name = `${profile.vorname} ${profile.nachname}`.trim();
   const streetLine = `${profile.strasse} ${profile.hausnummer}`.trim();
   const cityLine = `${profile.plz} ${profile.ort}`.trim();
@@ -108,6 +113,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
   function open() {
     setLand(profile.land);
     setHandy({ land: profile.handyLand, nummer: profile.handyNummer });
+    setStudiengang(auswahlAusWert(profile.studiengang));
     editor.open();
   }
 
@@ -132,6 +138,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
             }
           />
           <Row label="Geburtsdatum" value={datumDeutsch(profile.geburtsdatum)} empty="Noch nicht eingetragen" numeric />
+          <Row label="Studiengang" value={studiengangAnzeige(profile.studiengang)} empty="Noch nicht eingetragen" />
           <Row label="E-Mail">
             <span className="block break-all">{email.email}</span>
             <EmailStandZeile fenster={email} />
@@ -155,6 +162,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
             <input type="hidden" name="version" value={profile.version} />
             <input type="hidden" name="vornameVorher" value={profile.vorname} />
             <input type="hidden" name="nachnameVorher" value={profile.nachname} />
+            <input type="hidden" name="studiengangVorher" value={profile.studiengang} />
             {profile.landUnbekannt && <input type="hidden" name="landUnbekannt" value="1" />}
             <div className="grid grid-cols-2 gap-3">
               <Field id={`${id}-vorname`} label="Vorname" fehler={f.vorname}>
@@ -204,6 +212,20 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
                 onInput={() => editor.clear("geburtsdatum")}
               />
             </Field>
+            <div className="space-y-1.5">
+              <FieldLabel htmlFor={`${id}-studiengang`}>Studiengang</FieldLabel>
+              <StudiengangAuswahl
+                id={`${id}-studiengang`}
+                wert={studiengang}
+                onChange={(w) => {
+                  setStudiengang(w);
+                  editor.clear("studiengang", "studiengangSonstiges");
+                }}
+                fehler={f.studiengang}
+                fehlerFreitext={f.studiengangSonstiges}
+                className="[&_input]:h-9"
+              />
+            </div>
             <EmailEditField id={id} fenster={email} />
             <div className="space-y-1.5">
               <FieldLabel htmlFor={`${id}-handy`}>Handynummer (optional)</FieldLabel>

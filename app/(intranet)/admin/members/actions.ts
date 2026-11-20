@@ -23,6 +23,8 @@ import {
 } from "@/lib/member-forms";
 import { maskIban } from "@/components/profile/profile-format";
 import { speichereNamen, type NamenStand } from "@/lib/member-names-server";
+import { speichereStudiengang, studiengangAusProfil, studiengangStandPasst } from "@/lib/member-studiengang-server";
+import { auswahlAusWert, studiengangAenderung } from "@/lib/studiengaenge";
 import { adminMitgliederZeilen, type AdminMemberRow } from "@/lib/member-overview";
 
 export type { AdminMemberRow } from "@/lib/member-overview";
@@ -95,23 +97,39 @@ export type MemberCorrectionData = KorrekturWerte & {
   version: number;
   /** Ohne Spalte land geladen (Übergang): ein übermitteltes Land wird ignoriert. */
   landUnbekannt: boolean;
+  /** Studiengang wie gespeichert (Klartext, Sperre beim Speichern); "" = nicht angegeben. */
+  studiengang: string;
+  /** Startwert der Auswahl (auswahlAusWert): Listenname bzw. „Sonstiges“ + alter Text. */
+  studiengangAuswahl: string;
+  studiengangSonstiges: string;
 };
 
 export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
   /** Neue IBAN; leer = unverändert. */
   iban: string;
+  /** Nur, wenn der Vorstand den Studiengang angefasst hat (sonst fehlen beide = unverändert). */
+  studiengang?: string;
+  studiengangSonstiges?: string;
 };
 
 async function loadCorrectionValues(
   admin: ReturnType<typeof createServiceClient>,
   profileId: string
 ): Promise<
-  | { name: string; namen: NamenStand; userId: string | null; values: MemberSecretValues; version: number; landBekannt: boolean }
+  | {
+      name: string;
+      namen: NamenStand;
+      userId: string | null;
+      studiengang: string | null;
+      values: MemberSecretValues;
+      version: number;
+      landBekannt: boolean;
+    }
   | { error: string }
 > {
   const { data: profile, error } = await admin
     .from("profiles")
-    .select('"Vorname", "Nachname", user_id')
+    .select('"Vorname", "Nachname", user_id, "Studiengang / Fach"')
     .eq("id", profileId)
     .maybeSingle();
   if (error) {
@@ -132,6 +150,7 @@ async function loadCorrectionValues(
       name,
       namen,
       userId,
+      studiengang: studiengangAusProfil(p),
       values: gelesen?.values ?? emptySecretValues(),
       version: gelesen?.version ?? 0,
       landBekannt: gelesen?.landBekannt ?? true,
@@ -152,6 +171,7 @@ export async function getMemberCorrectionData(
   const loaded = await loadCorrectionValues(createServiceClient(), profileId);
   if ("error" in loaded) return loaded;
   const v = loaded.values;
+  const auswahl = auswahlAusWert(loaded.studiengang);
   return {
     data: {
       name: loaded.name,
@@ -159,6 +179,9 @@ export async function getMemberCorrectionData(
       ibanMasked: v.iban ? maskIban(v.iban) : "",
       version: loaded.version,
       landUnbekannt: !loaded.landBekannt,
+      studiengang: loaded.studiengang ?? "",
+      studiengangAuswahl: auswahl.auswahl,
+      studiengangSonstiges: auswahl.freitext,
     },
   };
 }
@@ -180,6 +203,10 @@ function korrekturText(obj: unknown, feld: string): string {
  * Feldern blockieren nicht. Gespeichert werden die normalisierten Werte – und nur, wenn die Felder in der
  * Datenbank noch `base` entsprechen (sonst hätte z. B. das Mitglied inzwischen geändert). Protokoll in
  * member_data_corrections (nur Feldnamen).
+ *
+ * Studiengang (Klartext in profiles): nur, wenn der Dialog ihn mitschickt (der Vorstand hat die Auswahl angefasst);
+ * geprüft wie bei der Registrierung (studiengangAenderung, leeren geht nicht), gespeichert über
+ * save_member_studiengang mit Protokoll (Feld „studiengang“, Quelle „vorstand“). Sperre: Wert beim Öffnen.
  */
 export async function correctMemberData(
   profileId: string,
@@ -221,13 +248,28 @@ export async function correctMemberData(
     return { error: GEAENDERT_MELDUNG };
   }
 
+  // Studiengang nur, wenn mitgeschickt; dann muss der Stand beim Öffnen noch gelten.
+  const studiengangGesendet = Object.prototype.hasOwnProperty.call(input, "studiengang");
+  if (studiengangGesendet && !studiengangStandPasst(korrekturText(base, "studiengang"), loaded.studiengang)) {
+    return { error: GEAENDERT_MELDUNG };
+  }
+  const studiengang = studiengangGesendet
+    ? studiengangAenderung(loaded.studiengang, korrekturText(input, "studiengang"), korrekturText(input, "studiengangSonstiges"))
+    : ({ art: "unveraendert" } as const);
+
   const landUnbekannt = (base as { landUnbekannt?: unknown }).landUnbekannt === true || !loaded.landBekannt;
   const pruefung = pruefeKorrektur(eingabe, basis, { ...current, ...loaded.namen }, undefined, landUnbekannt);
-  if (!pruefung.gueltig) {
-    return { error: pruefung.ersterFehler ?? "Bitte prüf die Angaben.", fehler: pruefung.fehler };
+  if (!pruefung.gueltig || studiengang.art === "fehler") {
+    const fehler: FeldFehler = { ...pruefung.fehler };
+    if (studiengang.art === "fehler") fehler[studiengang.feld] = studiengang.fehler;
+    const erster =
+      pruefung.ersterFehler ?? (studiengang.art === "fehler" ? studiengang.fehler : null) ?? "Bitte prüf die Angaben.";
+    return { error: erster, fehler };
   }
   const namenGeaendert = Object.keys(pruefung.namen).length > 0;
-  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert) return { error: "", unchanged: true };
+  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert && studiengang.art !== "neu") {
+    return { error: "", unchanged: true };
+  }
 
   if (Object.keys(pruefung.aenderungen).length > 0) {
     try {
@@ -249,6 +291,15 @@ export async function correctMemberData(
     });
     if (ergebnis === "konflikt") return { error: GEAENDERT_MELDUNG };
     if (ergebnis === "fehler") return { error: "Der Name konnte nicht gespeichert werden." };
+  }
+
+  if (studiengang.art === "neu") {
+    // Protokoll (Feld studiengang, Quelle vorstand) schreibt save_member_studiengang in derselben Transaktion.
+    const ergebnis = await speichereStudiengang(admin, profileId, loaded.studiengang, studiengang.wert, {
+      correctedBy: actorId,
+    });
+    if (ergebnis === "konflikt") return { error: GEAENDERT_MELDUNG };
+    if (ergebnis === "fehler") return { error: "Der Studiengang konnte nicht gespeichert werden." };
   }
 
   revalidatePath("/admin/members");

@@ -18,6 +18,10 @@ export type DatenWerte = {
   land: string;
   handyLand: string;
   handynummer: string;
+  /** Studiengang als Auswahl (Listenname, „Sonstiges“ oder leer) … */
+  studiengang: string;
+  /** … und der Freitext bei „Sonstiges“. */
+  studiengangSonstiges: string;
   iban: string;
 };
 
@@ -56,7 +60,7 @@ export const ANSCHRIFT_FELDER = ["strasse", "hausnummer", "plz", "ort"] as const
  * einen Mangel (bleibt als Absicherung in der Liste); eine unveränderte freiwillige Anschrift mit Altmangel bewertet
  * das Formular ebenfalls nicht neu, sie ist im Bestand aber auch kein Mangel (also nie markiert).
  */
-export const NUR_IM_BESTAND_GEPRUEFT: readonly string[] = ["handynummer", "geburtsdatum"];
+export const NUR_IM_BESTAND_GEPRUEFT: readonly string[] = ["handynummer", "geburtsdatum", "studiengang"];
 
 /**
  * Wo die Meldung eines Felds steht: bei gleicher Meldung an mehreren Anschriftteilen nur am ersten (z. B. „Für eine
@@ -107,7 +111,8 @@ function gleich(a: string, b: string): boolean {
 
 /**
  * Geänderte Felder gegenüber dem Start, als Feldnamen der Regeln („handynummer“ steht für Land + Nummer). Handy
- * nach der Eingabe-Formatierung verglichen (bloß umformatiert = unverändert), IBAN in Viererblöcken.
+ * nach der Eingabe-Formatierung verglichen (bloß umformatiert = unverändert), IBAN in Viererblöcken. „studiengang“
+ * steht für Auswahl + Freitext (der Freitext zählt nur bei „Sonstiges“).
  */
 export function geaenderteFelder(start: DatenWerte, jetzt: DatenWerte): string[] {
   const felder: string[] = [];
@@ -118,6 +123,12 @@ export function geaenderteFelder(start: DatenWerte, jetzt: DatenWerte): string[]
   const handyJetzt = { land: jetzt.handyLand, nummer: jetzt.handynummer };
   if (!gleicheHandyEingabe(handyStart, handyJetzt)) felder.push("handynummer");
   if (ibanInViererbloecken(start.iban) !== ibanInViererbloecken(jetzt.iban)) felder.push("iban");
+  if (
+    start.studiengang !== jetzt.studiengang ||
+    (jetzt.studiengang === "Sonstiges" && !gleich(start.studiengangSonstiges, jetzt.studiengangSonstiges))
+  ) {
+    felder.push("studiengang");
+  }
   return felder;
 }
 
@@ -132,6 +143,8 @@ export function zuSendendeWerte(start: DatenWerte, jetzt: DatenWerte): [keyof Da
   for (const feld of geaendert) {
     if (feld === "handynummer") {
       werte.push(["handyLand", jetzt.handyLand], ["handynummer", jetzt.handynummer]);
+    } else if (feld === "studiengang") {
+      werte.push(["studiengang", jetzt.studiengang], ["studiengangSonstiges", jetzt.studiengangSonstiges]);
     } else {
       werte.push([feld as keyof DatenWerte, jetzt[feld as keyof DatenWerte]]);
     }

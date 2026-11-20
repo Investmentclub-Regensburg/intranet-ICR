@@ -35,7 +35,9 @@ npm run datenqualitaet -- reparieren             --projekt <…> --vorstand <Pro
   Anschrift Pflicht, nicht bei Alumni). Die BIC wird nicht mehr abgefragt, geprüft, gezählt oder geändert;
   gespeicherte Werte bleiben, wie sie sind.
 - **`pruefen`**: Zählungen je Feld und Mängel-Code, die Hinweise (`vorwahl_ergaenzt`; kommt bei deutschen Nummern praktisch nicht mehr vor, siehe oben), Profile ohne
-  `member_secrets`-Zeile und nicht lesbare Zeilen.
+  `member_secrets`-Zeile und nicht lesbare Zeilen. Seit 20.11.2026 zählt der fehlende Studiengang (Klartext in
+  `profiles`, Pflicht für alle aktiven Profile inkl. Alumni) als Mangel `studiengang fehlt`; das Skript ändert ihn nie
+  (nachtragen: das Mitglied in der Abfrage oder der Vorstand im Bearbeiten-Fenster).
 - **`reparieren --probelauf`**: je Feld, wie viele Profile `gueltig`, `sicher` (wird automatisch korrigiert),
   `vorschlag` (bestätigt das Mitglied in der Abfrage) oder `offen` (Mitglied oder Vorstand korrigiert) sind.
 - **`reparieren`** schreibt **nur „sicher“**:

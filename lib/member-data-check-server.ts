@@ -28,6 +28,13 @@ import {
 import { emptySecretValues, readMemberSecretsWithMeta, type MemberSecretValues } from "./member-secrets-server";
 import { isActiveMemberProfile, isAlumniProfile } from "./profile-status";
 import {
+  STUDIENGANG_FEHLT,
+  auswahlAusWert,
+  studiengangAenderung,
+  studiengangAnzeige,
+  studiengangFehlt,
+} from "./studiengaenge";
+import {
   BESTANDS_FELDER,
   istAbfrageFaellig,
   leseDatenCheckEinstellungen,
@@ -111,8 +118,11 @@ export async function bestaetigeStand(
   return "ok";
 }
 
-/** Eigener Bestand: verschlüsselte Felder + Name im Klartext. */
-export type DatenBestand = MemberSecretValues & Namen;
+/**
+ * Eigener Bestand: verschlüsselte Felder + Name und Studiengang im Klartext. `studiengang` undefined = nicht gelesen
+ * (wird dann nicht bewertet); die Aufrufer hier lesen ihn immer mit (null = leer).
+ */
+export type DatenBestand = MemberSecretValues & Namen & { studiengang?: string | null };
 
 export const HINWEIS_VORWAHL = "Vorwahl +49 ergänzt. Stimmt die Nummer?";
 /**
@@ -154,7 +164,8 @@ function alsDaten(b: DatenBestand): Mitgliederdaten {
 }
 
 /**
- * Gespeicherten Bestand bewerten (`pruefeBestand`, ohne `handyLand`). Mängel nur an Pflichtfeldern
+ * Gespeicherten Bestand bewerten (`pruefeBestand`, ohne `handyLand`), dazu der Studiengang (Klartext, Pflicht seit
+ * 20.11.2026 für alle aktiven Profile, auch Alumni: leer = Mangel `studiengang`). Mängel nur an Pflichtfeldern
  * (`istPflichtImBestand`, Klickrunde 20.11.2026): Handy, freiwillige Anschrift und bei Alumni die IBAN
  * (Entscheidung 3) sind nie ein Mangel, auch nicht ungültig gespeichert; sie werden weder markiert noch gezählt,
  * und „Stimmt alles“ schreibt sie nicht um (ihre Werte fehlen in `werte`). Hinweise (`vorwahl_ergaenzt`) blockieren
@@ -178,6 +189,7 @@ export function bewerteBestand(bestand: DatenBestand, alumni: boolean, heute?: s
     if (fehler[h.feld] !== undefined) continue;
     if (h.code === "vorwahl_ergaenzt") hinweise[h.feld] = HINWEIS_VORWAHL;
   }
+  if (studiengangFehlt(bestand.studiengang)) fehler.studiengang = STUDIENGANG_FEHLT;
   return { gueltig: Object.keys(fehler).length === 0, fehler, hinweise, werte };
 }
 
@@ -237,6 +249,7 @@ const ZEILEN: { key: DatenCheckZeilenSchluessel; label: string; felder: readonly
   { key: "email", label: "E-Mail", felder: [] },
   { key: "iban", label: "IBAN", felder: ["iban"] },
   { key: "geburtsdatum", label: "Geburtsdatum", felder: ["geburtsdatum"] },
+  { key: "studiengang", label: "Studiengang", felder: [] },
 ];
 
 /** IBAN maskiert: nur die letzten vier Stellen („…1234“). */
@@ -292,6 +305,8 @@ export function bauDatenCheckAnsicht({
     email: [email],
     iban: [ibanMaskiert(bestand.iban)],
     geburtsdatum: [datumDeutsch(wert("geburtsdatum"))],
+    // Wie gespeichert (Altwert ohne Zuordnung als Text); „Stimmt alles“ schreibt ihn nicht um.
+    studiengang: [studiengangAnzeige(bestand.studiengang)],
   };
 
   // Anschrift ganz leer: keine Werte (das vorbelegte Land allein ist kein Wert, Review B3). Die Anschrift ist
@@ -309,7 +324,9 @@ export function bauDatenCheckAnsicht({
     const fehler =
       z.key === "anschrift" && anschriftLeer && anschriftMangel
         ? ANSCHRIFT_FEHLT
-        : z.felder.map((f) => b.fehler[f]).find((f) => f !== undefined);
+        : z.key === "studiengang"
+          ? b.fehler.studiengang
+          : z.felder.map((f) => b.fehler[f]).find((f) => f !== undefined);
     const hinweis = z.felder.map((f) => b.hinweise[f]).find((h) => h !== undefined);
     // Alumni ohne Bankdaten: Zeile weglassen (nicht nötig, kein Mangel).
     if (alumni && z.key === "iban" && werte.length === 0) continue;
@@ -335,6 +352,8 @@ export function bauDatenCheckAnsicht({
       handyLand: start.handyLand,
       handyNummer: start.handynummer,
       geburtsdatum: start.geburtsdatum,
+      studiengang: start.studiengang,
+      studiengangSonstiges: start.studiengangSonstiges,
       // Alumni sehen keine Bankverbindung (nicht nötig): ihre IBAN geht gar nicht erst an den Browser. Das Formular
       // schickt dann keine IBAN, der Server nimmt die gespeicherte (eingabeMitBestand).
       iban: alumni ? "" : start.iban,
@@ -349,6 +368,7 @@ export function bauDatenCheckAnsicht({
 /** Ausgangswerte des Formulars aus dem Bestand, Schlüssel wie AENDERN_FELDER (Handy aufgeteilt, Land mit Standard). */
 export function formularAusBestand(bestand: DatenBestand): Record<(typeof AENDERN_FELDER)[number], string> {
   const handy = handyFuerEingabe(bestand.handynummer);
+  const studiengang = auswahlAusWert(bestand.studiengang);
   return {
     vorname: text(bestand.vorname).trim(),
     nachname: text(bestand.nachname).trim(),
@@ -360,6 +380,8 @@ export function formularAusBestand(bestand: DatenBestand): Record<(typeof AENDER
     handyLand: handy.land,
     handynummer: handy.nummer,
     geburtsdatum: (bestand.geburtsdatum ?? "").trim(),
+    studiengang: studiengang.auswahl,
+    studiengangSonstiges: studiengang.freitext,
     iban: bestand.iban ?? "",
   };
 }
@@ -399,6 +421,8 @@ export const AENDERN_FELDER = [
   "handyLand",
   "handynummer",
   "geburtsdatum",
+  "studiengang",
+  "studiengangSonstiges",
   "iban",
 ] as const;
 
@@ -426,6 +450,8 @@ export function pruefeDatenCheckAenderung(
   vollstaendig: boolean;
   secrets: Partial<MemberSecretValues>;
   namen: { vorname?: string; nachname?: string };
+  /** Neuer Studiengang (nur, wenn geändert); sonst undefined. */
+  studiengang?: string;
 } {
   const persoenlich: Record<string, unknown> = {};
   for (const key of ["vorname", "nachname", "strasse", "hausnummer", "plz", "ort", "land", "handyLand", "handynummer", "geburtsdatum"]) {
@@ -441,11 +467,14 @@ export function pruefeDatenCheckAenderung(
   // Bewertung des Bestands danach am Feld (nicht an der IBAN wie im Profil).
   const k = pruefeProfil("bank", bank, bestand, alumni, heute, landUnbekannt, false);
   const formFehler: FeldFehler = { ...p.fehler, ...k.fehler };
-  if (!p.gueltig || !k.gueltig) {
+  // Studiengang: nur eine geänderte Auswahl wird geprüft (ein leerer, unveränderter Wert ist der Mangel unten).
+  const sg = studiengangAenderung(bestand.studiengang ?? null, eingabe.studiengang, eingabe.studiengangSonstiges);
+  if (sg.art === "fehler") formFehler[sg.feld] = sg.fehler;
+  if (!p.gueltig || !k.gueltig || sg.art === "fehler") {
     return {
       gueltig: false,
       fehler: formFehler,
-      ersterFehler: p.ersterFehler ?? k.ersterFehler,
+      ersterFehler: p.ersterFehler ?? k.ersterFehler ?? (sg.art === "fehler" ? sg.fehler : null),
       vollstaendig: false,
       secrets: {},
       namen: {},
@@ -458,6 +487,7 @@ export function pruefeDatenCheckAenderung(
     ...k.aenderungen,
     vorname: p.namen.vorname ?? bestand.vorname ?? null,
     nachname: p.namen.nachname ?? bestand.nachname ?? null,
+    studiengang: sg.art === "neu" ? sg.wert : bestand.studiengang,
   };
   const b = bewerteBestand(nachher, alumni, heute);
   if (!b.gueltig) {
@@ -472,6 +502,7 @@ export function pruefeDatenCheckAenderung(
     vollstaendig: true,
     secrets: { ...p.aenderungen, ...k.aenderungen, ...rest.secrets },
     namen: { ...p.namen, ...rest.namen },
+    ...(sg.art === "neu" ? { studiengang: sg.wert } : {}),
   };
 }
 
@@ -507,6 +538,7 @@ export async function ladeDatenCheckAnsicht({
         ...values,
         vorname: typeof profil.Vorname === "string" ? profil.Vorname : null,
         nachname: typeof profil.Nachname === "string" ? profil.Nachname : null,
+        studiengang: typeof profil["Studiengang / Fach"] === "string" ? (profil["Studiengang / Fach"] as string) : null,
       },
       alumni: isAlumniProfile(profil),
       email,
@@ -543,7 +575,19 @@ export async function faelligerDatenCheck({
     aktiv: isActiveMemberProfile(profil),
     bestaetigtAm: profil.daten_bestaetigt_am as string | null,
     erinnernAb: profil.daten_erinnern_ab as string | null,
+    // Studiengang fehlt (Klartext, ohne Entschlüsselung): immer fällig, auch nach einer Bestätigung.
+    pflichtLuecke: studiengangFehlt(profilStudiengang(profil)),
   });
   if (!faellig) return null;
   return ladeDatenCheckAnsicht({ admin: admin(), profil, email, einstellungen });
+}
+
+/**
+ * Studiengang aus einer Profilzeile für die Fälligkeit: Text oder null (leer). Fehlt die Spalte in der Zeile ganz
+ * (Aufrufer ohne sie), undefined = nicht bewerten.
+ */
+export function profilStudiengang(profil: Record<string, unknown>): string | null | undefined {
+  if (!Object.prototype.hasOwnProperty.call(profil, "Studiengang / Fach")) return undefined;
+  const wert = profil["Studiengang / Fach"];
+  return typeof wert === "string" ? wert : null;
 }

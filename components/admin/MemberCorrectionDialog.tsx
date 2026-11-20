@@ -18,6 +18,7 @@ import {
   SELECT_CLASS,
   type HandyWert,
 } from "@/components/member/MemberInputs";
+import { StudiengangAuswahl, type StudiengangWert } from "@/components/member/StudiengangAuswahl";
 import { plzInputMode } from "@/lib/member-inputs";
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +35,7 @@ import {
   mitgliedschaftAufruf,
   mitgliedschaftFehlerText,
   mitgliedschaftVon,
+  mitStudiengang,
   rolleGesperrt,
   rolleVon,
   speichereBearbeitung,
@@ -68,7 +70,8 @@ const FELD_HOEHE = "h-10";
 /**
  * Bearbeiten-Fenster des Vorstands (Design-Runde 19.11.2026): oben die Mitgliedschaft (Rolle, Status), darunter
  * die Korrektur der verschlüsselten Daten (Adresse mit Land, Handy mit Länderauswahl, Geburtsdatum,
- * Bankverbindung). Beim Speichern geht nur, was sich geändert hat: Rolle/Status über updateMemberRole
+ * Bankverbindung) und der Studiengang (Klartext, Auswahl wie bei der Registrierung; nur angefasst und geändert geht er
+ * mit, mitStudiengang). Beim Speichern geht nur, was sich geändert hat: Rolle/Status über updateMemberRole
  * (Zuordnung in member-list.ts), Daten über correctMemberData. Ändert sich nur die Rolle, laufen die
  * verschlüsselten Felder nicht mit, und umgekehrt. Die Rechte prüft der Server (nur Vorstand).
  *
@@ -103,6 +106,7 @@ export function MemberCorrectionDialog({
   const [land, setLand] = useState("DE");
   const [handy, setHandy] = useState<HandyWert>({ land: "DE", nummer: "" });
   const [iban, setIban] = useState("");
+  const [studiengang, setStudiengang] = useState<StudiengangWert>({ auswahl: "", freitext: "" });
   // Felder, die der Vorstand selbst geändert hat: nur die zählen als Änderung (Review M2).
   const angefasst = useRef(new Set<string>());
   // Antwort eines inzwischen geschlossenen Fensters verwerfen.
@@ -114,6 +118,7 @@ export function MemberCorrectionDialog({
     setLand(d.land);
     setHandy({ land: d.handyLand, nummer: d.handynummer });
     setIban("");
+    setStudiengang({ auswahl: d.studiengangAuswahl, freitext: d.studiengangSonstiges });
   }
 
   function ladeDaten() {
@@ -186,7 +191,16 @@ export function MemberCorrectionDialog({
         geburtsdatum: value("geburtsdatum"),
         iban,
       };
-      eingabe = datenFuerKorrektur(eingabe, data, DATEN_FELDER, angefasst.current);
+      const basis = { ...eingabe };
+      for (const feld of DATEN_FELDER) basis[feld] = data[feld];
+      basis.iban = "";
+      eingabe = mitStudiengang(
+        datenFuerKorrektur(eingabe, data, DATEN_FELDER, angefasst.current),
+        basis,
+        studiengang,
+        { auswahl: data.studiengangAuswahl, freitext: data.studiengangSonstiges },
+        angefasst.current,
+      );
     }
 
     if (!aufruf && !eingabe) {
@@ -358,6 +372,22 @@ export function MemberCorrectionDialog({
                         <Field id="mc-geburtsdatum" label="Geburtsdatum" fehler={fehler.geburtsdatum}>
                           <Input id="mc-geburtsdatum" name="geburtsdatum" type="date" defaultValue={data.geburtsdatum} {...invalid("mc-geburtsdatum", fehler.geburtsdatum)} onInput={() => anfassen("geburtsdatum")} />
                         </Field>
+                        <div className="grid min-w-0 content-start gap-1.5">
+                          <Label htmlFor="mc-studiengang">Studiengang</Label>
+                          <StudiengangAuswahl
+                            id="mc-studiengang"
+                            name=""
+                            freitextName=""
+                            wert={studiengang}
+                            onChange={(w) => {
+                              setStudiengang(w);
+                              anfassen("studiengang", "studiengangSonstiges");
+                            }}
+                            freitextLabel="Studiengang (Freitext)"
+                            fehler={fehler.studiengang}
+                            fehlerFreitext={fehler.studiengangSonstiges}
+                          />
+                        </div>
                       </div>
                       <div className="grid gap-1.5">
                         <Label htmlFor="mc-handy">Handynummer</Label>

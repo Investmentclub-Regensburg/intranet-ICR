@@ -15,6 +15,7 @@ import {
 } from "../../lib/member-rules.ts";
 import { isActiveMemberProfile, isAlumniProfile, isCancelledProfile } from "../../lib/profile-status.ts";
 import { normalizeIban } from "../../lib/member-crypto.ts";
+import { studiengangFehlt } from "../../lib/studiengaenge.ts";
 
 /**
  * Verschlüsselte Felder, die das Skript aus member_secrets liest und prüft (= SECRET_FIELDS ohne `bic`, seit
@@ -46,6 +47,13 @@ export const SCHREIBBARE_FELDER = Object.freeze(["handynummer", "strasse", "haus
 /** Felder in der Ausgabe (Reihenfolge der Gesamtprüfung, inkl. `land`). */
 export const AUSGABE_FELDER = Object.freeze([...STAMMFELDER]);
 
+/**
+ * Felder der Mängeltabelle: die verschlüsselten Felder und der Studiengang (Klartext in profiles, Pflicht seit
+ * 20.11.2026, Code „fehlt“). Den Studiengang zählt das Skript nur; repariert wird er nie (Bereinigung der
+ * Schreibweisen: scripts/studiengang.mjs, nachtragen: das Mitglied in der Abfrage).
+ */
+export const MANGEL_FELDER = Object.freeze([...AUSGABE_FELDER, "studiengang"]);
+
 export const STATUS = Object.freeze(["gueltig", "sicher", "vorschlag", "offen"]);
 
 /** Gruppe eines Profils: nur „aktiv“ (inkl. Vorstand und Alumni) wird bewertet und ggf. geändert. */
@@ -56,7 +64,8 @@ export function gruppeVon(profil) {
 
 /**
  * Ein Profil bewerten.
- *   profil    Zeile aus profiles (`Status`, `Rolle`)
+ *   profil    Zeile aus profiles (`Status`, `Rolle`, `Studiengang / Fach`; fehlt die Spalte in der Zeile, wird der
+ *             Studiengang nicht bewertet)
  *   werte     entschlüsselte Felder (MemberSecretValues) oder "unreadable"
  *   hatZeile  gibt es eine member_secrets-Zeile?
  *   heute     YYYY-MM-DD (nur Tests)
@@ -88,7 +97,11 @@ export function bewerteProfil({ profil, werte, hatZeile, heute }) {
   // Ohne `handyLand` (regeln-fuer-aufrufer.md Punkt 1): sonst fehlt der Hinweis `vorwahl_ergaenzt`.
   const pruefung = pruefeBestand(daten, kontext);
   const reparatur = repariereMitgliederdaten(daten, kontext);
-  const maengel = eindeutigeMaengel(pruefung.maengel);
+  const maengel = [...eindeutigeMaengel(pruefung.maengel)];
+  // Studiengang (Klartext): leer = Mangel „fehlt“, auch bei Alumni (gleiche Regel wie Abfrage und Vorstandsübersicht).
+  if (Object.hasOwn(profil ?? {}, "Studiengang / Fach") && studiengangFehlt(profil["Studiengang / Fach"] ?? null)) {
+    maengel.push({ feld: "studiengang", code: "fehlt" });
+  }
   const freiwillig = eindeutigeMaengel(pruefung.freiwillig);
   // Status „offen“ auch für ungültige freiwillige Angaben: Die Statustabelle sagt, was zu korrigieren wäre, nicht,
   // was blockiert. Ausnahme wie bisher: die IBAN eines Alumnus (an der Bank korrigiert niemand etwas).
@@ -256,7 +269,7 @@ const zeile = (label, n, breite = 56) => `  ${label.padEnd(breite)} ${zahl(n).pa
 
 function codeTabelle(tabelle, codes) {
   const zeilen = [];
-  for (const feld of AUSGABE_FELDER) {
+  for (const feld of MANGEL_FELDER) {
     for (const code of codes) {
       const n = tabelle[feld]?.[code];
       if (n) zeilen.push(`  ${feld.padEnd(14)} ${code.padEnd(24)} ${zahl(n).padStart(5)}`);

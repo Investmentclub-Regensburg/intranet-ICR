@@ -256,3 +256,34 @@ export function datenFuerKorrektur<K extends string>(
   }
   return geaendert ? { ...eingabe, iban: formular.iban } : null;
 }
+
+/** Auswahl des Studiengangs im Bearbeiten-Fenster (wie StudiengangWert; „Sonstiges“ = Freitext). */
+export type StudiengangEingabe = { auswahl: string; freitext: string };
+
+const SONSTIGES_NAME = "Sonstiges";
+
+/** Gleiche Auswahl? Der Freitext zählt nur bei „Sonstiges“ (Leerraum außen egal). */
+export function gleicherStudiengang(a: StudiengangEingabe, b: StudiengangEingabe): boolean {
+  if (a.auswahl !== b.auswahl) return false;
+  return a.auswahl !== SONSTIGES_NAME || a.freitext.trim() === b.freitext.trim();
+}
+
+/**
+ * Studiengang an den Datenteil hängen, aber nur, wenn der Vorstand die Auswahl angefasst UND gegenüber dem Start
+ * geändert hat (sonst geht er gar nicht mit, ein Altwert bleibt stehen). Ist sonst nichts geändert (`eingabe` null),
+ * gehen für die übrigen Felder die Ausgangswerte (`basis`, IBAN leer = unverändert) mit.
+ */
+export function mitStudiengang<E extends { iban: string }>(
+  eingabe: E | null,
+  basis: E,
+  wert: StudiengangEingabe,
+  start: StudiengangEingabe,
+  angefasst: ReadonlySet<string>,
+): (E & { studiengang?: string; studiengangSonstiges?: string }) | null {
+  if (!angefasst.has("studiengang") || gleicherStudiengang(wert, start)) return eingabe;
+  return {
+    ...(eingabe ?? basis),
+    studiengang: wert.auswahl,
+    studiengangSonstiges: wert.auswahl === SONSTIGES_NAME ? wert.freitext : "",
+  };
+}

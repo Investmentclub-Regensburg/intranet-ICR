@@ -17,6 +17,7 @@ import { IcrLogo } from "@/components/brand/IcrLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FeldFehler, FeldHinweis, HandyEingabe, IbanEingabe, LandAuswahl } from "@/components/member/MemberInputs";
+import { StudiengangAuswahl } from "@/components/member/StudiengangAuswahl";
 import {
   anschriftOptional,
   dankeText,
@@ -80,6 +81,8 @@ function startWerte(f: DatenCheckFormular): DatenWerte {
     land: f.land,
     handyLand: f.handyLand,
     handynummer: f.handyNummer,
+    studiengang: f.studiengang,
+    studiengangSonstiges: f.studiengangSonstiges,
     iban: ibanInViererbloecken(f.iban),
   };
 }
@@ -338,6 +341,24 @@ export function DatenPruefenSeite({
                     gruen={gruen.includes("geburtsdatum")}
                     {...ungueltig("geburtsdatum")}
                   />
+                </Zeile>
+                <Zeile label="Studiengang" htmlFor={feldId("studiengang")}>
+                  <div className={cn(FELD, gruenKlasse("studiengang"), gruen.includes("studiengangSonstiges") && GRUEN)}>
+                    <StudiengangAuswahl
+                      id={feldId("studiengang")}
+                      name=""
+                      freitextName=""
+                      wert={{ auswahl: werte.studiengang, freitext: werte.studiengangSonstiges }}
+                      onChange={(w) => {
+                        setze({ studiengang: w.auswahl, studiengangSonstiges: w.freitext }, "studiengang", "studiengangSonstiges");
+                        // Aus der Liste gewählt: gleich prüfen (Tippen und der Freitext prüfen beim Verlassen).
+                        if (w.auswahl && w.auswahl !== "Sonstiges" && w.auswahl !== werteRef.current.studiengang) pruefeBald();
+                      }}
+                      fehler={markierungen.studiengang}
+                      fehlerFreitext={markierungen.studiengangSonstiges}
+                      fehlerSymbol
+                    />
+                  </div>
                 </Zeile>
 
                 <Abschnitt titel="Anschrift" optional={anschriftOptional(markierungen)} />

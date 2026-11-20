@@ -143,21 +143,29 @@ export function leseDatenCheckEinstellungen(env: Record<string, string | undefin
 /**
  * Ist die Abfrage für dieses Profil jetzt fällig? Nur bei eingeschaltetem Schalter, aktivem Profil (inkl.
  * Vorstand und Alumni; `aktiv` = isActiveMemberProfile), offener Bestätigung und ohne laufendes „Später“.
+ *
+ * `pflichtLuecke`: Ein Pflichtfeld im Klartext fehlt (der Studiengang, Pflicht seit 20.11.2026). Dann ist die
+ * Abfrage immer fällig, auch nach einer Bestätigung und während „Später“ (bei einem Mangel gibt es kein „Später“).
+ * So erreicht die neue Regel auch Mitglieder, die schon bestätigt haben, ohne daten_bestaetigt_am per Migration
+ * zurückzusetzen; der Wert steht ohnehin in der Profilzeile, die getCachedAuth liest (keine Entschlüsselung).
  */
 export function istAbfrageFaellig({
   eingeschaltet,
   aktiv,
   bestaetigtAm,
   erinnernAb,
+  pflichtLuecke = false,
   jetzt = new Date(),
 }: {
   eingeschaltet: boolean;
   aktiv: boolean;
   bestaetigtAm: Date | string | null | undefined;
   erinnernAb: Date | string | null | undefined;
+  pflichtLuecke?: boolean;
   jetzt?: Date;
 }): boolean {
   if (!eingeschaltet || !aktiv) return false;
+  if (pflichtLuecke) return true;
   if (!istBestaetigungOffen({ bestaetigtAm, jetzt })) return false;
   const erinnern = alsZeitpunkt(erinnernAb);
   return !erinnern || erinnern.getTime() <= jetzt.getTime();
@@ -187,7 +195,14 @@ export function spaeterBis({ jetzt = new Date(), start }: { jetzt?: Date; start:
 // Anzeige im Fenster (vom Server berechnet, an die Client-Komponente gegeben)
 // ---------------------------------------------------------------------------------------------------
 
-export type DatenCheckZeilenSchluessel = "name" | "anschrift" | "handy" | "email" | "iban" | "geburtsdatum";
+export type DatenCheckZeilenSchluessel =
+  | "name"
+  | "anschrift"
+  | "handy"
+  | "email"
+  | "iban"
+  | "geburtsdatum"
+  | "studiengang";
 
 export type DatenCheckZeile = {
   key: DatenCheckZeilenSchluessel;
@@ -212,6 +227,10 @@ export type DatenCheckFormular = {
   handyLand: string;
   handyNummer: string;
   geburtsdatum: string;
+  /** Studiengang als Auswahl (auswahlAusWert): Listenname, „Sonstiges“ oder leer. */
+  studiengang: string;
+  /** Freitext bei „Sonstiges“. */
+  studiengangSonstiges: string;
   iban: string;
   alumni: boolean;
   /** Version der verschlüsselten Zeile (0 = keine): Sperre beim Speichern. */
