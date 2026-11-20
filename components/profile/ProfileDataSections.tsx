@@ -3,6 +3,7 @@
 import {
   useEffect,
   useId,
+  useRef,
   useState,
   useTransition,
   type CSSProperties,
@@ -10,32 +11,44 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Landmark, MailCheck, UserRound } from "lucide-react";
-import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { Check, Landmark, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { requestEmailChange, updateProfile } from "@/app/(intranet)/profile/actions";
+import { updateProfile } from "@/app/(intranet)/profile/actions";
 import { maskIban } from "@/components/profile/profile-format";
 import { ProfileCard, Row, Rows } from "@/components/profile/ProfileCard";
 import {
   FeldFehler,
-  FeldHinweis,
   GespeichertHaken,
   HandyEingabe,
   IbanEingabe,
   LandAuswahl,
   type HandyWert,
 } from "@/components/member/MemberInputs";
-import { emailTippfehler, ibanInViererbloecken } from "@/lib/member-rules-client";
+import { ibanInViererbloecken } from "@/lib/member-rules-client";
 import { plzInputMode } from "@/lib/member-inputs";
+import { cn } from "@/lib/utils";
+import { EmailAendernFenster, type FensterErgebnis, type Postfach } from "@/components/profile/EmailAendernFenster";
+import {
+  geradeBestaetigt,
+  startAnsicht,
+  type EmailChangeStand,
+  type EmailHinweis,
+  type FensterAnsicht,
+} from "@/lib/email-change";
 
 export type ProfileContactData = {
   vorname: string;
   nachname: string;
   email: string;
-  /** Neue Adresse, deren Bestätigung noch aussteht (auth.users.new_email), sonst null. */
+  /** Neue Adresse, deren Bestätigung noch aussteht (auth.users.new_email, Links noch gültig), sonst null. */
   pendingEmail: string | null;
+  /** Stand der Bestätigung in beiden Postfächern (public.email_change_stand()). */
+  emailStand: EmailChangeStand;
+  /** Rückkehr über den Link in der Mail (/profile?email=…): Fenster öffnet im passenden Stand. */
+  emailHinweis: EmailHinweis | null;
   strasse: string;
   hausnummer: string;
   plz: string;
@@ -84,7 +97,7 @@ export function ProfileDataSections({ profile }: { profile: ProfileContactData }
 function PersonalSection({ profile }: { profile: ProfileContactData }) {
   const id = useId();
   const editor = useSectionEditor(id);
-  const email = useEmailChange(id, profile.email, profile.pendingEmail);
+  const email = useEmailFenster(profile);
   const [land, setLand] = useState(profile.land);
   const [handy, setHandy] = useState<HandyWert>({ land: profile.handyLand, nummer: profile.handyNummer });
   const name = `${profile.vorname} ${profile.nachname}`.trim();
@@ -95,12 +108,14 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
   function open() {
     setLand(profile.land);
     setHandy({ land: profile.handyLand, nummer: profile.handyNummer });
-    email.reset();
     editor.open();
   }
 
+  // Das Fenster steht neben der Kachel (nicht im Formular): React-Ereignisse aus dem Fenster (Absenden, Escape)
+  // laufen sonst über das Portal hinweg bis ins Abschnittsformular.
   if (!editor.editing) {
     return (
+      <>
       <ProfileCard id={id} title="Persönliche Daten" Icon={UserRound} onEdit={open}>
         <Rows>
           <Row label="Name" value={name} />
@@ -118,21 +133,23 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
           />
           <Row label="Geburtsdatum" value={datumDeutsch(profile.geburtsdatum)} empty="Noch nicht eingetragen" numeric />
           <Row label="E-Mail">
-            <span className="block break-all">{profile.email}</span>
-            {email.waitingFor && <PendingEmailHint address={email.waitingFor} />}
+            <span className="block break-all">{email.email}</span>
+            <EmailStandZeile fenster={email} />
           </Row>
           <Row label="Handynummer" value={profile.handyAnzeige} numeric />
         </Rows>
       </ProfileCard>
+      <EmailFensterSlot fenster={email} />
+      </>
     );
   }
 
   return (
+    <>
     <ProfileCard id={id} title="Persönliche Daten" Icon={UserRound}>
       {editor.saved ? (
         <GespeichertHaken text="Persönliche Daten gespeichert" onFertig={editor.close} />
       ) : (
-        <>
           <EditForm editor={editor}>
             <input type="hidden" name="section" value="personal" />
             <input type="hidden" name="version" value={profile.version} />
@@ -187,7 +204,7 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
                 onInput={() => editor.clear("geburtsdatum")}
               />
             </Field>
-            <EmailEditField id={id} currentEmail={profile.email} email={email} />
+            <EmailEditField id={id} fenster={email} />
             <div className="space-y-1.5">
               <FieldLabel htmlFor={`${id}-handy`}>Handynummer (optional)</FieldLabel>
               <HandyEingabe
@@ -202,13 +219,10 @@ function PersonalSection({ profile }: { profile: ProfileContactData }) {
               />
             </div>
           </EditForm>
-          {/* Eigenes Formular für die neue E-Mail-Adresse: steht im DOM außerhalb des Abschnittsformulars (kein
-              <form> im <form>), die Felder im Kasten hängen über das form-Attribut daran. So bleiben beide getrennt
-              absendbar, Enter im E-Mail-Feld schickt nur den Bestätigungslink. */}
-          <form id={email.formId} onSubmit={email.submit} noValidate />
-        </>
       )}
     </ProfileCard>
+    <EmailFensterSlot fenster={email} />
+    </>
   );
 }
 
@@ -223,169 +237,155 @@ function invalid(id: string, fehler?: string) {
   return fehler ? { "aria-invalid": true as const, "aria-describedby": `${id}-fehler` } : {};
 }
 
-function PendingEmailHint({ id, address }: { id?: string; address: string }) {
+type EmailFenster = ReturnType<typeof useEmailFenster>;
+
+/**
+ * E-Mail ändern im Fenster (components/profile/EmailAendernFenster.tsx). Das Profil zeigt bis zur zweiten
+ * Bestätigung die bisherige Adresse und darunter „Änderung offen · n von 2“; der Stand im Profil ändert sich erst,
+ * wenn das Fenster zu ist (nichts bewegt sich hinter einem offenen Fenster). Kommt man über den Link aus der Mail
+ * (`?email=…`), geht das Fenster gleich im passenden Stand auf.
+ */
+function useEmailFenster(profile: ProfileContactData) {
+  const router = useRouter();
+  const [email, setEmail] = useState(profile.email);
+  const [neueAdresse, setNeueAdresse] = useState(profile.pendingEmail);
+  const [stand, setStand] = useState(profile.emailStand);
+  const [geaendert, setGeaendert] = useState(profile.emailHinweis === "geaendert" && !profile.emailStand.offen);
+  // Startansicht aus dem Link in der Mail; danach nur noch über die Knöpfe.
+  const [fenster, setFenster] = useState<{ ansicht: FensterAnsicht; gerade: Postfach | null; meldung?: string } | null>(
+    () => {
+      const ansicht = startAnsicht(profile.emailHinweis, profile.emailStand);
+      if (!ansicht) return null;
+      return {
+        ansicht,
+        gerade: geradeBestaetigt(profile.emailHinweis, profile.emailStand),
+        meldung: profile.emailHinweis === "fehler" && ansicht === "postfaecher" ? "Dieser Link gilt nicht mehr." : undefined,
+      };
+    },
+  );
+  // Fokus nach dem Schließen zurück auf den Auslöser (Link oder Zeile „Änderung offen“).
+  const ausloeser = useRef<HTMLElement | null>(null);
+
+  // Hinweis aus der Adresse nehmen, damit Neuladen das Fenster nicht noch einmal öffnet (Reiter bleibt).
+  useEffect(() => {
+    if (!profile.emailHinweis) return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("email")) return;
+    url.searchParams.delete("email");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [profile.emailHinweis]);
+
+  function oeffnen(ansicht: FensterAnsicht, ausgeloestVon?: HTMLElement | null) {
+    ausloeser.current = ausgeloestVon ?? null;
+    setGeaendert(false);
+    setFenster({ ansicht, gerade: null });
+  }
+
+  function geschlossen(ergebnis: FensterErgebnis) {
+    setFenster(null);
+    if (ergebnis.art === "geaendert") {
+      setEmail(ergebnis.email);
+      setNeueAdresse(null);
+      setStand({ offen: false, alt: false, neu: false, anzahl: 0, erneutInSekunden: 0 });
+      setGeaendert(true);
+      // Server-Teile (Sidebar, Profil) mit der neuen Adresse nachladen.
+      router.refresh();
+    } else {
+      setNeueAdresse(ergebnis.neueAdresse);
+      setStand(ergebnis.stand);
+    }
+    const ziel = ausloeser.current;
+    if (ziel?.isConnected) window.requestAnimationFrame(() => ziel.focus());
+  }
+
+  return { email, neueAdresse, stand, geaendert, fenster, oeffnen, geschlossen };
+}
+
+/** Fenster, solange es offen ist (eigener Zustand je Öffnen). */
+function EmailFensterSlot({ fenster }: { fenster: EmailFenster }) {
+  if (!fenster.fenster) return null;
   return (
-    <span id={id} className="mt-1.5 flex items-start gap-1.5 text-xs leading-normal font-normal text-muted-foreground">
-      <MailCheck className="mt-px size-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0">
-        Neue Adresse <span className="font-semibold break-all text-foreground">{address}</span> wartet auf Bestätigung.
-        Bitte den Link in der E-Mail anklicken.
-      </span>
-    </span>
+    <EmailAendernFenster
+      ansicht={fenster.fenster.ansicht}
+      email={fenster.email}
+      neueAdresse={fenster.neueAdresse}
+      stand={fenster.stand}
+      gerade={fenster.fenster.gerade}
+      meldung={fenster.fenster.meldung}
+      onClose={fenster.geschlossen}
+    />
   );
 }
 
-type EmailChange = ReturnType<typeof useEmailChange>;
-
 /**
- * Änderung der E-Mail-Adresse: Sie gilt erst nach dem Klick auf den Link in der Bestätigungsmail (Supabase);
- * bis dahin steht die neue Adresse als „wartet auf Bestätigung“ unter der alten (Lese- und Bearbeitungssicht).
+ * Unter der Adresse: „Änderung offen · n von 2“ mit zwei Punkten (keine Pille), Klick öffnet das Fenster bei den
+ * Postfächern. Nach dem Erfolg ein kurzes „Geändert“.
  */
-function useEmailChange(sectionId: string, email: string, pendingEmail: string | null) {
-  const formId = `${sectionId}-email-form`;
-  const linkId = `${sectionId}-email-aendern`;
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState("");
-  const [sentTo, setSentTo] = useState<string | null>(null);
-  const [tippfehler, setTippfehler] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-  // Nach dem Schließen des Kastens bekommt der Link „E-Mail ändern“ den Fokus zurück.
-  const [refocus, setRefocus] = useState(false);
-  const waitingFor = sentTo ?? (pendingEmail && pendingEmail !== email ? pendingEmail : null);
-
-  useEffect(() => {
-    if (open || !refocus) return;
-    document.getElementById(linkId)?.focus();
-  }, [open, refocus, linkId]);
-
-  function show() {
-    setError("");
-    setTippfehler(null);
-    setRefocus(false);
-    setOpen(true);
+function EmailStandZeile({ fenster }: { fenster: EmailFenster }) {
+  if (fenster.stand.offen && fenster.neueAdresse) {
+    const n = fenster.stand.anzahl;
+    return (
+      <button
+        type="button"
+        onClick={(e) => fenster.oeffnen("postfaecher", e.currentTarget)}
+        className="group -my-1.5 inline-flex min-h-11 items-center gap-2 rounded-sm text-[0.8125rem] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+      >
+        {[0, 1].map((i) => (
+          <span
+            key={i}
+            aria-hidden
+            className={cn(
+              "size-2 rounded-full border-[1.5px] border-primary transition-colors duration-400",
+              i < n ? "bg-primary" : "bg-transparent",
+            )}
+          />
+        ))}
+        <span className="group-hover:underline">Änderung offen · {n} von 2</span>
+      </button>
+    );
   }
-
-  function hide() {
-    if (pending) return;
-    setRefocus(true);
-    setOpen(false);
+  if (fenster.geaendert) {
+    return (
+      <p
+        role="status"
+        data-reveal="fade"
+        style={{ "--reveal-delay": "0s" } as CSSProperties}
+        className="mt-1 inline-flex min-h-7 items-center gap-1.5 text-[0.8125rem] font-semibold text-success"
+      >
+        <Check className="size-3.5" strokeWidth={3} aria-hidden />
+        Geändert
+      </p>
+    );
   }
-
-  /** Beim Öffnen des Abschnitts: Kasten zu, ohne Fokus zu verschieben. */
-  function reset() {
-    setError("");
-    setTippfehler(null);
-    setRefocus(false);
-    setOpen(false);
-  }
-
-  function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    setError("");
-    startTransition(async () => {
-      try {
-        const result = await requestEmailChange(formData);
-        if (result.success) {
-          setSentTo(result.pendingEmail ?? null);
-          setRefocus(true);
-          setOpen(false);
-          toast.success("Bestätigungslink verschickt. Bitte prüfe dein Postfach.");
-        } else {
-          setError(result.error || "Die Änderung konnte nicht gestartet werden.");
-        }
-      } catch {
-        setError("Die Änderung konnte nicht gestartet werden. Bitte versuch es noch einmal.");
-      }
-    });
-  }
-
-  return { formId, linkId, open, error, tippfehler, setTippfehler, pending, waitingFor, show, hide, reset, submit };
+  return null;
 }
 
 /**
- * E-Mail im Bearbeiten: grau gesperrtes Feld, rechts in der Beschriftungszeile „E-Mail ändern“. Der Link öffnet
- * darunter einen abgesetzten Kasten mit der neuen Adresse; dessen Felder gehören zum eigenen E-Mail-Formular.
+ * E-Mail im Bearbeiten: grau gesperrtes Feld, rechts in der Beschriftungszeile „E-Mail ändern“ (öffnet das
+ * Fenster). Der Link bleibt auch bei offener Änderung: Eine neue Anfrage ersetzt die alte (GoTrue kennt kein
+ * Abbrechen).
  */
-function EmailEditField({ id, currentEmail, email }: { id: string; currentEmail: string; email: EmailChange }) {
+function EmailEditField({ id, fenster }: { id: string; fenster: EmailFenster }) {
   const inputId = `${id}-email`;
-  const newId = `${id}-email-neu`;
-  const hintId = `${id}-email-hinweis`;
-
-  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    // Escape schließt nur den Kasten, nicht das ganze Formular.
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      email.hide();
-    }
-  }
-
   return (
     <div className="min-w-0 space-y-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <FieldLabel htmlFor={inputId}>E-Mail</FieldLabel>
-        {!email.open && (
-          <button
-            id={email.linkId}
-            type="button"
-            onClick={email.show}
-            className="-my-3 rounded-sm py-3 text-[0.8125rem] font-semibold text-primary outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/40"
-          >
-            E-Mail ändern
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={(e) => fenster.oeffnen("eingabe", e.currentTarget)}
+          className="-my-3 rounded-sm py-3 text-[0.8125rem] font-semibold text-primary outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        >
+          E-Mail ändern
+        </button>
       </div>
       <Input
         id={inputId}
-        value={currentEmail}
+        value={fenster.email}
         readOnly
-        aria-describedby={email.waitingFor ? hintId : undefined}
         className="cursor-not-allowed bg-muted text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/20 dark:bg-muted"
       />
-      {email.waitingFor && <PendingEmailHint id={hintId} address={email.waitingFor} />}
-      {email.open && (
-        <div
-          role="group"
-          aria-labelledby={`${newId}-label`}
-          onKeyDown={onKeyDown}
-          data-reveal="fade"
-          style={{ "--reveal-delay": "0s" } as CSSProperties}
-          className="mt-1.5 flex flex-col gap-2 rounded-xl border border-border bg-background p-3.5"
-        >
-          <FieldLabel id={`${newId}-label`} htmlFor={newId}>
-            Neue E-Mail-Adresse
-          </FieldLabel>
-          <Input
-            id={newId}
-            form={email.formId}
-            name="email"
-            type="email"
-            autoComplete="email"
-            placeholder="neue@adresse.de"
-            required
-            autoFocus
-            onChange={(e) => email.setTippfehler(emailTippfehler(e.target.value))}
-          />
-          <FeldHinweis>{email.tippfehler}</FeldHinweis>
-          <p className="text-xs leading-normal text-muted-foreground">
-            Wir schicken dir einen Bestätigungslink. Erst danach gilt die neue Adresse, auch für den Login.
-          </p>
-          {email.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {email.error}
-            </p>
-          )}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" className="h-10 sm:h-9" onClick={email.hide} disabled={email.pending}>
-              Abbrechen
-            </Button>
-            <Button type="submit" form={email.formId} className="h-10 sm:h-9" disabled={email.pending}>
-              {email.pending ? "Wird gesendet…" : "Bestätigungslink senden"}
-            </Button>
-          </div>
-        </div>
-      )}
+      <EmailStandZeile fenster={fenster} />
     </div>
   );
 }

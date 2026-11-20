@@ -18,10 +18,12 @@ import { handyAnzeige, handyFuerEingabe, landAusBestand } from "@/lib/member-for
 import { findCountry } from "@/lib/country-codes";
 import { isAlumniProfile } from "@/lib/profile-status";
 import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
+import { KEINE_AENDERUNG, emailHinweisAusParam } from "@/lib/email-change";
+import { readEmailChange } from "./actions";
 
 export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
   await sperreBeiDatenmaengeln();
-  const emailNotice = (await searchParams).email;
+  const emailHinweis = emailHinweisAusParam((await searchParams).email);
   const { user } = await getCachedAuth();
 
   if (!user) {
@@ -29,7 +31,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
   }
 
   const supabase = await getCachedSupabase();
-  const [{ data: profile }, { data: alumniRow }] = await Promise.all([
+  const [{ data: profile }, { data: alumniRow }, emailAenderung] = await Promise.all([
     supabase
       .from("profiles")
       .select(
@@ -45,6 +47,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // Stand einer E-Mail-Änderung (beide Postfächer) für das Fenster in Meine Daten.
+    readEmailChange(),
   ]);
 
   // Sensible Angaben nur aus member_secrets; ohne Zeile sind sie leer.
@@ -107,10 +111,11 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-6 sm:space-y-8">
-      {(emailNotice === "geaendert" || emailNotice === "ausstehend") && (
+      {/* Ohne Datenbereich (dort sitzt das Fenster) bleibt der Hinweis aus dem Link in der Mail als Zeile. */}
+      {secretsUnavailable && (emailHinweis === "geaendert" || emailHinweis === "bestaetigt") && (
         <p role="status" className="rounded-2xl border border-border bg-card p-4 text-sm">
-          {emailNotice === "geaendert"
-            ? `Deine E-Mail-Adresse ist geändert. Ab sofort meldest du dich mit ${p.email} an.`
+          {emailHinweis === "geaendert"
+            ? `Deine E-Mail-Adresse wurde geändert. Ab sofort meldest du dich mit ${p.email} an.`
             : "Danke, ein Link ist bestätigt. Bitte bestätige die Änderung auch über den Link, den wir an deine andere Adresse geschickt haben."}
         </p>
       )}
@@ -127,7 +132,9 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 vorname: p.vorname,
                 nachname: p.nachname,
                 email: p.email,
-                pendingEmail: user.new_email ?? null,
+                pendingEmail: emailAenderung?.neueAdresse ?? null,
+                emailStand: emailAenderung?.stand ?? KEINE_AENDERUNG,
+                emailHinweis,
                 strasse: p.strasse,
                 hausnummer: p.hausnummer,
                 plz: p.plz,
