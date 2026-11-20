@@ -3,6 +3,7 @@ import { type EmailOtpType } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { siteRedirectUrl } from "@/lib/site-url";
+import { emailConfirmZiel } from "@/lib/email-change";
 
 /**
  * Session-Cookies müssen auf die Redirect-Response geschrieben werden,
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
     type === "recovery"
       ? siteRedirectUrl("/reset-password", request.url)
       : siteRedirectUrl(safeRedirectPath(nextParam), request.url);
-  let response = NextResponse.redirect(redirectTo);
+  const response = NextResponse.redirect(redirectTo);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,24 +49,27 @@ export async function GET(request: NextRequest) {
     token_hash,
   });
 
+  // E-Mail-Änderung (je ein Link an alte und neue Adresse): Ziel ist das Fenster im Profil (lib/email-change.ts).
+  // Nur der zweite Link liefert eine Sitzung; beim ersten antwortet Supabase ohne Sitzung und ohne Nutzer. Ohne
+  // eigene Anmeldung in diesem Browser (z. B. Link am Handy) geht es über die Anmeldung dorthin. Abgelaufene oder
+  // schon benutzte Links landen angemeldet im selben Fenster (mit Meldung).
+  if (type === "email_change") {
+    const sitzung = !error && Boolean(data.session);
+    let angemeldet = sitzung;
+    if (!angemeldet) {
+      const { data: current } = await supabase.auth.getUser();
+      angemeldet = Boolean(current.user);
+    }
+    const path = emailConfirmZiel({ ok: !error, sitzung, angemeldet });
+    const target = NextResponse.redirect(siteRedirectUrl(path, request.url));
+    for (const cookie of response.cookies.getAll()) target.cookies.set(cookie);
+    return target;
+  }
+
   if (error) {
     return NextResponse.redirect(
       siteRedirectUrl("/login?error=Invalid_or_expired_token", request.url)
     );
-  }
-
-  // E-Mail-Änderung: Nur der letzte Link liefert eine Sitzung. Beim ersten von zwei Links („Secure email
-  // change“) antwortet Supabase ohne Sitzung und ohne Nutzer – dann fehlt die Bestätigung der anderen Adresse.
-  // Ohne eigene Anmeldung in diesem Browser (z. B. Link am Handy geöffnet) geht der Hinweis an die Login-Seite.
-  if (type === "email_change") {
-    let path = "/profile?email=geaendert";
-    if (!data.session) {
-      const { data: current } = await supabase.auth.getUser();
-      path = current.user ? "/profile?email=ausstehend" : "/login?email=ausstehend";
-    }
-    const target = NextResponse.redirect(siteRedirectUrl(path, request.url));
-    for (const cookie of response.cookies.getAll()) target.cookies.set(cookie);
-    response = target;
   }
 
   return response;

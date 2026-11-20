@@ -19,6 +19,13 @@ import { CANCELLATION_TEXT_MAX, isCancellationReason } from "@/lib/cancellation-
 import { authErrorMessage } from "@/lib/auth-messages";
 import { RATE_LIMITED_MESSAGE, withinRateLimits } from "@/lib/bot-protection";
 import { isValidEmail } from "@/lib/events";
+import {
+  KEINE_AENDERUNG,
+  SENDE_ABSTAND_SEKUNDEN,
+  emailChangeStand,
+  type EmailChangeRow,
+  type EmailChangeStand,
+} from "@/lib/email-change";
 
 export type ProfileActionState = {
   success: boolean;
@@ -355,7 +362,86 @@ export async function requestAlumniStatus(): Promise<ProfileActionState> {
 export type EmailChangeState = ProfileActionState & {
   /** Neue Adresse, an die die Bestätigung ging (bis zur Bestätigung „ausstehend“). */
   pendingEmail?: string;
+  /** Stand der Bestätigung nach der Anfrage (beide Postfächer offen). */
+  stand?: EmailChangeStand;
 };
+
+/** Stand einer Änderung für das Fenster: aktuelle Adresse, wartende neue Adresse, bestätigte Postfächer. */
+export type EmailChangeInfo = {
+  email: string;
+  neueAdresse: string | null;
+  stand: EmailChangeStand;
+};
+
+type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Liest den Stand über public.email_change_stand() (nur eigenes Konto, nur Booleans/Zahl). Fehlt die Funktion
+ * (Migration noch nicht eingespielt), gilt eine wartende Adresse als „0 von 2“, damit das Fenster trotzdem geht.
+ */
+async function leseEmailChange(supabase: SupabaseServer, email: string, neueAdresse: string | null): Promise<EmailChangeInfo> {
+  const pending = neueAdresse && neueAdresse !== email ? neueAdresse : null;
+  if (!pending) return { email, neueAdresse: null, stand: KEINE_AENDERUNG };
+  const { data, error } = await supabase.rpc("email_change_stand");
+  if (error) {
+    console.error("emailChangeStand:", error.code);
+    return {
+      email,
+      neueAdresse: pending,
+      stand: emailChangeStand({ offen: true, alt_bestaetigt: false, neu_bestaetigt: false, gesendet_vor_sekunden: null }, pending),
+    };
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as EmailChangeRow | null | undefined;
+  const stand = emailChangeStand(row, pending);
+  return { email, neueAdresse: stand.offen ? pending : null, stand };
+}
+
+/** Aktueller Stand der eigenen Änderung (Profil beim Laden, Fenster fragt nach, solange es offen ist). */
+export async function readEmailChange(): Promise<EmailChangeInfo | null> {
+  const auth = await requireUser();
+  if (!auth.ok) return null;
+  const supabase = await getCachedSupabase();
+  return leseEmailChange(supabase, auth.user.email ?? "", auth.user.new_email ?? null);
+}
+
+/**
+ * Beide Bestätigungsmails noch einmal senden. GoTrue erzeugt dabei neue Links für beide Adressen und setzt den
+ * Stand auf „0 von 2“ zurück (sendEmailChange); alte Links gelten nicht mehr. Die Sendebremse von GoTrue
+ * (GOTRUE_SMTP_MAX_FREQUENCY) prüfen wir vorher selbst, damit die Meldung die Wartezeit nennen kann.
+ */
+export async function resendEmailChange(): Promise<ProfileActionState & { info?: EmailChangeInfo; wartenSekunden?: number }> {
+  const auth = await requireUser();
+  if (!auth.ok) return { success: false, error: auth.error };
+  const supabase = await getCachedSupabase();
+  const vorher = await leseEmailChange(supabase, auth.user.email ?? "", auth.user.new_email ?? null);
+  if (!vorher.neueAdresse) {
+    return { success: false, error: "Es wartet keine Änderung mehr. Starte sie bitte neu.", info: vorher };
+  }
+  if (vorher.stand.erneutInSekunden > 0) {
+    return { success: false, error: "", wartenSekunden: vorher.stand.erneutInSekunden, info: vorher };
+  }
+
+  const allowed = await withinRateLimits([
+    { scope: "email-change-resend", value: auth.user.id, max: 5, windowSeconds: 60 * 60 },
+  ]);
+  if (!allowed) return { success: false, error: RATE_LIMITED_MESSAGE, info: vorher };
+
+  const { error } = await supabase.auth.updateUser({ email: vorher.neueAdresse });
+  if (error) {
+    if (error.code === "email_exists") return { success: false, error: EMAIL_TAKEN_MESSAGE, info: vorher };
+    console.error("resendEmailChange:", error.code ?? error.status);
+    return {
+      success: false,
+      error: authErrorMessage(error, "Die Mails konnten nicht gesendet werden. Bitte versuch es später erneut."),
+      info: vorher,
+    };
+  }
+  return {
+    success: true,
+    error: "",
+    info: { ...vorher, stand: { ...KEINE_AENDERUNG, offen: true, erneutInSekunden: SENDE_ABSTAND_SEKUNDEN } },
+  };
+}
 
 /**
  * E-Mail-Adresse ändern: startet die Änderung im Auth-Konto. Supabase schickt die Bestätigungsmail
@@ -412,7 +498,12 @@ export async function requestEmailChange(formData: FormData): Promise<EmailChang
   }
 
   revalidatePath("/profile");
-  return { success: true, error: "", pendingEmail: email };
+  return {
+    success: true,
+    error: "",
+    pendingEmail: email,
+    stand: { ...KEINE_AENDERUNG, offen: true, erneutInSekunden: SENDE_ABSTAND_SEKUNDEN },
+  };
 }
 
 const EMAIL_TAKEN_MESSAGE = "Diese E-Mail-Adresse wird bereits von einem anderen Konto verwendet.";
