@@ -18,6 +18,11 @@
 //   membership_cancellations); B gekündigt, A aktiv → prüfen
 // Die Datenbankfunktion merge_member_doppelprofil prüft dieselben Kriterien ein zweites Mal.
 //
+// Ausdrückliche Freigabe (Entscheidung Hannes 20.11.2026): `--freigabe <A-ID>:<B-ID>` lässt GENAU dieses Paar trotz
+// der Gründe in FREIGEBBARE_GRUENDE zu (Vorstand im Import-Profil, IBAN auch bei einem anderen Profil, Konto-Profil
+// mit Namen). Jeder andere Grund sperrt weiter. Beim Zusammenführen bleiben Rolle, Namen und IBAN von B; Namen von A
+// nur, wo B leer ist. Die Datenbankfunktion bekommt die freigegebenen Gründe je Paar und lässt nur diese zu.
+//
 // Grundsatz wie bei datenqualitaet: Ausgaben enthalten nur Zahlen und Codes – nie Namen, E-Mails oder Profil-IDs.
 // Einzige Ausnahme ist die TSV-Liste (`listeTsv`), nur auf ausdrücklichen Wunsch (`--liste <datei>`) und nur
 // außerhalb des Repos: Profil-IDs + Einstufung + Gründe (keine Namen, keine Adressen).
@@ -116,6 +121,15 @@ export const GRUENDE = Object.freeze([
   "registrierung_offen",
 ]);
 
+/**
+ * Gründe, die eine ausdrückliche Freigabe (`--freigabe <A-ID>:<B-ID>`) für genau dieses Paar aufhebt. Muss gleich
+ * sein mit der Liste in merge_member_doppelprofil (Migration 20261121105000, Test).
+ */
+export const FREIGEBBARE_GRUENDE = Object.freeze(["rolle_b_vorstand", "iban_gruppe", "a_hat_namen"]);
+
+/** Schlüssel einer Freigabe bzw. eines Paares: "<A-ID>:<B-ID>" (klein). */
+export const freigabeSchluessel = (aId, bId) => `${String(aId).toLowerCase()}:${String(bId).toLowerCase()}`;
+
 export const GRUND_TEXT = Object.freeze({
   gruppe_groesse: "mehr als zwei Profile mit der Adresse",
   beide_konto: "beide Profile mit Login-Konto",
@@ -195,10 +209,29 @@ export function secretsKurz(zeile) {
  *   a, b     Profile (A mit Konto, B ohne – die Zuordnung macht findePaare)
  *   kontext  { secrets: Map<profilId, secretsKurz>, konten: Map<userId, { email, gesperrt, bestaetigt }>,
  *              registrierungen: Set<userId>, kuendigungen: Set<profilId> (Zeilen in membership_cancellations),
- *              ibanAnzahl: Map<ibanHash, Anzahl Profile> }
- * Liefert { einstufung, gruende }.
+ *              ibanAnzahl: Map<ibanHash, Anzahl Profile>,
+ *              freigaben: Set<freigabeSchluessel(A-ID, B-ID)> (ausdrückliche Freigaben, optional) }
+ * Liefert { einstufung, gruende, freigabe }. freigabe = die per Freigabe aufgehobenen Gründe (nur wenn das Paar
+ * dadurch zusammengeführt wird, sonst leer; dann stehen alle Gründe in gruende).
  */
 export function stufeEin(a, b, kontext) {
+  const g = gruendeFuer(a, b, kontext);
+  const freigaben = kontext?.freigaben ?? new Set();
+  if (g.length && freigaben.has(freigabeSchluessel(a.id, b.id))) {
+    const rest = g.filter((x) => !FREIGEBBARE_GRUENDE.includes(x));
+    if (rest.length === 0) {
+      return { einstufung: einstufungOhneGruende(a, b), gruende: [], freigabe: g };
+    }
+  }
+  if (g.length) return { einstufung: "pruefen", gruende: g, freigabe: [] };
+  return { einstufung: einstufungOhneGruende(a, b), gruende: [], freigabe: [] };
+}
+
+function einstufungOhneGruende(a, b) {
+  return status(a) === "cancelled" && status(b) !== "cancelled" ? "kuendigung" : "zusammenfuehren";
+}
+
+function gruendeFuer(a, b, kontext) {
   const {
     secrets = new Map(),
     konten = new Map(),
@@ -239,9 +272,7 @@ export function stufeEin(a, b, kontext) {
     if (Boolean(konto.gesperrt) !== aGek) g.push("konto_sperre");
   }
   if (registrierungen.has(String(a.user_id))) g.push("registrierung_offen");
-
-  if (g.length) return { einstufung: "pruefen", gruende: g };
-  return { einstufung: kuendigung ? "kuendigung" : "zusammenfuehren", gruende: [] };
+  return g;
 }
 
 /**
@@ -253,6 +284,8 @@ export function stufeEin(a, b, kontext) {
  *                mit eindeutiger Zuordnung, sonst null; ids = alle Profil-IDs der Gruppe)
  *   ibanGruppen  [{ ids, mitPaar }] Profile mit gleichem IBAN-Fingerabdruck (nur gemeldet, nie geändert);
  *                mitPaar = mindestens ein Profil der Gruppe gehört zu einem Doppelprofil-Eintrag
+ *   freigaben    { angegeben, angewendet, weiterPruefen, unnoetig, ohnePaar } (nur Zahlen; kontext.freigaben
+ *                optional; unnoetig = Paar passt auch ohne Freigabe zum Muster)
  */
 export function findePaare(profile, kontext = {}) {
   const secrets = kontext.secrets ?? new Map();
@@ -279,13 +312,13 @@ export function findePaare(profile, kontext = {}) {
     if (liste.length < 2) continue;
     const ids = liste.map((p) => String(p.id)).sort();
     if (liste.length > 2) {
-      eintraege.push({ art: "gruppe", a: null, b: null, ids, einstufung: "pruefen", gruende: ["gruppe_groesse"] });
+      eintraege.push({ art: "gruppe", a: null, b: null, ids, einstufung: "pruefen", gruende: ["gruppe_groesse"], freigabe: [] });
       continue;
     }
     const mitKonto = liste.filter((p) => p.user_id !== null && p.user_id !== undefined && p.user_id !== "");
     if (mitKonto.length !== 1) {
       const grund = mitKonto.length === 2 ? "beide_konto" : "kein_konto";
-      eintraege.push({ art: "paar", a: null, b: null, ids, einstufung: "pruefen", gruende: [grund] });
+      eintraege.push({ art: "paar", a: null, b: null, ids, einstufung: "pruefen", gruende: [grund], freigabe: [] });
       continue;
     }
     const a = mitKonto[0];
@@ -299,7 +332,22 @@ export function findePaare(profile, kontext = {}) {
     .filter((ids) => ids.length > 1)
     .map((ids) => ({ ids: [...ids].sort(), mitPaar: ids.some((id) => inPaar.has(id)) }))
     .sort((x, y) => (x.ids[0] < y.ids[0] ? -1 : 1));
-  return { eintraege, ibanGruppen };
+
+  // Freigaben: angewendet (Paar wird dadurch zusammengeführt), weiter prüfen (andere Gründe sperren), ohne Paar
+  // (schon zusammengeführt oder falsche/vertauschte IDs – es wird nichts angefasst).
+  const freigaben = kontext.freigaben ?? new Set();
+  const paarSchluessel = new Map(
+    eintraege.filter((e) => e.a && e.b).map((e) => [freigabeSchluessel(e.a.id, e.b.id), e])
+  );
+  const fz = { angegeben: freigaben.size, angewendet: 0, weiterPruefen: 0, unnoetig: 0, ohnePaar: 0 };
+  for (const k of freigaben) {
+    const e = paarSchluessel.get(k);
+    if (!e) fz.ohnePaar++;
+    else if (e.freigabe.length) fz.angewendet++;
+    else if (e.einstufung === "pruefen") fz.weiterPruefen++;
+    else fz.unnoetig++;
+  }
+  return { eintraege, ibanGruppen, freigaben: fz };
 }
 
 /** Erwarteter Stand eines Profils für den Compare-and-set (nur CAS_SPALTEN, fehlende Werte = null). */
@@ -324,6 +372,8 @@ export function neueZaehlung() {
     ibanGruppenMitPaar: 0,
     /** Paare, die „zusammenfuehren“ ändern würde */
     zuAendern: 0,
+    /** ausdrückliche Freigaben (findePaare → freigaben); angegeben = 0 → keine Ausgabe */
+    freigaben: { angegeben: 0, angewendet: 0, weiterPruefen: 0, unnoetig: 0, ohnePaar: 0 },
   };
 }
 
@@ -340,6 +390,7 @@ export function zaehleAlle(profile, ergebnis) {
   }
   z.ibanGruppen = ergebnis.ibanGruppen.length;
   z.ibanGruppenMitPaar = ergebnis.ibanGruppen.filter((g) => g.mitPaar).length;
+  if (ergebnis.freigaben) z.freigaben = { ...z.freigaben, ...ergebnis.freigaben };
   return z;
 }
 
@@ -369,6 +420,17 @@ function kern(z) {
     "Gleicher IBAN-Fingerabdruck bei mehreren Profilen (nur gemeldet, nie geändert)",
     zeile("  Gruppen", z.ibanGruppen),
     zeile("  davon mit einem Doppelprofil", z.ibanGruppenMitPaar),
+    ...(z.freigaben.angegeben > 0
+      ? [
+          "",
+          "Ausdrückliche Freigaben (--freigabe)",
+          zeile("  angegeben", z.freigaben.angegeben),
+          zeile("  angewendet (Paar wird zusammengeführt)", z.freigaben.angewendet),
+          zeile("  wirkungslos: andere Gründe sperren weiter", z.freigaben.weiterPruefen),
+          zeile("  nicht nötig: Paar passt auch ohne Freigabe", z.freigaben.unnoetig),
+          zeile("  ohne Paar (schon erledigt oder falsche IDs)", z.freigaben.ohnePaar),
+        ]
+      : []),
   ];
 }
 
@@ -390,20 +452,29 @@ export function formatiereProbelauf(z) {
 
 /**
  * TSV für `--liste`: je Eintrag art, einstufung, gruende, konto_profil_id (A), import_profil_id (B), profil_ids
- * (alle der Gruppe); dazu je IBAN-Gruppe eine Zeile (art iban_gruppe, einstufung pruefen). Nur IDs und Codes –
+ * (alle der Gruppe), freigabe (per --freigabe aufgehobene Gründe); dazu je IBAN-Gruppe eine Zeile (art
+ * iban_gruppe, einstufung pruefen). Nur IDs und Codes –
  * keine Namen, keine Adressen. Trotzdem nur außerhalb des Repos (Profil-IDs).
  */
 export function listeTsv(ergebnis) {
-  const zeilen = [["art", "einstufung", "gruende", "konto_profil_id", "import_profil_id", "profil_ids"].join("\t")];
+  const zeilen = [
+    ["art", "einstufung", "gruende", "konto_profil_id", "import_profil_id", "profil_ids", "freigabe"].join("\t"),
+  ];
   for (const e of ergebnis.eintraege) {
     zeilen.push(
-      [e.art, e.einstufung, e.gruende.join(","), e.a ? String(e.a.id) : "", e.b ? String(e.b.id) : "", e.ids.join(",")].join(
-        "\t"
-      )
+      [
+        e.art,
+        e.einstufung,
+        e.gruende.join(","),
+        e.a ? String(e.a.id) : "",
+        e.b ? String(e.b.id) : "",
+        e.ids.join(","),
+        (e.freigabe ?? []).join(","),
+      ].join("\t")
     );
   }
   for (const g of ergebnis.ibanGruppen) {
-    zeilen.push(["iban_gruppe", "pruefen", g.mitPaar ? "mit_doppelprofil" : "", "", "", g.ids.join(",")].join("\t"));
+    zeilen.push(["iban_gruppe", "pruefen", g.mitPaar ? "mit_doppelprofil" : "", "", "", g.ids.join(","), ""].join("\t"));
   }
   return `${zeilen.join("\n")}\n`;
 }
@@ -420,10 +491,47 @@ export const BEFEHLE = Object.freeze(["pruefen", "zusammenfuehren"]);
  */
 export function leseDoppelArgumente(argv, env = {}, repoWurzel = null) {
   if (argv.includes("reparieren")) return { fehler: `Genau einen Befehl angeben: ${BEFEHLE.join(", ")}` };
-  const umbenannt = argv.map((a) => (a === "zusammenfuehren" ? "reparieren" : a));
+  const f = leseFreigaben(argv);
+  if (f.fehler) return { fehler: f.fehler };
+  const umbenannt = f.rest.map((a) => (a === "zusammenfuehren" ? "reparieren" : a));
   const args = leseArgumente(umbenannt, env, repoWurzel);
   if (args.fehler) return { fehler: args.fehler.replaceAll("reparieren", "zusammenfuehren") };
-  return { ...args, befehl: args.befehl === "reparieren" ? "zusammenfuehren" : args.befehl };
+  const befehl = args.befehl === "reparieren" ? "zusammenfuehren" : args.befehl;
+  if (f.freigaben.size && befehl !== "zusammenfuehren") {
+    return { fehler: "--freigabe gibt es nur bei „zusammenfuehren“ (mit oder ohne --probelauf)." };
+  }
+  return { ...args, befehl, freigaben: f.freigaben };
+}
+
+const UUID_TEIL = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const FREIGABE_WERT = new RegExp(`^(${UUID_TEIL}):(${UUID_TEIL})$`, "i");
+
+/**
+ * `--freigabe <A-ID>:<B-ID>` (mehrfach) aus der Kommandozeile lösen. A = Konto-Profil, B = Import-Profil (wie in
+ * der --liste). Jede Profil-ID darf nur in einer Freigabe vorkommen. Liefert { freigaben: Set, rest } oder { fehler }.
+ */
+export function leseFreigaben(argv) {
+  const freigaben = new Set();
+  const ids = new Set();
+  const rest = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== "--freigabe") {
+      rest.push(argv[i]);
+      continue;
+    }
+    const v = argv[i + 1];
+    i++;
+    const m = typeof v === "string" ? v.match(FREIGABE_WERT) : null;
+    if (!m) return { fehler: "--freigabe braucht <Konto-Profil-ID>:<Import-Profil-ID> (zwei UUIDs)." };
+    const a = m[1].toLowerCase();
+    const b = m[2].toLowerCase();
+    if (a === b) return { fehler: "--freigabe: Konto- und Import-Profil sind gleich." };
+    if (ids.has(a) || ids.has(b)) return { fehler: "--freigabe: Eine Profil-ID kommt in mehreren Freigaben vor." };
+    ids.add(a);
+    ids.add(b);
+    freigaben.add(freigabeSchluessel(a, b));
+  }
+  return { freigaben, rest };
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -435,6 +543,7 @@ export function neuesErgebnis() {
     geplant: 0,
     zusammengefuehrt: 0,
     kuendigung: 0,
+    freigabe: 0,
     konflikt: 0,
     muster: 0,
     verweise: 0,
@@ -450,6 +559,7 @@ export function formatiereErgebnis(r) {
     r.abgebrochen ? `Zusammenführen abgebrochen nach ${zahl(r.bearbeitet)} von ${zahl(r.geplant)} Paaren (Strg+C)` : "Zusammenführen fertig",
     zeile("Paare zusammengeführt (mit Protokoll)", r.zusammengefuehrt),
     zeile("  davon Kündigung übernommen", r.kuendigung),
+    zeile("  davon mit ausdrücklicher Freigabe", r.freigabe),
     zeile("übersprungen: inzwischen geändert (nicht wiederholt)", r.konflikt),
     zeile("übersprungen: passt nicht mehr zum Muster", r.muster),
     zeile("übersprungen: Verweise, die nicht umgehängt werden", r.verweise),
@@ -471,7 +581,8 @@ export const CODES = Object.freeze([
 /**
  * Ein Paar zusammenführen (nur Einträge mit Einstufung zusammenfuehren/kuendigung). Die Datenbankfunktion prüft
  * Muster und Stand erneut und schreibt alles in EINER Transaktion.
- *   db  { zusammenfuehren(aId, bId, erwartet) → Code (CODES) }
+ *   db  { zusammenfuehren(aId, bId, erwartet, freigabe) → Code (CODES) }; freigabe = die per --freigabe
+ *       aufgehobenen Gründe dieses Paares (sonst null) – die DB lässt nur diese zu
  * Ergebnis wird in r gezählt; liefert den Code bzw. "fehler".
  */
 export async function schreibePaar(db, eintrag, r) {
@@ -479,16 +590,25 @@ export async function schreibePaar(db, eintrag, r) {
     r.fehler++;
     return "fehler";
   }
+  const freigabe = eintrag.freigabe?.length ? [...eintrag.freigabe] : null;
+  if (freigabe && !freigabe.every((g) => FREIGEBBARE_GRUENDE.includes(g))) {
+    r.fehler++;
+    return "fehler";
+  }
   let code;
   try {
-    code = await db.zusammenfuehren(String(eintrag.a.id), String(eintrag.b.id), {
-      a: erwarteterStand(eintrag.a),
-      b: erwarteterStand(eintrag.b),
-    });
+    code = await db.zusammenfuehren(
+      String(eintrag.a.id),
+      String(eintrag.b.id),
+      { a: erwarteterStand(eintrag.a), b: erwarteterStand(eintrag.b) },
+      freigabe
+    );
   } catch {
     r.fehler++;
     return "fehler";
   }
+  const zusammen = code === "zusammengefuehrt" || code === "zusammengefuehrt_kuendigung";
+  if (zusammen && freigabe) r.freigabe++;
   if (code === "zusammengefuehrt") r.zusammengefuehrt++;
   else if (code === "zusammengefuehrt_kuendigung") {
     r.zusammengefuehrt++;
