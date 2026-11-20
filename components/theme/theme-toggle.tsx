@@ -29,13 +29,18 @@ export function ThemeToggle({ layoutId = "theme-toggle", className }: { layoutId
   const value = mounted ? (theme ?? "system") : null;
   const reduced = useReducedMotionSafe();
 
+  // Klickfläche je Knopf 40 × 40 px (Regel der Design-Runde), Optik kompakt: Die Knöpfe liegen lückenlos
+  // nebeneinander (keine Überlappung), die sichtbaren Flächen sind 28 px groß und liegen ganz in ihrer Klickfläche.
+  // Die Schiene dahinter ist nur Optik (10 px schmaler je Seite); negative Ränder halten das Layout so klein wie die
+  // Schiene, die Klickflächen ragen 10 px seitlich und 4 px oben/unten darüber hinaus.
   return (
     <div
       role="radiogroup"
       aria-label="Darstellung"
       title="Darstellung"
-      className={cn("flex shrink-0 items-center gap-0.5 rounded-lg bg-sidebar-accent p-0.5", className)}
+      className={cn("relative -mx-2.5 -my-1 flex shrink-0", className)}
     >
+      <span aria-hidden className="absolute inset-x-2.5 inset-y-1 rounded-lg bg-sidebar-accent" />
       {OPTIONS.map(({ key, label, Icon }) => {
         const active = value === key;
         return (
@@ -48,18 +53,21 @@ export function ThemeToggle({ layoutId = "theme-toggle", className }: { layoutId
             title={label}
             onClick={() => setTheme(key)}
             className={cn(
-              "relative flex size-7 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              "group relative flex size-10 items-center justify-center outline-none",
+              key === "light" ? "justify-end" : key === "system" ? "justify-start" : "",
               active ? "text-sidebar-foreground" : "text-sidebar-muted hover:text-sidebar-foreground",
             )}
           >
-            {active && (
-              <motion.span
-                layoutId={layoutId}
-                className="absolute inset-0 rounded-md bg-sidebar shadow-[0_1px_2px_rgb(0_0_0/0.08)] ring-1 ring-sidebar-foreground/[0.06] ring-inset"
-                transition={reduced ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 42 }}
-              />
-            )}
-            <Icon aria-hidden className="relative size-3.5" />
+            <span className="relative flex size-7 items-center justify-center rounded-md transition-colors group-focus-visible:ring-[3px] group-focus-visible:ring-ring/40">
+              {active && (
+                <motion.span
+                  layoutId={layoutId}
+                  className="absolute inset-0 rounded-md bg-sidebar shadow-[0_1px_2px_rgb(0_0_0/0.08)] ring-1 ring-sidebar-foreground/[0.06] ring-inset"
+                  transition={reduced ? { duration: 0 } : { type: "spring", stiffness: 500, damping: 42 }}
+                />
+              )}
+              <Icon aria-hidden className="relative size-3.5" />
+            </span>
           </button>
         );
       })}

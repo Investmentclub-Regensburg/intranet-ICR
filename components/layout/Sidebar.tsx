@@ -590,8 +590,11 @@ export function Sidebar({ profile }: { profile: Profile }) {
           </button>
           <LogoutButton />
         </div>
-        {/* Eine Zeile: links Impressum/Datenschutz, rechts der Umschalter Hell/Dunkel/System (Klickrunde 20.11.2026). */}
-        <div className="mt-2 flex items-center justify-between gap-3 pl-2">
+        {/* Eine Zeile: links Impressum/Datenschutz, rechts der Umschalter Hell/Dunkel/System (Klickrunde 20.11.2026).
+            Der Umschalter hat 40-px-Klickflächen (120 px breit); in der schmalen Desktop-Leiste rutscht „Datenschutz“
+            dafür unter „Impressum“, im breiteren Handy-Menü bleibt alles in einer Zeile. Der Abstand gap-3 hält die
+            Klickflächen (10 px über die Schiene hinaus) von den Links fern. */}
+        <div className="mt-3 mb-1 flex items-center justify-between gap-3 pl-2">
           <LegalLinks className="min-w-0 gap-x-3" />
           <ThemeToggle layoutId={`${idPrefix}-theme`} />
         </div>

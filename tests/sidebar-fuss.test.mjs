@@ -24,3 +24,20 @@ test("Seitenleiste: Rechtliches links, Umschalter rechts in einer Zeile, für De
   assert.match(quelle, /renderFooter\("desktop"\)/);
   assert.match(quelle, /renderFooter\("mobile"/);
 });
+
+test("Umschalter: Klickfläche je Knopf 40 × 40 px ohne Überlappung, Optik 28 px innerhalb der Klickfläche", () => {
+  const quelle = lies("components/theme/theme-toggle.tsx");
+  // Knopf = Klickfläche 40 px (size-10), lückenlos nebeneinander (Gruppe ohne gap), sichtbare Fläche 28 px (size-7).
+  assert.match(quelle, /"group relative flex size-10 items-center justify-center outline-none"/);
+  assert.match(quelle, /className=\{cn\("relative -mx-2\.5 -my-1 flex shrink-0", className\)\}/);
+  assert.doesNotMatch(quelle, /flex shrink-0[^"]*\bgap-/);
+  assert.match(quelle, /<span className="relative flex size-7 /);
+  // Schiene nur Optik, so weit eingerückt wie der negative Rand (Layout so klein wie die Schiene).
+  assert.match(quelle, /<span aria-hidden className="absolute inset-x-2\.5 inset-y-1 rounded-lg bg-sidebar-accent" \/>/);
+  // Außen liegende Flächen an der Innenkante: 28-px-Optik liegt ganz in der eigenen 40-px-Klickfläche.
+  assert.match(quelle, /key === "light" \? "justify-end" : key === "system" \? "justify-start"/);
+  // Fokus sichtbar an der Optik.
+  assert.match(quelle, /group-focus-visible:ring-\[3px\]/);
+  // Abstand zu den Links mindestens so groß wie der Überstand der Klickflächen (gap-3 = 12 px ≥ 10 px).
+  assert.match(lies("components/layout/Sidebar.tsx"), /flex items-center justify-between gap-3 pl-2/);
+});
