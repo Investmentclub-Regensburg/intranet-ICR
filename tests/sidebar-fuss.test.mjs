@@ -38,6 +38,18 @@ test("Umschalter: Klickfläche je Knopf 40 × 40 px ohne Überlappung, Optik 28 
   assert.match(quelle, /key === "light" \? "justify-end" : key === "system" \? "justify-start"/);
   // Fokus sichtbar an der Optik.
   assert.match(quelle, /group-focus-visible:ring-\[3px\]/);
-  // Abstand zu den Links mindestens so groß wie der Überstand der Klickflächen (gap-3 = 12 px ≥ 10 px).
-  assert.match(lies("components/layout/Sidebar.tsx"), /flex items-center justify-between gap-3 pl-2/);
+  // Abstand zu den Links mindestens so groß wie der Überstand der Klickflächen (gap-2.5 = 10 px).
+  const leiste = lies("components/layout/Sidebar.tsx");
+  assert.match(leiste, /flex items-center justify-between gap-2\.5 pl-1/);
+  // Eine Zeile, auch am Desktop: Links brechen nie um.
+  assert.match(leiste, /<LegalLinks className="[^"]*flex-nowrap[^"]*whitespace-nowrap[^"]*" \/>/);
+});
+
+test("Seitenleiste: Links + Umschalter passen in die Desktop-Zeile (Breiten gemessen mit Inter, 20.11.2026)", () => {
+  const leiste = 17 * 16; // w-[17rem], inkl. 1 px Rand
+  const zeile = leiste - 1 - 2 * 12 - 4; // border-r, px-3 im Fuß, pl-1
+  const links = 57.5 + 65.3 + 6; // „Impressum“ + „Datenschutz“ bei 11 px Inter, gap-x-1.5
+  const umschalter = 3 * 40 - 2 * 10; // Klickflächen minus Überstand (-mx-2.5)
+  assert.ok(links + 10 + umschalter <= zeile, `${links + 10 + umschalter} > ${zeile}`);
+  assert.match(lies("components/layout/Sidebar.tsx"), /w-\[17rem\]/);
 });
