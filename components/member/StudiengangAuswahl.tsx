@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Studiengang als Auswahl mit Suche (Registrierung; später Profil und Vorstandsfenster). Die Liste ist lang, deshalb
+ * Studiengang als Auswahl mit Suche (Registrierung, Profil, Vorstandsfenster, Abfrage „Stimmen deine Daten noch?“). Die Liste ist lang, deshalb
  * ein Eingabefeld, das beim Tippen filtert (Kurzname, Langform und Abkürzung finden denselben Eintrag, z. B. „BWL“
  * und „Betriebs…“). Nur bei „Sonstiges“ erscheint ein Textfeld, dessen Inhalt gespeichert wird.
  *
@@ -34,6 +34,8 @@ export function StudiengangAuswahl({
   fehlerFreitext,
   required,
   ohneKeinStudium = false,
+  freitextLabel = "Dein Studiengang",
+  fehlerSymbol = false,
   className,
 }: {
   id: string;
@@ -48,6 +50,10 @@ export function StudiengangAuswahl({
   required?: boolean;
   /** „Kein Studium“ ausblenden (Registrierung nach „Ja, ich studiere“). */
   ohneKeinStudium?: boolean;
+  /** Beschriftung des Textfelds bei „Sonstiges“ (Vorstandsfenster: nicht „Dein …“). */
+  freitextLabel?: string;
+  /** Fehler mit Warnsymbol (FeldFehler `symbol`, Seite „Daten prüfen“). */
+  fehlerSymbol?: boolean;
   className?: string;
 }) {
   const listeId = useId();
@@ -242,11 +248,13 @@ export function StudiengangAuswahl({
         </p>
         {/* Gesendet wird die Auswahl, nicht der Suchtext. */}
         <input type="hidden" name={name} value={wert.auswahl} />
-        <FeldFehler id={fehlerId}>{fehler}</FeldFehler>
+        <FeldFehler id={fehlerId} symbol={fehlerSymbol}>
+          {fehler}
+        </FeldFehler>
       </div>
       {wert.auswahl === SONSTIGES && (
         <div className="space-y-2">
-          <Label htmlFor={freitextId}>Dein Studiengang</Label>
+          <Label htmlFor={freitextId}>{freitextLabel}</Label>
           <Input
             ref={freitextFeld}
             id={freitextId}
@@ -261,7 +269,9 @@ export function StudiengangAuswahl({
             aria-describedby={fehlerFreitext ? freitextFehlerId : undefined}
             className="h-11"
           />
-          <FeldFehler id={freitextFehlerId}>{fehlerFreitext}</FeldFehler>
+          <FeldFehler id={freitextFehlerId} symbol={fehlerSymbol}>
+            {fehlerFreitext}
+          </FeldFehler>
         </div>
       )}
     </div>

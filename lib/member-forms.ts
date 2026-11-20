@@ -24,7 +24,11 @@ import {
 import type { MemberSecretValues } from "./member-secrets-server";
 import { gleicheHandyEingabe } from "./member-inputs";
 
-export type FeldFehler = Partial<Record<Feld, string>>;
+/**
+ * Meldungen je Formularfeld: die Felder der Regeln (lib/member-rules.ts) und der Studiengang (Klartext, Regeln in
+ * lib/studiengaenge.ts; `studiengangSonstiges` = Textfeld bei „Sonstiges“).
+ */
+export type FeldFehler = Partial<Record<Feld | "studiengang" | "studiengangSonstiges", string>>;
 
 /** Ergebnis einer Formularprüfung: Meldungen je Feld und die zu speichernden (normalisierten) Werte. */
 export type FormularErgebnis = {

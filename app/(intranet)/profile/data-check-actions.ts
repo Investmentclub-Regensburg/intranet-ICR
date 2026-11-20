@@ -12,6 +12,8 @@ import {
   type MemberSecretValues,
 } from "@/lib/member-secrets-server";
 import { speichereNamen } from "@/lib/member-names-server";
+import { speichereStudiengang, studiengangAusProfil } from "@/lib/member-studiengang-server";
+import { studiengangFehlt } from "@/lib/studiengaenge";
 import type { FeldFehler } from "@/lib/member-forms";
 import { istAbfrageFaellig, spaeterBis } from "@/lib/member-data-check";
 import { withinRateLimits } from "@/lib/bot-protection";
@@ -52,6 +54,8 @@ type EigenesProfil = {
   id: string;
   profil: Record<string, unknown>;
   namen: { vorname: string | null; nachname: string | null };
+  /** Studiengang wie gespeichert (Klartext, null = leer). */
+  studiengang: string | null;
 };
 
 type Geladen = EigenesProfil & {
@@ -63,7 +67,7 @@ type Geladen = EigenesProfil & {
 
 /** Eigenes Profil (wie updateProfile: user_id, sonst id = user_id) frisch mit Service Role. */
 async function eigenesProfil(admin: SupabaseClient, userId: string): Promise<EigenesProfil | "fehler" | null> {
-  const spalten = "id, Rolle, Status, Vorname, Nachname, daten_bestaetigt_am, daten_erinnern_ab";
+  const spalten = 'id, Rolle, Status, Vorname, Nachname, "Studiengang / Fach", daten_bestaetigt_am, daten_erinnern_ab';
   let { data, error } = await admin.from("profiles").select(spalten).eq("user_id", userId).maybeSingle();
   if (!data && !error) {
     const fallback = await admin.from("profiles").select(spalten).eq("id", userId).maybeSingle();
@@ -84,6 +88,7 @@ async function eigenesProfil(admin: SupabaseClient, userId: string): Promise<Eig
       vorname: typeof profil.Vorname === "string" ? profil.Vorname : null,
       nachname: typeof profil.Nachname === "string" ? profil.Nachname : null,
     },
+    studiengang: studiengangAusProfil(profil),
   };
 }
 
@@ -96,7 +101,7 @@ async function lade(admin: SupabaseClient, userId: string): Promise<Geladen | Da
     const values: MemberSecretValues = gelesen?.values ?? emptySecretValues();
     return {
       ...p,
-      bestand: { ...values, vorname: p.namen.vorname, nachname: p.namen.nachname },
+      bestand: { ...values, vorname: p.namen.vorname, nachname: p.namen.nachname, studiengang: p.studiengang },
       version: gelesen?.version ?? 0,
       landBekannt: gelesen ? gelesen.landBekannt : true,
       alumni: isAlumniProfile(p.profil),
@@ -120,13 +125,17 @@ function standPasst(g: Geladen, version: unknown, vornameVorher: unknown, nachna
   );
 }
 
-/** Verschlüsselte Felder (Versionssperre) und Name (Compare-and-set) speichern, dann bestätigen. */
+/**
+ * Verschlüsselte Felder (Versionssperre), Name und Studiengang (je Compare-and-set) speichern, dann bestätigen.
+ * Der Studiengang ist eine eigene Änderung des Mitglieds: kein Protokolleintrag (speichereStudiengang ohne Vorstand).
+ */
 async function speichereUndBestaetige(
   admin: SupabaseClient,
   g: Geladen,
   userId: string,
   secrets: Partial<MemberSecretValues>,
   namen: { vorname?: string; nachname?: string },
+  studiengang?: string,
 ): Promise<DatenCheckState> {
   // Version nach dem eigenen Speichern: save_member_secrets erhöht sie um genau 1 (neue Zeile = 1).
   let erwartet = g.version;
@@ -143,6 +152,11 @@ async function speichereUndBestaetige(
   const ergebnis = await speichereNamen(admin, g.id, userId, g.namen, namen);
   if (ergebnis === "konflikt") return { success: false, error: GEAENDERT_MELDUNG };
   if (ergebnis === "fehler") return { success: false, error: "Dein Name konnte nicht gespeichert werden." };
+  if (studiengang !== undefined) {
+    const sg = await speichereStudiengang(admin, g.id, g.studiengang, studiengang);
+    if (sg === "konflikt") return { success: false, error: GEAENDERT_MELDUNG };
+    if (sg === "fehler") return { success: false, error: "Dein Studiengang konnte nicht gespeichert werden." };
+  }
 
   // Bestätigung nur für genau den geprüften Stand (Review A2): sonst „inzwischen geändert“.
   const bestaetigt = await bestaetigeStand(admin, g.id, erwartet);
@@ -202,7 +216,7 @@ export async function saveMemberDataCheck(formData: FormData): Promise<DatenChec
   if (!r.gueltig) {
     return { success: false, error: r.ersterFehler ?? MAENGEL_MELDUNG, fehler: r.fehler, vollstaendig: r.vollstaendig };
   }
-  return speichereUndBestaetige(admin, g, auth.user.id, r.secrets, r.namen);
+  return speichereUndBestaetige(admin, g, auth.user.id, r.secrets, r.namen, r.studiengang);
 }
 
 export type DatenCheckPruefung = {
@@ -256,6 +270,7 @@ export async function postponeMemberDataCheck(): Promise<DatenCheckState> {
     aktiv: true,
     bestaetigtAm: g.profil.daten_bestaetigt_am as string | null,
     erinnernAb: g.profil.daten_erinnern_ab as string | null,
+    pflichtLuecke: studiengangFehlt(g.studiengang),
     jetzt,
   });
   if (!faellig) return { success: true, error: "" };

@@ -15,6 +15,8 @@ import {
 } from "@/lib/member-secrets-server";
 import { pruefeProfil, type FeldFehler, type ProfilAbschnitt } from "@/lib/member-forms";
 import { speichereNamen } from "@/lib/member-names-server";
+import { speichereStudiengang, studiengangAusProfil, studiengangStandPasst } from "@/lib/member-studiengang-server";
+import { studiengangAenderung } from "@/lib/studiengaenge";
 import { CANCELLATION_TEXT_MAX, isCancellationReason } from "@/lib/cancellation-reasons";
 import { authErrorMessage } from "@/lib/auth-messages";
 import { RATE_LIMITED_MESSAGE, withinRateLimits } from "@/lib/bot-protection";
@@ -51,6 +53,10 @@ const FORM_FIELDS: Record<ProfilAbschnitt, readonly string[]> = {
  * (`section` = personal | bank). Pflichtfelder lassen sich nicht leeren. Name und Geburtsdatum ändert das
  * Mitglied selbst (Entscheidung Hannes 11). Sperren: Version der verschlüsselten Zeile und der Name beim Laden
  * des Formulars (`vornameVorher`/`nachnameVorher`).
+ *
+ * Studiengang (Abschnitt personal, Klartext in profiles): Auswahl wie bei der Registrierung (`studiengang`,
+ * `studiengangSonstiges`), Sperre über `studiengangVorher`. Nur eine geänderte Auswahl wird geprüft und gespeichert
+ * (studiengangAenderung); ein unveränderter Altwert bleibt stehen. Eigene Änderung: kein Protokolleintrag.
  */
 export async function updateProfile(
   _prev: ProfileDataState,
@@ -71,14 +77,14 @@ export async function updateProfile(
   // Zuerst den passenden Profil-Datensatz auflösen (analog zur Kündigungs-Logik)
   let { data: profileRow, error: profileLookupError } = await admin
     .from("profiles")
-    .select("id, Rolle, Status, Vorname, Nachname")
+    .select('id, Rolle, Status, Vorname, Nachname, "Studiengang / Fach"')
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (!profileRow && !profileLookupError) {
     const fallback = await admin
       .from("profiles")
-      .select("id, Rolle, Status, Vorname, Nachname")
+      .select('id, Rolle, Status, Vorname, Nachname, "Studiengang / Fach"')
       .eq("id", user.id)
       .maybeSingle();
     profileRow = fallback.data;
@@ -134,6 +140,16 @@ export async function updateProfile(
     return { success: false, error: GEAENDERT_MELDUNG };
   }
 
+  // Studiengang (nur Abschnitt personal): Stand beim Laden muss noch gelten, dann nur eine geänderte Auswahl prüfen.
+  const studiengangVorher = studiengangAusProfil(profile);
+  if (section === "personal" && !studiengangStandPasst(formData.get("studiengangVorher"), studiengangVorher)) {
+    return { success: false, error: GEAENDERT_MELDUNG };
+  }
+  const studiengang =
+    section === "personal"
+      ? studiengangAenderung(studiengangVorher, formData.get("studiengang"), formData.get("studiengangSonstiges"))
+      : ({ art: "unveraendert" } as const);
+
   const eingabe: Record<string, unknown> = {};
   for (const key of FORM_FIELDS[section]) eingabe[key] = formData.get(key);
   const pruefung = pruefeProfil(
@@ -144,12 +160,18 @@ export async function updateProfile(
     undefined,
     landUnbekannt
   );
-  if (!pruefung.gueltig) {
-    return { success: false, error: pruefung.ersterFehler ?? "Bitte prüf deine Angaben.", fehler: pruefung.fehler };
+  if (!pruefung.gueltig || studiengang.art === "fehler") {
+    const fehler: FeldFehler = { ...pruefung.fehler };
+    if (studiengang.art === "fehler") fehler[studiengang.feld] = studiengang.fehler;
+    const erster =
+      pruefung.ersterFehler ?? (studiengang.art === "fehler" ? studiengang.fehler : null) ?? "Bitte prüf deine Angaben.";
+    return { success: false, error: erster, fehler };
   }
   // Ohne Änderung wird nichts geschrieben (keine neue Version, kein Protokoll).
   const namenGeaendert = Object.keys(pruefung.namen).length > 0;
-  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert) return { success: true, error: "" };
+  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert && studiengang.art !== "neu") {
+    return { success: true, error: "" };
+  }
 
   // Verschlüsselt speichern (member_secrets). IBAN-Änderungen erkennt saveMemberSecrets selbst und meldet sie
   // dem Vorstand. Nur die Felder des Abschnitts: eine zwischenzeitliche Korrektur des Vorstands im anderen
@@ -170,6 +192,13 @@ export async function updateProfile(
     if (ergebnis === "fehler") return { success: false, error: "Dein Name konnte nicht gespeichert werden." };
     // Name steht auch in Kopfzeile und Seitenleiste.
     revalidatePath("/", "layout");
+  }
+
+  if (studiengang.art === "neu") {
+    // Ohne Vorstand: kein Protokolleintrag (eigene Änderung, siehe Datenschutzerklärung).
+    const ergebnis = await speichereStudiengang(admin, profileId, studiengangVorher, studiengang.wert);
+    if (ergebnis === "konflikt") return { success: false, error: GEAENDERT_MELDUNG };
+    if (ergebnis === "fehler") return { success: false, error: "Dein Studiengang konnte nicht gespeichert werden." };
   }
 
   revalidatePath("/profile");
