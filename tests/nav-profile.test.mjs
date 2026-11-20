@@ -85,11 +85,12 @@ test("keine Links mehr auf den entfallenen Überblick", () => {
   }
 });
 
-test("E-Mail-Formular liegt nicht im Abschnittsformular (kein <form> im <form>)", () => {
+test("E-Mail-Fenster steht neben der Kachel, nicht im Abschnittsformular", () => {
   const code = readFileSync(new URL("../components/profile/ProfileDataSections.tsx", import.meta.url), "utf8");
-  // Felder im Kasten hängen per form-Attribut am eigenen Formular, das nach </EditForm> steht.
-  assert.match(code, /form=\{email\.formId\}/);
-  const ende = code.indexOf("</EditForm>");
-  const eigenesFormular = code.indexOf("<form id={email.formId}");
-  assert.ok(ende > 0 && eigenesFormular > ende, "E-Mail-Formular muss hinter dem Abschnittsformular stehen");
+  // React-Ereignisse (Absenden, Escape) laufen über Portale hinweg: Das Fenster darf nicht im <EditForm> hängen.
+  const slots = [...code.matchAll(/<EmailFensterSlot /g)].map((m) => m.index);
+  assert.equal(slots.length, 2, "Lese- und Bearbeitungssicht");
+  for (const i of slots) assert.match(code.slice(0, i), /<\/ProfileCard>\s*$/);
+  // Kein eigenes <form> mehr für die E-Mail im Abschnitt (kein <form> im <form>).
+  assert.doesNotMatch(code, /<form id=\{email/);
 });
