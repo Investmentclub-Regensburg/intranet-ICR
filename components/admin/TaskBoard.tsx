@@ -172,7 +172,7 @@ export function TaskBoard({ data }: { data: BoardData }) {
             Aufgaben-Board
           </h2>
           <p className="text-sm text-muted-foreground">
-            To-dos für Vorstand und Admins. Bei nahender Deadline bekommen alle Zuständigen eine E-Mail.
+            To-dos für Vorstand und Engagierte. Bei nahender Deadline bekommen alle Zuständigen eine E-Mail.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -550,7 +550,7 @@ function AssigneeSelect({
                 className="relative flex w-full items-center rounded-sm py-1.5 pr-8 pl-2 text-left text-sm outline-hidden select-none hover:bg-accent focus-visible:bg-accent"
               >
                 {m.name}
-                {m.role === "admin" ? " (Admin)" : ""}
+                {m.role === "admin" ? " (Engagierte)" : ""}
                 {isSelected && <Check className="absolute right-2 size-4 text-muted-foreground" aria-hidden />}
               </button>
             );
@@ -619,7 +619,7 @@ function TaskDialog({
         <DialogHeader>
           <DialogTitle>{task ? "Aufgabe bearbeiten" : "Neue Aufgabe"}</DialogTitle>
           <DialogDescription>
-            Zuständig können ein oder mehrere Vorstände und Admins sein. Mit Deadline bekommen alle Zuständigen zwei
+            Zuständig können ein oder mehrere Vorstände und Engagierte sein. Mit Deadline bekommen alle Zuständigen zwei
             Tage vorher und am Tag selbst eine E-Mail.
           </DialogDescription>
         </DialogHeader>

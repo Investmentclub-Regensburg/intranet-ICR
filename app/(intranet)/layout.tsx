@@ -4,12 +4,20 @@ import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { IntranetMotion } from "@/components/layout/IntranetMotion";
 import { IntranetPageTransition } from "@/components/layout/IntranetPageTransition";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 export default async function IntranetLayout({
   children,
 }: {
   children: ReactNode;
 }) {
+  // Abfrage „Stimmen deine Daten noch?“ fällig: weiter zur eigenen Seite /daten-bestaetigen (Design-Runde
+  // 19.11.2026; je Anfrage einmal berechnet, entschlüsselt wird nur, wenn fällig). Das allein hält den Seiteninhalt
+  // NICHT aus der Antwort: Next rendert die Seite parallel und überträgt sie als eigenen RSC-Eintrag, bei einer
+  // Navigation unter diesem Layout läuft das Layout gar nicht. Deshalb ruft zusätzlich jede Seite die Sperre als
+  // erste Anweisung auf (Gegenprüfung S-G1, lib/member-data-check-sperre.ts).
+  await sperreBeiDatenmaengeln();
+
   const { user, profile } = await getCachedAuth();
 
   if (!user) {

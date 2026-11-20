@@ -895,3 +895,36 @@
     animation-duration: 0.35s !important;
   }
 }
+
+/* Insights (Design-Runde 19.11.2026): Balken wachsen von links, Säulen von unten, Reiter-Inhalt steigt
+   leicht auf. Bei „Bewegung reduzieren“ ohne Bewegung. */
+.insights-panel {
+  animation: insights-panel-in 0.35s var(--ease-out);
+}
+.insights-grow {
+  transform-origin: left;
+  animation: insights-grow 0.6s var(--ease-out) both;
+}
+.insights-up {
+  transform-origin: bottom;
+  animation: insights-up 0.6s var(--ease-out) both;
+}
+@keyframes insights-panel-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes insights-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes insights-up {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .insights-panel,
+  .insights-grow,
+  .insights-up {
+    animation: none;
+  }
+}

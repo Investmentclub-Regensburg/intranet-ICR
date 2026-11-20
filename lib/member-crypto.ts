@@ -37,6 +37,8 @@ export const SECRET_FIELDS = [
   "plz",
   "ort",
   "handynummer",
+  // Land der Anschrift (ISO-Code, seit 18.11.2026). Leer bei Altdaten = Deutschland.
+  "land",
 ] as const;
 export type SecretField = (typeof SECRET_FIELDS)[number];
 

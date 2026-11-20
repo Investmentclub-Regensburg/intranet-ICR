@@ -1,12 +1,14 @@
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { getNews } from "@/app/(intranet)/news/actions";
 import { NewsHub } from "@/components/admin/NewsHub";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 type Props = {
   searchParams: Promise<{ ansicht?: string }>;
 };
 
 export default async function AdminNewsPage({ searchParams }: Props) {
+  await sperreBeiDatenmaengeln();
   const { ansicht } = await searchParams;
   const view = ansicht === "verwalten" ? "manage" : "choose";
   const [{ profile }, news] = await Promise.all([getCachedAuth(), getNews()]);

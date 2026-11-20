@@ -1,28 +1,19 @@
 import { getCachedAuth } from "@/utils/supabase/cached-auth";
 import { roleOf } from "@/utils/supabase/guards";
-import { getAdminMembers, getCancellations } from "./actions";
+import { getAdminMembers } from "./actions";
 import { AdminMembersWithSearch } from "@/components/admin/AdminMembersWithSearch";
-import { CancellationsOverview } from "@/components/admin/CancellationsOverview";
-import { MembersViewSwitch } from "@/components/admin/MembersViewSwitch";
+import { handyAnzeige } from "@/lib/member-forms";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
+// Nur noch die Liste. Kündigungen mit Gründen stehen seit der Design-Runde unter Insights › Austritte.
 export default async function AdminMembersPage() {
+  await sperreBeiDatenmaengeln();
   const { profile } = await getCachedAuth();
   const role = roleOf(profile as Record<string, unknown> | null);
   const isBoard = role === "board";
-  const [members, cancellations] = await Promise.all([
-    getAdminMembers(),
-    isBoard ? getCancellations() : Promise.resolve([]),
-  ]);
-  const list = <AdminMembersWithSearch members={members} canEditRole={isBoard} />;
-
+  const rows = await getAdminMembers();
+  // Handy international formatiert (Altwerte, die noch nicht E.164 sind, roh).
+  const members = rows.map((m) => ({ ...m, handynummer: handyAnzeige(m.handynummer) }));
   // Rollen und Status ändert nur der Vorstand (updateMemberRole prüft das selbst).
-  // Kündigungsgründe sieht nur der Vorstand.
-  if (!isBoard) return list;
-  return (
-    <MembersViewSwitch
-      cancellationsCount={cancellations.length}
-      members={list}
-      cancellations={<CancellationsOverview rows={cancellations} />}
-    />
-  );
+  return <AdminMembersWithSearch members={members} canEditRole={isBoard} showDataIssues={isBoard} />;
 }

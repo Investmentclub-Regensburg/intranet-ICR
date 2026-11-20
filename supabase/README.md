@@ -49,8 +49,11 @@ nach `prod` ein.
 **Ab dem Umzug** (eigener Stack auf dataserver01) gibt es keine GitHub-Integration mehr. Migrationen werden
 nach dem Merge nach `prod` von Hand eingespielt, ohne neuen Automatismus:
 
-1. Release-PR `dev` → `prod` mergen (CI grün). Abwärtskompatibel bauen wie bisher: Die App deployt Coolify
-   beim Merge, die Migration folgt kurz danach von Hand.
+1. **Erst die Migration einspielen (Schritte 2 bis 4, vom Stand des Release-Branches aus), dann den
+   Release-PR `dev` → `prod` mergen** (CI grün; Coolify deployt die App beim Merge). Migrationen bleiben
+   abwärtskompatibel, d. h. die alte App läuft mit der neuen Datenbank weiter; umgekehrt gilt das nicht immer
+   (z. B. liest die App seit `20261118120000_member_secrets_land.sql` die Spalte `member_secrets.land`; sie
+   kommt zwar übergangsweise ohne sie aus, speichert dann aber kein Land).
 2. Vorher eine Sicherung: `docker exec icr-db pg_dump -U supabase_admin -d postgres -Fc > …` auf dataserver01
    (oder den letzten nächtlichen Dump prüfen).
 3. SSH-Tunnel zur Datenbank (nur Tailnet, Postgres lauscht dort nur auf `127.0.0.1:5433`):
@@ -66,7 +69,12 @@ nach dem Merge nach `prod` von Hand eingespielt, ohne neuen Automatismus:
    ```
    `db push` trägt die Versionen in `supabase_migrations.schema_migrations` ein (Verlauf aus der Cloud wurde beim
    Umzug übernommen). Die CLI nie per `supabase link` mit der Produktion verknüpfen.
-5. Edge Function `notify-board` geändert? Auf dem eigenen Stack liegt sie unter `/opt/icr-supabase/functions`
+5. Abfrage „Stimmen deine Daten noch?“ (`20261118140000_member_data_confirmation.sql`,
+   `20261118150000_member_data_confirm.sql`): erst beide Migrationen, dann die App. Eingeschaltet wird sie in
+   der App-Umgebung (Coolify) mit **beiden** Werten: `DATA_CHECK_ENABLED=true` und `DATA_CHECK_START=<Datum des
+   Einschaltens, YYYY-MM-DD>`. Ohne gültiges Start-Datum zählt für „Später“ nur der letzte Stichtag (liegt er über
+   4 Wochen zurück, gibt es für niemanden „Später“); die App warnt dann einmal im Server-Log.
+6. Edge Function `notify-board` geändert? Auf dem eigenen Stack liegt sie unter `/opt/icr-supabase/functions`
    (Ablage siehe Stack-Doku bei setup); nach dem Kopieren `docker compose restart functions`.
 
 **Test-Projekt neu aufbauen:** `supabase db reset --linked` (nur mit Link auf das Test-Projekt). Danach

@@ -11,12 +11,14 @@ import {
   QuickAccessSection,
 } from "./sections";
 import { todayLabel } from "./data";
+import { sperreBeiDatenmaengeln } from "@/lib/member-data-check-sperre";
 
 // Übersicht: Begrüßung, nächste Events, News, eigene Anmeldungen, Schnellzugriff und
 // für Vorstand/Admin eine Zeile mit offenen Vorgängen. Die Kachel-Raster reagieren auf die
 // Inhaltsbreite (Container-Queries), weil ab md die Sidebar Platz nimmt.
 
 export default async function DashboardPage() {
+  await sperreBeiDatenmaengeln();
   const auth = await requireUser();
   if (!auth.ok) redirect("/login");
 

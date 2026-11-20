@@ -14,63 +14,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
-// Kleine Bausteine für den Bereich „Verwaltung“, die das Kit nicht hat (Filter-Chips,
-// Schalter, Bestätigung). Farben nur über Tokens.
-
-/* ---------------------------------------------------------------------------
- * Filter-Chips (runde Pillen, gewählt einfarbig Rot wie der Weiter-Button)
- * ------------------------------------------------------------------------- */
-
-export type ChipOption<K extends string> = { key: K; label: string; count?: number };
-
-export function FilterChips<K extends string>({
-  label,
-  options,
-  value,
-  onChange,
-  className,
-}: {
-  /** Name der Gruppe (Screenreader, sichtbar als kleines Label). */
-  label: string;
-  options: readonly ChipOption<K>[];
-  value: K;
-  onChange: (key: K) => void;
-  className?: string;
-}) {
-  return (
-    <div role="radiogroup" aria-label={label} className={cn("flex flex-wrap items-center gap-1.5", className)}>
-      <span className="mr-1 text-[0.6875rem] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-        {label}
-      </span>
-      {options.map((o) => {
-        const active = o.key === value;
-        return (
-          <motion.button
-            key={o.key}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => onChange(o.key)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-              active
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-          >
-            {o.label}
-            {typeof o.count === "number" && (
-              <span className={cn("tabular-nums", active ? "text-white/80" : "text-muted-foreground/80")}>
-                {o.count}
-              </span>
-            )}
-          </motion.button>
-        );
-      })}
-    </div>
-  );
-}
+// Kleine Bausteine für den Bereich „Verwaltung“, die das Kit nicht hat (Schalter,
+// Bestätigung). Farben nur über Tokens.
 
 /* ---------------------------------------------------------------------------
  * Schalter statt Checkbox (Muster OpSwitch, Thumb gleitet per layout)

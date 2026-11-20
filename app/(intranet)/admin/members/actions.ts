@@ -8,163 +8,110 @@ import { berlinToday } from "@/lib/berlin-date";
 import {
   MemberSecretsConflictError,
   emptySecretValues,
-  readMemberSecrets,
   readMemberSecretsMany,
+  readMemberSecretsWithMeta,
   saveMemberSecrets,
   type MemberSecretValues,
   type MemberSecretsResult,
 } from "@/lib/member-secrets-server";
 import {
-  FIELD_LIMITS,
-  checkBic,
-  checkBirthDate,
-  checkIban,
-  checkPhone,
-  checkPlz,
-  checkText,
-  firstError,
-} from "@/lib/member-fields";
+  KORREKTUR_FELDER,
+  korrekturWerte,
+  pruefeKorrektur,
+  type FeldFehler,
+  type KorrekturWerte,
+} from "@/lib/member-forms";
 import { maskIban } from "@/components/profile/profile-format";
+import { speichereNamen, type NamenStand } from "@/lib/member-names-server";
+import { adminMitgliederZeilen, type AdminMemberRow } from "@/lib/member-overview";
 
-export type AdminMemberRow = {
-  id: string;
-  name: string;
-  studiengang: string;
-  email: string;
-  handynummer: string;
-  /** Verschlüsselte Daten dieses Mitglieds nicht lesbar (Handynummer fehlt dann). */
-  secretsUnreadable: boolean;
-  rolle: string;
-  /** Kleinbuchstaben, z. B. active | cancelled | applicant */
-  status: string;
-};
+export type { AdminMemberRow } from "@/lib/member-overview";
 
+let bestaetigtSpalteGemeldet = false;
+
+/** PostgREST-/Postgres-Fehler „Spalte daten_bestaetigt_am fehlt“ (Migration 20261118140000 noch nicht da). */
+function fehltBestaetigtSpalte(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = String(error.message ?? "");
+  return /daten_bestaetigt_am/.test(message) && (error.code === "42703" || /does not exist/i.test(message));
+}
+
+/**
+ * Mitgliederliste für admin und Vorstand. Der Vorstand (board) bekommt zusätzlich je aktivem Mitglied die
+ * NAMEN der Felder mit Mangel (`datenMaengel`, nie Werte); berechnet aus den ohnehin entschlüsselten Werten.
+ * Für admin fehlt die Eigenschaft ganz (lib/member-overview.ts).
+ */
 export async function getAdminMembers(): Promise<AdminMemberRow[]> {
   const auth = await requireRole(["admin", "board"]);
   if (!auth.ok) return [];
 
   const admin = createServiceClient();
 
-  const { data, error } = await admin
-    .from("profiles")
-    .select(
-      'id, Vorname, Nachname, "Studiengang / Fach", "E-Mail", Rolle, Status'
-    )
-    .order("Nachname", { ascending: true })
-    .order("Vorname", { ascending: true });
+  const spalten = 'id, Vorname, Nachname, "Studiengang / Fach", "E-Mail", Rolle, Status';
+  const lesen = (mitBestaetigung: boolean) =>
+    admin
+      .from("profiles")
+      .select(mitBestaetigung ? `${spalten}, daten_bestaetigt_am` : spalten)
+      .order("Nachname", { ascending: true })
+      .order("Vorname", { ascending: true });
 
+  let bestaetigtBekannt = true;
+  let { data, error } = await lesen(true);
+  if (error && fehltBestaetigtSpalte(error)) {
+    // Übergang: App vor der Migration. Liste ohne Filter „Nicht bestätigt“ statt leerer Seite. Warnung nur
+    // einmal je Prozess (wie bei der Spalte land, Review V5).
+    if (!bestaetigtSpalteGemeldet) {
+      bestaetigtSpalteGemeldet = true;
+      console.warn("getAdminMembers: Spalte daten_bestaetigt_am fehlt (Migration 20261118140000), Liste ohne Bestätigungsstand");
+    }
+    bestaetigtBekannt = false;
+    ({ data, error } = await lesen(false));
+  }
   if (error) return [];
+  const profiles = (data ?? []) as unknown as Record<string, unknown>[];
 
-  // Handynummer aus member_secrets (verschlüsselt).
+  // Handynummer und Mängel aus member_secrets (verschlüsselt).
   let secrets: Map<string, MemberSecretsResult> | null = null;
   try {
     secrets = await readMemberSecretsMany(
       admin,
-      (data ?? []).map((p) => ({ id: String((p as { id?: unknown }).id ?? "") }))
+      profiles.map((p) => ({ id: String(p.id ?? "") }))
     );
   } catch (err) {
     console.error("getAdminMembers: member_secrets", err instanceof Error ? err.message : "unbekannt");
   }
 
-  return (data ?? []).map((p) => {
-    const raw = p as Record<string, unknown>;
-    const v = String(raw.Vorname ?? raw.vorname ?? "").trim();
-    const n = String(raw.Nachname ?? raw.nachname ?? "").trim();
-    const name = [v, n].filter(Boolean).join(" ") || "—";
-    const sg = raw["Studiengang / Fach"] ?? (raw as Record<string, unknown>)["Studiengang / Fach"];
-    const em = raw["E-Mail"] ?? (raw as Record<string, unknown>)["e-mail"];
-    const sv = secrets?.get(String(raw.id ?? ""));
-    const unreadable = !secrets || sv === "unreadable";
-    const hn = sv && sv !== "unreadable" ? sv.handynummer : null;
-    const rl = raw.Rolle ?? raw.rolle;
-    const st = raw.Status ?? raw.status;
-    return {
-      id: String(raw.id ?? ""),
-      name,
-      studiengang: String(sg ?? "").trim(),
-      email: String(em ?? "").trim(),
-      handynummer: String(hn ?? "").trim(),
-      secretsUnreadable: unreadable,
-      rolle: String(rl ?? "member").trim().toLowerCase(),
-      status: String(st ?? "active").trim().toLowerCase(),
-    };
-  });
+  return adminMitgliederZeilen(profiles, secrets, { vorstand: auth.role === "board", bestaetigtBekannt });
 }
 
-export type CancellationRow = {
-  id: string;
+/**
+ * Daten für den Korrekturdialog (Vorstand). Handy aufgeteilt in Länderauswahl + Nummer (Altwerte roh mit DE),
+ * Land der Anschrift mit Standard DE. Die IBAN nur gekürzt – ersetzt wird sie durch Neueingabe.
+ */
+export type MemberCorrectionData = KorrekturWerte & {
   name: string;
-  /** ISO-Zeitpunkt */
-  cancelledAt: string;
-  reason: string | null;
-  reasonText: string | null;
-};
-
-/** Kündigungen mit freiwilligem Grund (Selbstkündigung im Intranet), neueste zuerst. Nur Vorstand. */
-export async function getCancellations(): Promise<CancellationRow[]> {
-  const auth = await requireRole(["board"]);
-  if (!auth.ok) return [];
-
-  const admin = createServiceClient();
-  const { data, error } = await admin
-    .from("membership_cancellations")
-    .select('id, cancelled_at, reason, reason_text, profiles("Vorname", "Nachname")')
-    .order("cancelled_at", { ascending: false })
-    .limit(500);
-  if (error) {
-    console.error("getCancellations:", error.code);
-    return [];
-  }
-
-  return (data ?? []).map((row) => {
-    const r = row as Record<string, unknown>;
-    const p = (Array.isArray(r.profiles) ? r.profiles[0] : r.profiles) as Record<string, unknown> | null;
-    const name = [p?.Vorname, p?.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
-    return {
-      id: String(r.id ?? ""),
-      name,
-      cancelledAt: String(r.cancelled_at ?? ""),
-      reason: r.reason ? String(r.reason) : null,
-      reasonText: r.reason_text ? String(r.reason_text) : null,
-    };
-  });
-}
-
-/** Daten für den Korrekturdialog (Vorstand). Die IBAN nur gekürzt – ersetzt wird sie durch Neueingabe. */
-export type MemberCorrectionData = {
-  name: string;
-  strasse: string;
-  hausnummer: string;
-  plz: string;
-  ort: string;
-  handynummer: string;
-  geburtsdatum: string;
-  bic: string;
   ibanMasked: string;
+  /** Version der verschlüsselten Zeile beim Öffnen (0 = keine): optimistische Sperre. */
+  version: number;
+  /** Ohne Spalte land geladen (Übergang): ein übermitteltes Land wird ignoriert. */
+  landUnbekannt: boolean;
 };
 
-/** Bearbeitbare Felder (ohne IBAN). */
-const CORRECTION_FIELDS = ["strasse", "hausnummer", "plz", "ort", "handynummer", "geburtsdatum", "bic"] as const;
-type CorrectionField = (typeof CORRECTION_FIELDS)[number];
-
-export type MemberCorrectionInput = Record<CorrectionField, string> & {
+export type MemberCorrectionInput = Record<keyof KorrekturWerte, string> & {
   /** Neue IBAN; leer = unverändert. */
   iban: string;
 };
 
-/** Gleiche Normalisierung für Formular, Ausgangswerte und gespeicherte Werte (sonst Scheinänderungen). */
-function normalizeCorrection(field: CorrectionField, value: unknown): string {
-  const text = typeof value === "string" ? value.trim() : "";
-  return field === "bic" ? text.replace(/\s/g, "").toUpperCase() : text;
-}
-
 async function loadCorrectionValues(
   admin: ReturnType<typeof createServiceClient>,
   profileId: string
-): Promise<{ name: string; values: MemberSecretValues } | { error: string }> {
+): Promise<
+  | { name: string; namen: NamenStand; userId: string | null; values: MemberSecretValues; version: number; landBekannt: boolean }
+  | { error: string }
+> {
   const { data: profile, error } = await admin
     .from("profiles")
-    .select('"Vorname", "Nachname"')
+    .select('"Vorname", "Nachname", user_id')
     .eq("id", profileId)
     .maybeSingle();
   if (error) {
@@ -174,9 +121,21 @@ async function loadCorrectionValues(
   if (!profile) return { error: "Mitglied nicht gefunden." };
   const p = profile as unknown as Record<string, unknown>;
   const name = [p.Vorname, p.Nachname].map((x) => String(x ?? "").trim()).filter(Boolean).join(" ") || "—";
+  const namen: NamenStand = {
+    vorname: typeof p.Vorname === "string" ? p.Vorname : null,
+    nachname: typeof p.Nachname === "string" ? p.Nachname : null,
+  };
+  const userId = typeof p.user_id === "string" ? p.user_id : null;
   try {
-    const values = (await readMemberSecrets(admin, profileId)) ?? emptySecretValues();
-    return { name, values };
+    const gelesen = await readMemberSecretsWithMeta(admin, profileId);
+    return {
+      name,
+      namen,
+      userId,
+      values: gelesen?.values ?? emptySecretValues(),
+      version: gelesen?.version ?? 0,
+      landBekannt: gelesen?.landBekannt ?? true,
+    };
   } catch (err) {
     console.error("loadCorrectionValues:", err instanceof Error ? err.message : "unbekannt");
     return { error: "Die verschlüsselten Daten dieses Mitglieds sind nicht lesbar. Bitte IT-Vorstand informieren." };
@@ -196,30 +155,37 @@ export async function getMemberCorrectionData(
   return {
     data: {
       name: loaded.name,
-      strasse: v.strasse ?? "",
-      hausnummer: v.hausnummer ?? "",
-      plz: v.plz ?? "",
-      ort: v.ort ?? "",
-      handynummer: v.handynummer ?? "",
-      geburtsdatum: v.geburtsdatum ?? "",
-      bic: v.bic ?? "",
+      ...korrekturWerte({ ...v, ...loaded.namen }),
       ibanMasked: v.iban ? maskIban(v.iban) : "",
+      version: loaded.version,
+      landUnbekannt: !loaded.landBekannt,
     },
   };
 }
 
+const GEAENDERT_MELDUNG = "Die Daten wurden inzwischen geändert. Bitte den Dialog schließen und neu öffnen.";
+
+/** Nur Zeichenketten aus dem Client übernehmen (feste Feldliste). */
+function korrekturText(obj: unknown, feld: string): string {
+  const v = obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, feld)
+    ? (obj as Record<string, unknown>)[feld]
+    : undefined;
+  return typeof v === "string" ? v : "";
+}
+
 /**
  * Korrektur der verschlüsselten Mitgliedsdaten durch den Vorstand (z. B. Geburtsdatum, Tippfehler in der
- * Adresse). Speichert über saveMemberSecrets mit Protokoll (member_data_corrections, nur Feldnamen).
- * `base` sind die Werte beim Öffnen des Dialogs: Gespeichert werden nur Felder, die der Vorstand gegenüber
- * `base` geändert hat – und nur, wenn sie in der Datenbank noch `base` entsprechen (sonst hätte z. B. das
- * Mitglied inzwischen geändert und die Korrektur würde das still zurückdrehen).
+ * Adresse). Geprüft wird nur über lib/member-rules.ts (`pruefeVorstandskorrektur` über lib/member-forms.ts):
+ * nur die Felder, die der Vorstand gegenüber `base` (Werte beim Öffnen) geändert hat; alte Fehler in anderen
+ * Feldern blockieren nicht. Gespeichert werden die normalisierten Werte – und nur, wenn die Felder in der
+ * Datenbank noch `base` entsprechen (sonst hätte z. B. das Mitglied inzwischen geändert). Protokoll in
+ * member_data_corrections (nur Feldnamen).
  */
 export async function correctMemberData(
   profileId: string,
   input: MemberCorrectionInput,
   base: MemberCorrectionData
-): Promise<{ error: string; unchanged?: boolean }> {
+): Promise<{ error: string; unchanged?: boolean; fehler?: FeldFehler }> {
   const auth = await requireRole(["board"], "Nur der Vorstand darf Mitgliedsdaten korrigieren.");
   if (!auth.ok) return { error: auth.error };
   if (!isUuid(profileId) || !input || typeof input !== "object" || !base || typeof base !== "object") {
@@ -228,54 +194,61 @@ export async function correctMemberData(
   const actorId = String(auth.profile?.id ?? "");
   if (!isUuid(actorId)) return { error: "Dein Profil konnte nicht zugeordnet werden." };
 
-  const changes: Partial<MemberSecretValues> = {};
-  for (const field of CORRECTION_FIELDS) {
-    const value = normalizeCorrection(field, input[field]);
-    if (value !== normalizeCorrection(field, base[field])) changes[field] = value;
+  const eingabe = {} as MemberCorrectionInput;
+  const basis = {} as KorrekturWerte;
+  for (const feld of KORREKTUR_FELDER) {
+    eingabe[feld] = korrekturText(input, feld);
+    basis[feld] = korrekturText(base, feld);
   }
-  const iban = (typeof input.iban === "string" ? input.iban : "").replace(/\s/g, "").toUpperCase();
-  if (iban) changes.iban = iban;
-
-  if (changes.geburtsdatum === "") {
-    return { error: "Das Geburtsdatum kann nicht gelöscht werden. Bitte ein vollständiges Datum eingeben." };
+  eingabe.iban = korrekturText(input, "iban");
+  const baseVersion = (base as { version?: unknown }).version;
+  if (typeof baseVersion !== "number" || !Number.isInteger(baseVersion) || baseVersion < 0) {
+    return { error: "Ungültige Auswahl." };
   }
-  // Nur geänderte Felder prüfen (unveränderte Altdaten sollen eine Korrektur nicht blockieren).
-  const has = (field: keyof MemberSecretValues) => typeof changes[field] === "string" && changes[field] !== "";
-  const validationError = firstError(
-    "strasse" in changes ? checkText(changes.strasse!, "Straße", FIELD_LIMITS.strasse) : null,
-    "hausnummer" in changes ? checkText(changes.hausnummer!, "Hausnummer", FIELD_LIMITS.hausnummer) : null,
-    "ort" in changes ? checkText(changes.ort!, "Ort", FIELD_LIMITS.ort) : null,
-    has("plz") ? checkPlz(changes.plz!) : null,
-    has("handynummer") ? checkPhone(changes.handynummer!) : null,
-    has("geburtsdatum") ? checkBirthDate(changes.geburtsdatum!) : null,
-    has("iban") ? checkIban(changes.iban!) : null,
-    has("bic") ? checkBic(changes.bic!) : null
-  );
-  if (validationError) return { error: validationError };
 
   const admin = createServiceClient();
   const loaded = await loadCorrectionValues(admin, profileId);
   if ("error" in loaded) return loaded;
-
   const current = loaded.values;
-  const stale =
-    CORRECTION_FIELDS.some(
-      (field) => field in changes && normalizeCorrection(field, current[field]) !== normalizeCorrection(field, base[field])
-    ) || (changes.iban !== undefined && (current.iban ? maskIban(current.iban) : "") !== (base.ibanMasked ?? ""));
-  if (stale) {
-    return { error: "Die Daten wurden inzwischen geändert. Bitte den Dialog schließen und neu öffnen." };
-  }
-  if (changes.iban && changes.iban === (current.iban ?? "").replace(/\s/g, "").toUpperCase()) delete changes.iban;
-  if (Object.keys(changes).length === 0) return { error: "", unchanged: true };
 
-  try {
-    await saveMemberSecrets(admin, profileId, changes, { correctedBy: actorId });
-  } catch (err) {
-    if (err instanceof MemberSecretsConflictError) {
-      return { error: "Die Daten wurden gerade an anderer Stelle geändert. Bitte erneut öffnen." };
+  // Optimistische Sperre: Seit dem Öffnen darf sich nichts geändert haben (z. B. durch das Mitglied). Für die
+  // verschlüsselten Felder über die Version, für den Namen (Klartext ohne Version) über den Namen selbst.
+  if (loaded.version !== baseVersion) return { error: GEAENDERT_MELDUNG };
+  if (
+    basis.vorname !== (loaded.namen.vorname ?? "").trim() ||
+    basis.nachname !== (loaded.namen.nachname ?? "").trim()
+  ) {
+    return { error: GEAENDERT_MELDUNG };
+  }
+
+  const landUnbekannt = (base as { landUnbekannt?: unknown }).landUnbekannt === true || !loaded.landBekannt;
+  const pruefung = pruefeKorrektur(eingabe, basis, { ...current, ...loaded.namen }, undefined, landUnbekannt);
+  if (!pruefung.gueltig) {
+    return { error: pruefung.ersterFehler ?? "Bitte prüf die Angaben.", fehler: pruefung.fehler };
+  }
+  const namenGeaendert = Object.keys(pruefung.namen).length > 0;
+  if (Object.keys(pruefung.aenderungen).length === 0 && !namenGeaendert) return { error: "", unchanged: true };
+
+  if (Object.keys(pruefung.aenderungen).length > 0) {
+    try {
+      await saveMemberSecrets(admin, profileId, pruefung.aenderungen, {
+        correctedBy: actorId,
+        erwarteteVersion: baseVersion,
+      });
+    } catch (err) {
+      if (err instanceof MemberSecretsConflictError) return { error: GEAENDERT_MELDUNG };
+      console.error("correctMemberData:", err instanceof Error ? err.message : "unbekannt");
+      return { error: "Korrektur konnte nicht gespeichert werden." };
     }
-    console.error("correctMemberData:", err instanceof Error ? err.message : "unbekannt");
-    return { error: "Korrektur konnte nicht gespeichert werden." };
+  }
+
+  if (namenGeaendert) {
+    // Protokoll (nur Feldnamen vorname/nachname) schreibt speichereNamen.
+    const ergebnis = await speichereNamen(admin, profileId, loaded.userId, loaded.namen, pruefung.namen, {
+      correctedBy: actorId,
+    });
+    if (ergebnis === "konflikt") return { error: GEAENDERT_MELDUNG };
+    if (ergebnis === "fehler") return { error: "Der Name konnte nicht gespeichert werden." };
   }
 
   revalidatePath("/admin/members");

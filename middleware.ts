@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isCancelledProfile, isPendingProfile } from "@/lib/profile-status";
-import { safeRedirectPath } from "@/lib/safe-redirect";
+import { RUECKKEHR_HEADER, safeRedirectPath } from "@/lib/safe-redirect";
 import { siteRedirectUrl } from "@/lib/site-url";
 
 // Alle Seiten der Route-Group (intranet) – nur mit Login erreichbar.
@@ -18,9 +18,17 @@ const INTRANET_PREFIXES = [
   "/magazines",
   "/contact",
   "/whatsapp",
+  // Abfrage „Stimmen deine Daten noch?“ (eigene Seite außerhalb des Intranet-Layouts).
+  "/daten-bestaetigen",
 ];
 
 export async function middleware(request: NextRequest) {
+  // 0. Angefragter Pfad für die Rückkehr nach der Datenabfrage (Sperre im Intranet-Layout). Immer hier neu
+  //    gesetzt, ein mitgeschickter Wert des Browsers zählt nie; `_rsc` (Next-intern) fällt weg.
+  const rueckkehr = new URL(request.nextUrl.pathname + request.nextUrl.search, "http://x");
+  rueckkehr.searchParams.delete("_rsc");
+  request.headers.set(RUECKKEHR_HEADER, rueckkehr.pathname + rueckkehr.search);
+
   // 1. Initialisiere die Response
   let supabaseResponse = NextResponse.next({
     request,

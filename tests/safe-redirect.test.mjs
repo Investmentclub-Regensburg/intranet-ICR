@@ -68,6 +68,13 @@ test("verwirft Ziele auf Login-/Auth-Seiten (auch nach Normalisierung)", () => {
     "/auth/callback",
     "/events/../login",
     "/events/%2e%2e/login",
+    // Prozent-kodiert (Next dekodiert beim Routen): Review daten-seite N2.
+    "/%61uth/callback",
+    "/%61uth",
+    "/%6Cogin",
+    "/%6c%6f%67%69%6e?next=/dashboard",
+    "/%2561uth/callback",
+    "/%72egister",
   ]) {
     assert.equal(safeNextPath(value), null, value);
   }
