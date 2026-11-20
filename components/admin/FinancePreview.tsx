@@ -6,6 +6,7 @@ import {
   CalendarOff,
   Globe,
   GraduationCap,
+  Hourglass,
   Loader2,
   MinusCircle,
   Search,
@@ -37,7 +38,8 @@ type CategoryMeta = { label: string; hint: string; Icon: LucideIcon; badge?: str
 const CATEGORIES: Record<FinanceCategory, CategoryMeta> = {
   debit: { label: "Lastschriften", badge: "Lastschrift", hint: "Werden eingezogen.", Icon: WalletCards },
   alumni: { label: "Alumni", hint: "Alumni zahlen keinen Beitrag.", Icon: GraduationCap },
-  cancelled: { label: "Gekündigt", hint: "Kündigung vor dem Stichtag.", Icon: UserMinus },
+  cancelled: { label: "Gekündigt", hint: "Gekündigt oder Kündigung vor dem Stichtag. Wird nie eingezogen.", Icon: UserMinus },
+  applicant: { label: "Antrag offen", hint: "Noch kein Mitglied. Wird nie eingezogen.", Icon: Hourglass },
   free_semester: {
     label: "Freisemester",
     hint: "Eintritt ab dem Stichtag oder manuell gesetzt.",
@@ -62,9 +64,18 @@ const ACTION_LEGEND: { Icon: LucideIcon; text: string }[] = [
   { Icon: Undo2, text: "Anpassung zurücksetzen" },
 ];
 
-const FILTER_ORDER: FinanceCategory[] = ["alumni", "cancelled", "free_semester", "no_iban", "invalid", "removed", "non_eea"];
-/** Nur mit Treffern zeigen (Sonderfall; das Raster bleibt sonst bei sechs Kacheln). */
-const NUR_MIT_TREFFERN: ReadonlySet<FinanceCategory> = new Set(["non_eea"]);
+const FILTER_ORDER: FinanceCategory[] = [
+  "alumni",
+  "cancelled",
+  "free_semester",
+  "no_iban",
+  "invalid",
+  "removed",
+  "applicant",
+  "non_eea",
+];
+/** Nur mit Treffern zeigen (Sonderfälle; das Raster bleibt sonst bei sechs Kacheln). */
+const NUR_MIT_TREFFERN: ReadonlySet<FinanceCategory> = new Set(["applicant", "non_eea"]);
 /** Kategorien, die der Vorstand bearbeiten muss (Warnfarbe). */
 const WARN: ReadonlySet<FinanceCategory> = new Set(["invalid", "non_eea"]);
 

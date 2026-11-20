@@ -10,6 +10,8 @@ export type FinanceOverrideAction = "include" | "exclude" | "free_semester";
 
 /**
  * Wohin ein Profil im Export fällt.
+ *   cancelled  Status „gekündigt“ (immer, auch ohne Kündigungsdatum) oder Kündigungsdatum vor dem Stichtag
+ *   applicant  offener Antrag (Status „applicant“): noch kein Mitglied, nie eingezogen (Klickrunde 20.11.2026)
  *   non_eea  Konto in einem SEPA-Land außerhalb des EWR (lib/iban.ts NICHT_EWR_SEPA_LAENDER): nicht in die
  *            Lastschriftdatei, bis der Export Anschrift und BIC für diese Konten liefert (Entscheidung Hannes,
  *            Review Pflichtfelder M2); der Vorstand zieht den Beitrag manuell ein.
@@ -18,6 +20,7 @@ export type FinanceCategory =
   | "debit"
   | "alumni"
   | "cancelled"
+  | "applicant"
   | "free_semester"
   | "no_iban"
   | "invalid"
@@ -28,6 +31,7 @@ export const FINANCE_CATEGORIES: readonly FinanceCategory[] = [
   "debit",
   "alumni",
   "cancelled",
+  "applicant",
   "free_semester",
   "no_iban",
   "invalid",
@@ -52,6 +56,11 @@ export type FinanceKategorieEingabe = {
 
 /**
  * Regeln je Profil (Reihenfolge):
+ *   0. Status „gekündigt“ bzw. „offener Antrag“: nie eingezogen, auch nicht mit Anpassung (Klickrunde 20.11.2026,
+ *      betrifft Geld). Bis dahin entschied bei Gekündigten nur das Datum: Ohne Kündigungsdatum oder mit Datum ab
+ *      dem Stichtag wurde eingezogen, offene Anträge mit Antragsdatum vor dem Stichtag ebenfalls; „aufnehmen“ hob
+ *      beides auf. Eine Anpassung „aufnehmen“ wirkt hier bewusst nicht: Ein gekündigtes Mitglied hat kein
+ *      gültiges Mandat mehr, ein Antrag noch keins; erst Status ändern (reaktivieren bzw. annehmen).
  *   1. Manuelle Anpassung „entfernen“ / „Freisemester“ gewinnt immer.
  *   2. Ohne Anpassung „aufnehmen“: Alumni, gekündigt vor dem Stichtag, Eintritt ab dem Stichtag (Freisemester)
  *      fallen heraus.
@@ -59,6 +68,8 @@ export type FinanceKategorieEingabe = {
  *   4. Sonst Lastschrift.
  */
 export function financeKategorie(e: FinanceKategorieEingabe): FinanceCategory {
+  if (e.status === "cancelled") return "cancelled";
+  if (e.status === "applicant") return "applicant";
   if (e.override === "exclude") return "removed";
   if (e.override === "free_semester") return "free_semester";
   if (e.override !== "include" && (e.role === "alumni" || e.status === "alumni")) return "alumni";

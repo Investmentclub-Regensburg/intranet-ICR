@@ -112,3 +112,36 @@ test("Einordnung direkt aus der profiles-Zeile (Finanzexport und Insights, eine 
   assert.equal(financeDatum("kein Datum"), null);
   assert.equal(financeIban(" at61 1904 3002 3457 3201 "), IBAN_AT);
 });
+
+test("Status gekündigt oder offener Antrag: nie eingezogen, auch nicht mit „aufnehmen“ (Klickrunde 20.11.2026)", () => {
+  assert.ok(FINANCE_CATEGORIES.includes("applicant"));
+  // Bis 20.11.2026 (auch origin/dev) wäre jeder dieser Fälle eine Lastschrift gewesen.
+  for (const extra of [
+    { status: "cancelled", cancelledAt: null }, // ohne Kündigungsdatum
+    { status: "cancelled", cancelledAt: "2026-10-01" }, // am Stichtag gekündigt
+    { status: "cancelled", cancelledAt: "2026-11-15" }, // nach dem Stichtag gekündigt
+    { status: "cancelled", cancelledAt: "2026-09-30", override: "include" }, // „aufnehmen“ hebt nicht auf
+    { status: "cancelled", cancelledAt: null, role: "alumni", override: "include" },
+  ]) {
+    assert.equal(financeKategorie(basis(extra)), "cancelled", JSON.stringify(extra));
+  }
+  for (const extra of [
+    { status: "applicant" },
+    { status: "applicant", joinedAt: "2025-01-10" }, // Antrag vor dem Stichtag
+    { status: "applicant", override: "include" },
+  ]) {
+    assert.equal(financeKategorie(basis(extra)), "applicant", JSON.stringify(extra));
+  }
+  // Aktives Mitglied mit Kündigungsdatum ab dem Stichtag (Status noch nicht umgestellt): Regel nach Datum wie bisher.
+  assert.equal(financeKategorie(basis({ cancelledAt: "2026-10-01" })), "debit");
+  // Auch über die profiles-Zeile (Groß-/Kleinschreibung, Leerraum).
+  const start = financeStichtag("WiSe", 2026);
+  assert.equal(financeKategorieFuerProfil({ Status: " Cancelled " }, IBAN_DE, "include", start), "cancelled");
+  assert.equal(financeKategorieFuerProfil({ Status: "APPLICANT", Datum_Antrag: "2025-01-10" }, IBAN_DE, null, start), "applicant");
+  assert.equal(financeBrauchtIban({ Status: "cancelled" }, "include", start), false);
+  // Export zählt die Kategorie, Vorschau zeigt sie (nur mit Treffern).
+  const server = readFileSync(new URL("../app/(intranet)/admin/actions/finance.ts", import.meta.url), "utf8");
+  assert.equal((server.match(/applicant: 0,/g) ?? []).length, 2);
+  const vorschau = readFileSync(new URL("../components/admin/FinancePreview.tsx", import.meta.url), "utf8");
+  assert.match(vorschau, /applicant: \{ label: "Antrag offen"/);
+});
