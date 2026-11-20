@@ -199,7 +199,7 @@ test("Gültiger Bestand: Stimmt alles + Später, nichts neu zu schreiben (U6)", 
   assert.equal(a.gueltig, true);
   assert.equal(a.spaeterErlaubt, true);
   // Die BIC wird nicht mehr abgefragt: keine Zeile, auch wenn eine gespeichert ist.
-  assert.deepEqual(a.zeilen.map((zl) => zl.key), ["name", "anschrift", "handy", "email", "iban", "geburtsdatum"]);
+  assert.deepEqual(a.zeilen.map((zl) => zl.key), ["name", "anschrift", "handy", "email", "iban", "geburtsdatum", "studiengang"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "anschrift").wert, ["Musterstraße 12a", "93047 Regensburg", "Deutschland"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "iban").wert, ["…3000"]);
   assert.deepEqual(a.zeilen.find((zl) => zl.key === "geburtsdatum").wert, ["12.04.2001"]);
@@ -755,8 +755,8 @@ test("M1: Nach IBAN CH → DE gilt die Pflicht-Anschrift nicht mehr, auch wenn d
   assert.match(seite, /vollstaendig: r\.vollstaendig === true,/);
 });
 
-test("M1: Gegenprobe NUR_IM_BESTAND_GEPRUEFT – nur Handy und Geburtsdatum bewertet das Formular unverändert nicht neu", () => {
-  assert.deepEqual([...NUR_IM_BESTAND_GEPRUEFT].sort(), ["geburtsdatum", "handynummer"]);
+test("M1: Gegenprobe NUR_IM_BESTAND_GEPRUEFT – nur Handy, Geburtsdatum und Studiengang bewertet das Formular unverändert nicht neu", () => {
+  assert.deepEqual([...NUR_IM_BESTAND_GEPRUEFT].sort(), ["geburtsdatum", "handynummer", "studiengang"]);
   // Ein anderer Formularfehler (IBAN-Prüfziffer) sorgt dafür, dass nur Formularfehler kommen.
   const falscheIban = (feld) => (feld === "iban" ? "DE89370400440532013001" : null);
   // Pflicht-Anschrift (IBAN außerhalb des EWR): PLZ, Straße, Hausnummer, Ort, Land bewertet das Formular immer

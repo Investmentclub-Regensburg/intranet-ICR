@@ -37,8 +37,9 @@ export const getCachedAuth = cache(async () => {
 
   const supabase = await getCachedSupabase();
   // Nur, was Layout, Rollenprüfung, Statusprüfung und die Abfrage „Stimmen deine Daten noch?“ brauchen – keine
-  // sensiblen Felder.
-  const spalten = 'id, user_id, "Vorname", "Nachname", "E-Mail", "Rolle", "Status", letzter_news_aufruf';
+  // sensiblen Felder. Der Studiengang (Klartext) entscheidet mit über die Fälligkeit der Abfrage (Pflicht seit
+  // 20.11.2026, lib/member-data-check.ts → istAbfrageFaellig `pflichtLuecke`).
+  const spalten = 'id, user_id, "Vorname", "Nachname", "E-Mail", "Rolle", "Status", letzter_news_aufruf, "Studiengang / Fach"';
   let { data: profile, error } = await supabase
     .from("profiles")
     .select(`${spalten}, ${DATEN_CHECK_SPALTEN}`)

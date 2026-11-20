@@ -10,6 +10,7 @@ import { isActiveMemberProfile, isAlumniProfile } from "./profile-status";
 import { BESTANDS_FELDER, alsZeitpunkt, berlinTagesbeginn, letzterStichtag } from "./member-data-check";
 import { berlinToday } from "./berlin-date";
 import type { MemberSecretsResult } from "./member-secrets-server";
+import { studiengangFehlt } from "./studiengaenge";
 
 export type AdminMemberRow = {
   id: string;
@@ -50,6 +51,12 @@ export const FELD_NAMEN: Readonly<Record<Feld, string>> = Object.freeze({
 });
 
 const FELD_REIHENFOLGE = Object.keys(FELD_NAMEN) as Feld[];
+
+/**
+ * Name des Studiengangs in der Mängelliste (Klartextspalte, kein Feld der Regeln): Pflicht seit 20.11.2026 für alle
+ * aktiven Profile, auch Alumni (gleiche Regel wie die Abfrage, lib/studiengaenge.ts → studiengangFehlt). Steht am Ende.
+ */
+export const STUDIENGANG_NAME = "Studiengang";
 
 /**
  * Felder mit Mangel im gespeicherten Bestand (BESTANDS_FELDER, gleiche Liste wie Abfrage-Fenster und Skript),
@@ -130,6 +137,7 @@ export function adminMitgliederZeilen(
     };
     if (vorstand && aktiv && werte) {
       row.datenMaengel = maengelFelder(werte, raw, heuteBerlin).map((f) => FELD_NAMEN[f]);
+      if (studiengangFehlt(raw["Studiengang / Fach"] ?? null)) row.datenMaengel.push(STUDIENGANG_NAME);
     }
     return row;
   });

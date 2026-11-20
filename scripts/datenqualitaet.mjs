@@ -1,6 +1,6 @@
 // Datenqualität der Mitgliederdaten (Paket „Mitgliederdaten“, PR 3; Doku: docs/datenqualitaet.md).
 // Prüft die verschlüsselten Felder aller Profile mit den Regeln aus lib/member-rules.ts und korrigiert nur,
-// was sicher ist. Aufbau, Zugangsdaten und Ziel wie scripts/verschluesselung.mjs.
+// was sicher ist. Den Studiengang (Klartext, Pflicht seit 20.11.2026) zählt es nur als Mangel, wenn er fehlt. Aufbau, Zugangsdaten und Ziel wie scripts/verschluesselung.mjs.
 //
 //   npm run datenqualitaet -- <befehl> --projekt <prod|test|lokal> [--url <supabase-url>] [Optionen]
 //
@@ -177,7 +177,13 @@ async function main() {
 
   async function ladeUndBewerte() {
     const profile = await ladeAlle(
-      (von, bis) => admin.from("profiles").select('id, "Status", "Rolle"', { count: "exact" }).order("id").range(von, bis),
+      // Studiengang nur zum Zählen (Mangel „fehlt“), nie ausgegeben oder geändert.
+      (von, bis) =>
+        admin
+          .from("profiles")
+          .select('id, "Status", "Rolle", "Studiengang / Fach"', { count: "exact" })
+          .order("id")
+          .range(von, bis),
       "Profile"
     );
     const mitZeile = new Set(

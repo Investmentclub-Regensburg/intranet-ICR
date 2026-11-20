@@ -35,7 +35,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     supabase
       .from("profiles")
       .select(
-        'id, "Vorname", "Nachname", "Rolle", "Status", "Datum_Antrag", "Datum_Mandat"',
+        'id, "Vorname", "Nachname", "Rolle", "Status", "Datum_Antrag", "Datum_Mandat", "Studiengang / Fach"',
       )
       .eq("user_id", user.id)
       .maybeSingle(),
@@ -89,6 +89,8 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
     land: landAusBestand(sensitive.land),
     mobil: sensitive.handynummer ?? "",
     iban: sensitive.iban ?? "",
+    // Klartext in profiles; null/leer = nicht angegeben.
+    studiengang: typeof profile?.["Studiengang / Fach"] === "string" ? (profile["Studiengang / Fach"] as string) : "",
   };
   const handy = handyFuerEingabe(sensitive.handynummer);
 
@@ -145,6 +147,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                 handyNummer: handy.nummer,
                 handyAnzeige: handyAnzeige(p.mobil),
                 geburtsdatum: (sensitive.geburtsdatum ?? "").trim(),
+                studiengang: p.studiengang,
                 alumni: isAlumniProfile(profile as Record<string, unknown> | null),
                 iban: p.iban,
                 zahltBeitrag: paysFee,

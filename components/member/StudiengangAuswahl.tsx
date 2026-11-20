@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Studiengang als Auswahl mit Suche (Registrierung; später Profil und Vorstandsfenster). Die Liste ist lang, deshalb
+ * Studiengang als Auswahl mit Suche (Registrierung, Profil, Vorstandsfenster, Abfrage „Stimmen deine Daten noch?“). Die Liste ist lang, deshalb
  * ein Eingabefeld, das beim Tippen filtert (Kurzname, Langform und Abkürzung finden denselben Eintrag, z. B. „BWL“
  * und „Betriebs…“). Nur bei „Sonstiges“ erscheint ein Textfeld, dessen Inhalt gespeichert wird.
  *
@@ -17,7 +17,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FeldFehler } from "@/components/member/MemberInputs";
-import { SONSTIGES, eindeutigerTreffer, sucheStudiengaenge } from "@/lib/studiengaenge";
+import { KEIN_STUDIUM, SONSTIGES, eindeutigerTreffer, studiengangLabel, sucheStudiengaenge } from "@/lib/studiengaenge";
 import { cn } from "@/lib/utils";
 
 export type StudiengangWert = { auswahl: string; freitext: string };
@@ -34,6 +34,8 @@ export function StudiengangAuswahl({
   fehlerFreitext,
   required,
   ohneKeinStudium = false,
+  freitextLabel = "Dein Studiengang",
+  fehlerSymbol = false,
   className,
 }: {
   id: string;
@@ -48,6 +50,10 @@ export function StudiengangAuswahl({
   required?: boolean;
   /** „Kein Studium“ ausblenden (Registrierung nach „Ja, ich studiere“). */
   ohneKeinStudium?: boolean;
+  /** Beschriftung des Textfelds bei „Sonstiges“ (Vorstandsfenster: nicht „Dein …“). */
+  freitextLabel?: string;
+  /** Fehler mit Warnsymbol (FeldFehler `symbol`, Seite „Daten prüfen“). */
+  fehlerSymbol?: boolean;
   className?: string;
 }) {
   const listeId = useId();
@@ -65,7 +71,8 @@ export function StudiengangAuswahl({
   /** Nach der Wahl von „Sonstiges“ einmal ins Textfeld springen. */
   const [zumFreitext, setZumFreitext] = useState(false);
 
-  const text = suche ?? wert.auswahl;
+  // „Kein Studium“ steht in der Auswahl als „Ich studiere nicht (mehr)“ (gespeichert wird der Name).
+  const text = suche ?? studiengangLabel(wert.auswahl);
   const treffer = useMemo(
     () => sucheStudiengaenge(suche ?? "", { ohneKeinStudium }),
     [suche, ohneKeinStudium]
@@ -221,11 +228,16 @@ export function StudiengangAuswahl({
                     className={cn(
                       // Am Handy mindestens 44 px hoch (Touch), am Desktop kompakter.
                       "flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm md:min-h-0 md:py-2",
+                      // „Ich studiere nicht (mehr)“ oben angeheftet, auch beim Blättern sichtbar.
+                      s.name === KEIN_STUDIUM &&
+                        i === 0 &&
+                        treffer.length > 1 &&
+                        "sticky top-0 z-10 mb-1 rounded-b-none border-b border-border bg-popover",
                       i === aktiv && "bg-muted",
                       s.name === SONSTIGES && i > 0 && "mt-1 border-t border-border"
                     )}
                   >
-                    <span>{s.name}</span>
+                    <span>{s.label ?? s.name}</span>
                     {gewaehlt && <Check className="size-4 shrink-0 text-primary" aria-label="gewählt" />}
                   </li>
                 );
@@ -242,11 +254,13 @@ export function StudiengangAuswahl({
         </p>
         {/* Gesendet wird die Auswahl, nicht der Suchtext. */}
         <input type="hidden" name={name} value={wert.auswahl} />
-        <FeldFehler id={fehlerId}>{fehler}</FeldFehler>
+        <FeldFehler id={fehlerId} symbol={fehlerSymbol}>
+          {fehler}
+        </FeldFehler>
       </div>
       {wert.auswahl === SONSTIGES && (
         <div className="space-y-2">
-          <Label htmlFor={freitextId}>Dein Studiengang</Label>
+          <Label htmlFor={freitextId}>{freitextLabel}</Label>
           <Input
             ref={freitextFeld}
             id={freitextId}
@@ -261,7 +275,9 @@ export function StudiengangAuswahl({
             aria-describedby={fehlerFreitext ? freitextFehlerId : undefined}
             className="h-11"
           />
-          <FeldFehler id={freitextFehlerId}>{fehlerFreitext}</FeldFehler>
+          <FeldFehler id={freitextFehlerId} symbol={fehlerSymbol}>
+            {fehlerFreitext}
+          </FeldFehler>
         </div>
       )}
     </div>
