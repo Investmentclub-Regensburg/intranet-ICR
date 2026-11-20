@@ -7,6 +7,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BEHANDELTE_SPALTEN,
+  FREIGEBBARE_GRUENDE,
+  freigabeSchluessel,
+  leseFreigaben,
   CAS_SPALTEN,
   emailSchluessel,
   erwarteterStand,
@@ -28,6 +31,7 @@ import {
 
 const MIG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "supabase", "migrations");
 const MERGE_SQL = readFileSync(path.join(MIG, "20261121100000_member_doppelprofil_merge.sql"), "utf8");
+const FREIGABE_SQL = readFileSync(path.join(MIG, "20261121105000_member_doppelprofil_freigabe.sql"), "utf8");
 
 /** Spalten von public.profiles laut Migrationen (Basis-CREATE TABLE + spätere „add column“). */
 function profilSpaltenAusSchema() {
@@ -143,7 +147,7 @@ test("Muster: aktiv/aktiv → zusammenführen, gekündigt/gekündigt → zusamme
 test("Muster: nur A gekündigt → Kündigung übernehmen, nur mit Selbstkündigung (Review M1)", () => {
   const a = kontoProfil({ Status: "cancelled", "Datum_Kündigung": "2026-09-15" });
   const r = stufeEin(a, importProfil(), kontext({ a, konto: { gesperrt: true } }));
-  assert.deepEqual(r, { einstufung: "kuendigung", gruende: [] });
+  assert.deepEqual(r, { einstufung: "kuendigung", gruende: [], freigabe: [] });
   // ohne Grund-Eintrag in membership_cancellations (z. B. vom Vorstand auf „ausgetreten“ gesetzt): prüfen
   assert.deepEqual(stufeEin(a, importProfil(), kontext({ a, konto: { gesperrt: true }, kuendigungen: [] })).gruende, [
     "kuendigung_ohne_nachweis",
@@ -254,6 +258,10 @@ test("Weitere Daten von A: Spalten aus dem Schema abgeleitet, Liste in DB und Sk
   assert.ok(m, "Liste in der DB-Funktion nicht gefunden");
   const sqlListe = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
   assert.deepEqual([...sqlListe].sort(), [...BEHANDELTE_SPALTEN].sort());
+  // … und in der Fassung mit Freigabe (20261121105000).
+  const m2 = FREIGABE_SQL.match(/w\.k <> all \(array\[([^\]]+)\]\)/);
+  assert.ok(m2, "Liste in der DB-Funktion (Freigabe) nicht gefunden");
+  assert.deepEqual([...m2[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort(), [...BEHANDELTE_SPALTEN].sort());
   // gesetzt: wie in SQL (null, leerer Text und false zählen nicht)
   for (const w of [null, undefined, false, "", "  \t"]) assert.equal(gesetzt(w), false, JSON.stringify(w));
   for (const w of [true, 0, 3, "x", "2026-01-01"]) assert.equal(gesetzt(w), true, JSON.stringify(w));
@@ -349,10 +357,10 @@ test("Zählung, Ausgaben ohne IDs/Adressen/Namen", () => {
   // Liste: IDs, Einstufung und Gründe, keine Namen oder Adressen.
   const tsv = listeTsv(ergebnis);
   const zeilen = tsv.trimEnd().split("\n");
-  assert.equal(zeilen[0], "art\teinstufung\tgruende\tkonto_profil_id\timport_profil_id\tprofil_ids");
+  assert.equal(zeilen[0], "art\teinstufung\tgruende\tkonto_profil_id\timport_profil_id\tprofil_ids\tfreigabe");
   assert.equal(zeilen.length, 5);
-  assert.ok(zeilen.includes(`paar\tzusammenfuehren\t\t${UUID_A}\t${UUID_B}\t${UUID_A},${UUID_B}`));
-  assert.ok(zeilen.includes(`paar\tkuendigung\t\t${a2.id}\t${b2.id}\t${a2.id},${b2.id}`));
+  assert.ok(zeilen.includes(`paar\tzusammenfuehren\t\t${UUID_A}\t${UUID_B}\t${UUID_A},${UUID_B}\t`));
+  assert.ok(zeilen.includes(`paar\tkuendigung\t\t${a2.id}\t${b2.id}\t${a2.id},${b2.id}\t`));
   assert.ok(zeilen.some((l) => l.startsWith("paar\tpruefen\tiban_gruppe,b_gekuendigt\t")));
   assert.ok(zeilen.some((l) => l.startsWith("iban_gruppe\tpruefen\tmit_doppelprofil\t\t\t")));
   for (const verboten of ["Max", "Erika", "example.org", "h1.k1"]) assert.ok(!tsv.includes(verboten), verboten);
@@ -424,4 +432,192 @@ test("schreibePaar: Codes der Datenbankfunktion zählen, prüfen nie schreiben",
   const vorher = aufrufe.length;
   await schreibePaar(db("zusammengefuehrt"), { ...eintraege[0], einstufung: "pruefen" }, r);
   assert.equal(aufrufe.length, vorher);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Ausdrückliche Freigabe (--freigabe <A-ID>:<B-ID>, Entscheidung Hannes 20.11.2026)
+// ---------------------------------------------------------------------------------------------------
+
+const FREI = freigabeSchluessel(UUID_A, UUID_B);
+
+test("Freigabe: Argumente – Format, mehrfach, nur bei zusammenfuehren", () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), "doppel-repo-"));
+  try {
+    const basis = ["--projekt", "lokal", "--url", "http://127.0.0.1:54321"];
+    const a2 = "a2a2a2a2-0000-4000-a000-000000000001";
+    const b2 = "b2b2b2b2-0000-4000-a000-000000000001";
+    const p = leseDoppelArgumente(
+      ["zusammenfuehren", "--probelauf", "--freigabe", `${UUID_A.toUpperCase()}:${UUID_B}`, "--freigabe", `${a2}:${b2}`, ...basis],
+      {},
+      repo
+    );
+    assert.equal(p.fehler, undefined);
+    assert.deepEqual([...p.freigaben].sort(), [FREI, freigabeSchluessel(a2, b2)].sort());
+    // ohne Freigabe: leere Menge
+    assert.equal(leseDoppelArgumente(["zusammenfuehren", "--probelauf", ...basis], {}, repo).freigaben.size, 0);
+    // nur bei zusammenfuehren
+    assert.match(leseDoppelArgumente(["pruefen", "--freigabe", FREI, ...basis], {}, repo).fehler, /nur bei „zusammenfuehren“/);
+    // Format
+    for (const falsch of [undefined, "", UUID_A, `${UUID_A}:`, `${UUID_A}:${UUID_B}:x`, `${UUID_A},${UUID_B}`, "--probelauf"]) {
+      const argv = ["zusammenfuehren", "--probelauf", ...basis, "--freigabe"];
+      if (falsch !== undefined) argv.push(falsch);
+      assert.match(leseDoppelArgumente(argv, {}, repo).fehler ?? "", /--freigabe braucht/, String(falsch));
+    }
+    assert.match(leseFreigaben(["--freigabe", `${UUID_A}:${UUID_A}`]).fehler, /gleich/);
+    // eine ID in zwei Freigaben (auch vertauscht oder doppelt) → Fehler
+    assert.match(leseFreigaben(["--freigabe", FREI, "--freigabe", FREI]).fehler, /mehreren Freigaben/);
+    assert.match(leseFreigaben(["--freigabe", FREI, "--freigabe", `${UUID_B}:${a2}`]).fehler, /mehreren Freigaben/);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("Freigabe: hebt genau die drei Gründe auf, nur für genau dieses Paar", () => {
+  assert.deepEqual([...FREIGEBBARE_GRUENDE].sort(), ["a_hat_namen", "iban_gruppe", "rolle_b_vorstand"]);
+  const dritter = "dddddddd-0000-4000-a000-000000000001";
+  const faelle = [
+    // rolle_b_vorstand: beide Vorstand (wie im Befund)
+    { a: kontoProfil({ Rolle: "board" }), b: importProfil({ Rolle: "board" }), secrets: {}, grund: ["rolle_b_vorstand"] },
+    // a_hat_namen
+    { a: kontoProfil({ Vorname: "Max", Nachname: "Krause" }), b: importProfil(), secrets: {}, grund: ["a_hat_namen"] },
+    // iban_gruppe: dritter Profil mit gleichem Fingerabdruck
+    { a: kontoProfil(), b: importProfil(), secrets: { [dritter]: secretsMitIban("h1.k1.aaa") }, grund: ["iban_gruppe"] },
+  ];
+  for (const f of faelle) {
+    const ohne = kontext({ a: f.a, b: f.b, secrets: f.secrets });
+    const ibanAnzahl = new Map([["h1.k1.aaa", 1 + Object.keys(f.secrets).length]]);
+    assert.deepEqual(stufeEin(f.a, f.b, { ...ohne, ibanAnzahl }), { einstufung: "pruefen", gruende: f.grund, freigabe: [] });
+    const mit = stufeEin(f.a, f.b, { ...ohne, ibanAnzahl, freigaben: new Set([FREI]) });
+    assert.deepEqual(mit, { einstufung: "zusammenfuehren", gruende: [], freigabe: f.grund });
+    // Freigabe für ein anderes Paar oder vertauscht: wirkt nicht
+    for (const anders of [freigabeSchluessel(UUID_B, UUID_A), freigabeSchluessel(UUID_A, dritter)]) {
+      assert.equal(stufeEin(f.a, f.b, { ...ohne, ibanAnzahl, freigaben: new Set([anders]) }).einstufung, "pruefen");
+    }
+  }
+  // alle drei zugleich
+  const a = kontoProfil({ Rolle: "board", Vorname: "Max" });
+  const b = importProfil({ Rolle: "board" });
+  const ctx = { ...kontext({ a, b }), ibanAnzahl: new Map([["h1.k1.aaa", 2]]), freigaben: new Set([FREI]) };
+  assert.deepEqual(stufeEin(a, b, ctx), {
+    einstufung: "zusammenfuehren",
+    gruende: [],
+    freigabe: ["a_hat_namen", "iban_gruppe", "rolle_b_vorstand"],
+  });
+});
+
+test("Freigabe: jeder andere Grund sperrt weiter (Sicherungen unverändert)", () => {
+  const frei = new Set([FREI]);
+  const andere = [
+    { a: kontoProfil({ Rolle: "board" }), b: importProfil({ Rolle: "admin" }), grund: "rolle" },
+    { a: kontoProfil({ Vorname: "Max" }), b: importProfil({ Status: "cancelled", "Datum_Kündigung": "2026-01-01" }), grund: "b_gekuendigt" },
+    { a: kontoProfil({ Vorname: "Max", Mitgliedsnummer: "7" }), b: importProfil(), grund: "a_hat_stammdaten" },
+    { a: kontoProfil({ Vorname: "Max", "Studiengang / Fach": "BWL" }), b: importProfil(), grund: "a_hat_weitere_daten" },
+    { a: kontoProfil({ Vorname: "Max", id: UUID_A, user_id: "cccccccc-0000-4000-a000-000000000001" }), b: importProfil(), grund: "a_id_ungleich_konto" },
+    { a: kontoProfil({ Rolle: "board" }), b: importProfil({ Rolle: "board", Vorname: "" }), grund: "b_ohne_namen" },
+    { a: kontoProfil({ Vorname: "Max", created_at: "2026-01-01T00:00:00+00:00" }), b: importProfil(), grund: "reihenfolge" },
+  ];
+  for (const f of andere) {
+    const r = stufeEin(f.a, f.b, { ...kontext({ a: f.a, b: f.b }), freigaben: frei });
+    assert.equal(r.einstufung, "pruefen", f.grund);
+    assert.ok(r.gruende.includes(f.grund), `${f.grund}: ${r.gruende}`);
+    assert.deepEqual(r.freigabe, [], f.grund);
+  }
+  // Konto nicht bestätigt / Sperre passt nicht / offene Registrierung / Kontoadresse anders
+  const a = kontoProfil({ Vorname: "Max" });
+  for (const [ctx, grund] of [
+    [kontext({ a, konto: { bestaetigt: false } }), "konto_unbestaetigt"],
+    [kontext({ a, konto: { gesperrt: true } }), "konto_sperre"],
+    [kontext({ a, registrierungen: [UUID_A] }), "registrierung_offen"],
+    [kontext({ a, konto: { email: "andere@example.org" } }), "konto_email"],
+    [kontext({ a, secrets: { [UUID_A]: { daten: true, iban: false, ibanHash: null } } }), "a_hat_daten"],
+  ]) {
+    const r = stufeEin(a, importProfil(), { ...ctx, freigaben: frei });
+    assert.equal(r.einstufung, "pruefen", grund);
+    assert.ok(r.gruende.includes(grund), grund);
+  }
+});
+
+test("Freigabe: Zählung, Ausgabe ohne IDs, Liste mit aufgehobenen Gründen", () => {
+  const a = kontoProfil({ Rolle: "board" });
+  const b = importProfil({ Rolle: "board" });
+  const ohnePaar = freigabeSchluessel("eeeeeeee-0000-4000-a000-000000000001", "ffffffff-0000-4000-a000-000000000001");
+  const ergebnis = findePaare([a, b], { ...kontext({ a, b }), freigaben: new Set([FREI, ohnePaar]) });
+  assert.equal(ergebnis.eintraege[0].einstufung, "zusammenfuehren");
+  assert.deepEqual(ergebnis.freigaben, { angegeben: 2, angewendet: 1, weiterPruefen: 0, unnoetig: 0, ohnePaar: 1 });
+  const z = zaehleAlle([a, b], ergebnis);
+  assert.equal(z.zuAendern, 1);
+  const text = formatiereProbelauf(z);
+  assert.match(text, /angewendet \(Paar wird zusammengeführt\)\s+1$/m);
+  assert.match(text, /ohne Paar \(schon erledigt oder falsche IDs\)\s+1$/m);
+  for (const verboten of ["aaaaaaaa", "bbbbbbbb", "eeeeeeee", "Max", "example.org"]) assert.ok(!text.includes(verboten), verboten);
+  // ohne Freigaben keine Freigabe-Zeilen
+  assert.ok(!formatiereProbelauf(zaehleAlle([a, b], findePaare([a, b], kontext({ a, b })))).includes("Freigaben"));
+  // Liste
+  const tsv = listeTsv(ergebnis).trimEnd().split("\n");
+  assert.ok(tsv.includes(`paar\tzusammenfuehren\t\t${UUID_A}\t${UUID_B}\t${UUID_A},${UUID_B}\trolle_b_vorstand`));
+  // wirkungslos (andere Gründe) und nicht nötig
+  const b2 = importProfil({ Rolle: "board", Status: "cancelled", "Datum_Kündigung": "2026-01-01" });
+  assert.equal(findePaare([a, b2], { ...kontext({ a, b: b2 }), freigaben: new Set([FREI]) }).freigaben.weiterPruefen, 1);
+  const a3 = kontoProfil();
+  const b3 = importProfil();
+  assert.equal(findePaare([a3, b3], { ...kontext(), freigaben: new Set([FREI]) }).freigaben.unnoetig, 1);
+});
+
+test("Freigabe: schreibePaar übergibt nur die aufgehobenen Gründe, sonst null", async () => {
+  const a = kontoProfil({ Vorname: "Max" });
+  const b = importProfil();
+  const mit = findePaare([a, b], { ...kontext({ a, b }), freigaben: new Set([FREI]) }).eintraege[0];
+  const ohne = findePaare([kontoProfil(), importProfil()], kontext()).eintraege[0];
+  const aufrufe = [];
+  const db = { async zusammenfuehren(...args) { aufrufe.push(args); return "zusammengefuehrt"; } };
+  const r = neuesErgebnis();
+  await schreibePaar(db, mit, r);
+  await schreibePaar(db, ohne, r);
+  assert.deepEqual(aufrufe[0][3], ["a_hat_namen"]);
+  assert.equal(aufrufe[1][3], null);
+  assert.deepEqual([r.zusammengefuehrt, r.freigabe], [2, 1]);
+  assert.match(formatiereErgebnis(r), /davon mit ausdrücklicher Freigabe\s+1$/m);
+  // unbekannter Grund in der Freigabe → nie an die DB
+  const vorher = aufrufe.length;
+  assert.equal(await schreibePaar(db, { ...mit, freigabe: ["konto_sperre"] }, r), "fehler");
+  assert.equal(aufrufe.length, vorher);
+});
+
+test("Freigabe: DB-Funktion (20261121105000) – nur die drei Codes, Regeln für Namen, Rolle, IBAN, E-Mail, Protokoll", () => {
+  // ersetzt die Fassung mit 4 Parametern, neuer optionaler Parameter, nur service_role
+  assert.match(FREIGABE_SQL, /drop function if exists public\.merge_member_doppelprofil\(uuid, uuid, jsonb, uuid\);/);
+  assert.match(FREIGABE_SQL, /p_freigabe\s+text\[\] default null/);
+  assert.match(FREIGABE_SQL, /revoke all on function public\.merge_member_doppelprofil\(uuid, uuid, jsonb, uuid, text\[\]\) from public, anon, authenticated;/);
+  assert.match(FREIGABE_SQL, /grant execute on function public\.merge_member_doppelprofil\(uuid, uuid, jsonb, uuid, text\[\]\) to service_role;/);
+  assert.doesNotMatch(FREIGABE_SQL, /to (anon|authenticated)\b/);
+  // dieselben drei Codes wie im Skript
+  const m = FREIGABE_SQL.match(/f\.code not in \(([^)]+)\)/);
+  assert.ok(m);
+  assert.deepEqual([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort(), [...FREIGEBBARE_GRUENDE].sort());
+  // die drei Sperren sind nur mit Freigabe aufgehoben, alle anderen unverändert wie in 20261121100000
+  assert.match(FREIGABE_SQL, /or \(not v_frei_namen and \(coalesce\(a\."Vorname", ''\) !~/);
+  assert.match(FREIGABE_SQL, /or \(not v_frei_rolle and b\."Rolle"::text in \('board', 'admin'\)\)/);
+  assert.match(FREIGABE_SQL, /if not v_frei_iban and v_b_hash is not null and exists \(/);
+  for (const sicherung of [
+    /or coalesce\(b\."Vorname", ''\) ~ '\^\\s\*\$' or coalesce\(b\."Nachname", ''\) ~ '\^\\s\*\$'/,
+    /or \(a\."Rolle" is not null and a\."Rolle"::text <> 'member' and a\."Rolle" is distinct from b\."Rolle"\)/,
+    /or b\.created_at > a\.created_at/,
+    /or u\.email_confirmed_at is null/,
+    /not public\.merge_member_doppelprofil_stand\(a, p_expected->'a'\)/,
+    /not exists \(select 1 from public\.membership_cancellations mc where mc\.profile_id = a\.id\)/,
+  ]) {
+    assert.match(FREIGABE_SQL, sicherung);
+    assert.match(MERGE_SQL, sicherung);
+  }
+  // E-Mail = Adresse des Kontos; Namen von B, von A nur wo B leer; Rolle und IBAN werden nicht geschrieben
+  assert.match(FREIGABE_SQL, /"E-Mail" = u\.email,/);
+  assert.match(FREIGABE_SQL, /v_vorname\s+:= case when coalesce\(b\."Vorname", ''\) ~ '\^\\s\*\$' then a\."Vorname" else b\."Vorname" end;/);
+  assert.match(FREIGABE_SQL, /v_nachname := case when coalesce\(b\."Nachname", ''\) ~ '\^\\s\*\$' then a\."Nachname" else b\."Nachname" end;/);
+  const update = FREIGABE_SQL.match(/update public\.profiles p\s+set ([\s\S]*?)\s+where p\.id = b\.id;/);
+  assert.ok(update);
+  assert.doesNotMatch(update[1], /Rolle|IBAN/);
+  assert.doesNotMatch(FREIGABE_SQL, /update public\.member_secrets/);
+  // Protokoll
+  assert.match(FREIGABE_SQL, /if u\.email is distinct from b\."E-Mail" then v_fields := v_fields \|\| 'email'::text; end if;/);
+  assert.match(FREIGABE_SQL, /'freigabe'::text\s+\|\| array\(select 'freigabe_' \|\| f\.code/);
 });

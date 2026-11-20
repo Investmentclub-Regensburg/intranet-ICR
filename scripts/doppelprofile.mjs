@@ -18,6 +18,12 @@
 // Optionen:
 //   --liste <datei>               (pruefen, zusammenfuehren --probelauf) TSV mit Profil-IDs, Einstufung und Gründen
 //                                 für den Vorstand. Nur außerhalb des Repos; der Inhalt erscheint nie in der Ausgabe.
+//   --freigabe <A-ID>:<B-ID>      (zusammenfuehren, mehrfach) Ausdrückliche Freigabe des Vorstands für GENAU dieses
+//                                 Paar (A = Konto-Profil, B = Import-Profil, IDs wie in der --liste): hebt nur die
+//                                 Gründe „Import-Profil ist Vorstand/Admin“, „IBAN auch bei einem anderen Profil“ und
+//                                 „Konto-Profil hat einen Namen“ auf. Alle anderen Sicherungen bleiben. Rolle, Namen
+//                                 und IBAN von B bleiben; Namen von A nur, wo B leer ist. Braucht Migration
+//                                 20261121105000.
 //
 // Ziele wie scripts/datenqualitaet.mjs (gleiche Argumente und Sicherungen): lokal nur Loopback und Testdatenbank,
 // prod nur mit ausdrücklichem --url. Laut RAHMEN.md werden Cloud-Projekte nicht angefasst.
@@ -119,7 +125,7 @@ function ask(question, { hidden = false } = {}) {
 async function main() {
   const args = leseDoppelArgumente(process.argv.slice(2), process.env, REPO);
   if (args.fehler) fail(args.fehler);
-  const { befehl, probelauf, projekt, url, ziel, vorstand, liste } = args;
+  const { befehl, probelauf, projekt, url, ziel, vorstand, liste, freigaben } = args;
 
   const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (envUrl && envUrl.replace(/\/+$/, "") !== url) {
@@ -198,7 +204,7 @@ async function main() {
     );
     const kuendigungen = new Set(gruende.map((r) => String(r.profile_id)));
     const konten = await ladeKonten();
-    const ergebnis = findePaare(profile, { secrets, konten, registrierungen, kuendigungen });
+    const ergebnis = findePaare(profile, { secrets, konten, registrierungen, kuendigungen, freigaben });
     return { profile, ergebnis };
   }
 
@@ -221,12 +227,13 @@ async function main() {
   }
 
   const db = {
-    async zusammenfuehren(aId, bId, erwartet) {
+    async zusammenfuehren(aId, bId, erwartet, freigabe = null) {
       const { data, error } = await admin.rpc("merge_member_doppelprofil", {
         p_konto_profil: aId,
         p_import_profil: bId,
         p_expected: erwartet,
         p_corrected_by: vorstand,
+        p_freigabe: freigabe,
       });
       if (error) throw new Error("Zusammenführen fehlgeschlagen");
       return data;
@@ -244,7 +251,9 @@ async function main() {
     } catch {
       code = null;
     }
-    if (code !== "fehlt") fail("Datenbankfunktion merge_member_doppelprofil fehlt (Migration 20261121100000).");
+    if (code !== "fehlt") {
+      fail("Datenbankfunktion merge_member_doppelprofil fehlt oder ist veraltet (Migrationen 20261121100000 und 20261121105000).");
+    }
   }
 
   try {
