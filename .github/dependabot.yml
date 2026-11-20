@@ -1,0 +1,37 @@
+# Dependabot: Versions-Updates (zusätzlich zu den Sicherheitsmeldungen und Sicherheits-PRs,
+# die in den Repo-Einstellungen eingeschaltet sind).
+#
+# Bewusst gebündelt, damit es wenige PRs bleiben:
+# - npm: einmal pro Woche EINE Sammel-PR für alle kleinen Updates (Minor + Patch),
+#   große Versionssprünge (Major) einzeln, weil sie Umbauten brauchen können.
+# - GitHub Actions: einmal im Monat.
+# Alle PRs gehen nach `dev`. Live geht nichts von selbst: Deploy nach `prod` bleibt Handarbeit.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    groups:
+      minor-und-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev
+    schedule:
+      interval: monthly
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"
