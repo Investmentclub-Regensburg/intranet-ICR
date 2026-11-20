@@ -61,7 +61,7 @@ export function EventCard({ event, href, past, preview, actions, footer, classNa
         </div>
         {event.image_url && (
           <div className="relative aspect-[1.91/1] w-full overflow-hidden border-t bg-muted">
-            {/* eslint-disable-next-line @next/next/no-img-element -- Supabase-Storage / Blob-Vorschau */}
+            {/* eslint-disable-next-line @next/next/no-img-element -- Event-Bild über die App (/bilder/event-images) / Blob-Vorschau */}
             <img src={event.image_url} alt="" className="h-full w-full object-cover object-center" />
           </div>
         )}

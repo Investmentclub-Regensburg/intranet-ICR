@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isCancelledProfile, isPendingProfile } from "@/lib/profile-status";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import { siteRedirectUrl } from "@/lib/site-url";
 
 // Alle Seiten der Route-Group (intranet) – nur mit Login erreichbar.
 const INTRANET_PREFIXES = [
@@ -63,7 +64,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const redirectWithSupabaseCookies = (to: string) => {
-    const response = NextResponse.redirect(new URL(to, request.url));
+    const response = NextResponse.redirect(siteRedirectUrl(to, request.url));
     for (const cookie of supabaseResponse.cookies.getAll()) {
       response.cookies.set(cookie);
     }
@@ -125,8 +126,9 @@ export async function middleware(request: NextRequest) {
 }
 
 // 6. Optimiere den Matcher, damit die Middleware nicht bei jedem Bild oder CSS-File feuert
+// (api/health: Container-Healthcheck, ohne Supabase-Aufruf).
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/health$|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

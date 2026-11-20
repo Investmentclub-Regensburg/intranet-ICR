@@ -251,7 +251,7 @@ export function EventForm({ event, registrationCount }: Props) {
             />
             {shownImage ? (
               <div className="flex items-center gap-3 rounded-xl border border-border p-2">
-                {/* eslint-disable-next-line @next/next/no-img-element -- Supabase-Storage / Blob-Vorschau */}
+                {/* eslint-disable-next-line @next/next/no-img-element -- Event-Bild über die App (/bilder/event-images) / Blob-Vorschau */}
                 <img src={shownImage} alt="" className="aspect-[1.91/1] w-28 rounded-lg object-cover" />
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                   {imageFile ? imageFile.name : "Aktuelles Bild"}
