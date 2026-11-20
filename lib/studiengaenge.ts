@@ -26,6 +26,8 @@ export type Studiengang = {
   aliase?: readonly string[];
   /** Nur Suchbegriffe (z. B. Teile des offiziellen Namens), keine automatische Zuordnung. */
   suche?: readonly string[];
+  /** Text in der Auswahl, wenn er vom gespeicherten Namen abweicht (nur „Kein Studium“). Findet auch die Suche. */
+  label?: string;
 };
 
 export const SONSTIGES = "Sonstiges";
@@ -210,7 +212,12 @@ const WEITERE: readonly Studiengang[] = [
 
 const ENDE: readonly Studiengang[] = [
   { name: SONSTIGES, aliase: ["Sonstige"], suche: ["Andere", "Anderer Studiengang"] },
-  { name: KEIN_STUDIUM, aliase: ["Kein Student", "Keine Studentin", "Kein Studium"], suche: ["Ausbildung", "Beruf"] },
+  {
+    name: KEIN_STUDIUM,
+    aliase: ["Kein Student", "Keine Studentin", "Kein Studium"],
+    label: "Ich studiere nicht (mehr)",
+    suche: ["Ausbildung", "Beruf", "berufstätig", "fertig", "abgeschlossen", "Alumni", "nicht mehr"],
+  },
 ];
 
 export const STUDIENGAENGE: readonly Studiengang[] = Object.freeze([
@@ -220,6 +227,14 @@ export const STUDIENGAENGE: readonly Studiengang[] = Object.freeze([
 ]);
 
 export const STUDIENGANG_NAMEN: readonly string[] = Object.freeze(STUDIENGAENGE.map((s) => s.name));
+
+/**
+ * Text eines Namens in der Auswahl: „Kein Studium“ heißt dort „Ich studiere nicht (mehr)“ (Mitglieder, die nicht
+ * mehr studieren, Entscheidung 20.11.2026); gespeichert und in der Lesesicht bleibt „Kein Studium“.
+ */
+export function studiengangLabel(name: string): string {
+  return STUDIENGAENGE.find((s) => s.name === name)?.label ?? name;
+}
 
 /** Ist `wert` genau ein Name der Liste (so, wie er gespeichert wird)? */
 export function istListenName(wert: unknown): wert is string {
@@ -472,8 +487,15 @@ export function normalisiereStudiengang(rohwert: unknown): Normalisierung {
  * Einträge zur Eingabe `text`, in Listenreihenfolge: erst die, deren Name oder Schreibweise mit dem Text beginnt,
  * dann die, die ihn enthalten. „Sonstiges“ steht bei einer Suche immer am Ende (Ausweg, wenn nichts passt).
  * Ohne Text: die ganze Liste. `ohneKeinStudium` blendet „Kein Studium“ aus (Registrierung mit „Ja, ich studiere“).
+ * „Kein Studium“ („Ich studiere nicht (mehr)“) steht, wenn es angezeigt wird, immer ganz oben (angeheftet).
  */
 export function sucheStudiengaenge(text: string, { ohneKeinStudium = false } = {}): Studiengang[] {
+  const treffer = sucheOhneAnheften(text, ohneKeinStudium);
+  const kein = treffer.find((s) => s.name === KEIN_STUDIUM);
+  return kein ? [kein, ...treffer.filter((s) => s !== kein)] : treffer;
+}
+
+function sucheOhneAnheften(text: string, ohneKeinStudium: boolean): Studiengang[] {
   const liste = STUDIENGAENGE.filter((s) => !(ohneKeinStudium && s.name === KEIN_STUDIUM));
   const q = schluessel(text);
   if (!q) return [...liste];
@@ -481,7 +503,7 @@ export function sucheStudiengaenge(text: string, { ohneKeinStudium = false } = {
   const enthalten: Studiengang[] = [];
   for (const s of liste) {
     if (s.name === SONSTIGES) continue;
-    const formen = [s.name, ...(s.aliase ?? []), ...(s.suche ?? [])].map(schluessel);
+    const formen = [s.name, ...(s.label ? [s.label] : []), ...(s.aliase ?? []), ...(s.suche ?? [])].map(schluessel);
     if (formen.some((f) => f.startsWith(q) || f.split(" ").some((wort) => wort.startsWith(q)))) anfang.push(s);
     else if (formen.some((f) => f.includes(q))) enthalten.push(s);
   }
@@ -544,7 +566,8 @@ export function pruefeStudiengang(
  */
 export function auswahlAusWert(wert: unknown): { auswahl: string; freitext: string } {
   const text = bereinigeText(wert);
-  if (istLeer(text)) return { auswahl: "", freitext: "" };
+  // „Sonstiges“ ohne Text ist keine Angabe (wie leer): leeres Auswahlfeld statt „Sonstiges“ mit leerem Textfeld.
+  if (istLeer(text) || istSonstigesOhneText(text)) return { auswahl: "", freitext: "" };
   if (istListenName(text)) return { auswahl: text, freitext: "" };
   const exakt = exakterTreffer(text);
   if (exakt) return { auswahl: exakt, freitext: "" };
@@ -565,12 +588,18 @@ export function studiengangAnzeige(wert: unknown): string {
 export const STUDIENGANG_FEHLT = "Bitte wähl deinen Studiengang aus.";
 
 /**
- * Fehlt der Studiengang (leer, nur Leerzeichen oder „-“)? Dann ist er in der Abfrage ein Mangel, auch bei Alumni
+ * Fehlt der Studiengang (leer, nur Leerzeichen, „-“ oder nur „Sonstiges“/„Sonstige“ ohne Text, wie in
+ * `pruefeStudiengang`)? Dann ist er in der Abfrage ein Mangel, auch bei Alumni
  * (sie wählen ihren früheren Studiengang, „Sonstiges“ oder „Kein Studium“). `undefined` heißt „nicht gelesen“ und
  * zählt nicht (Aufrufer ohne die Spalte bewerten den Studiengang nicht).
  */
 export function studiengangFehlt(wert: unknown): boolean {
-  return wert !== undefined && istLeer(wert);
+  return wert !== undefined && (istLeer(wert) || istSonstigesOhneText(wert));
+}
+
+/** Gespeichert ist nur „Sonstiges“ bzw. „Sonstige“ ohne Text (Altwerte, meist aus der Bereinigung): keine Angabe. */
+export function istSonstigesOhneText(wert: unknown): boolean {
+  return exakterTreffer(bereinigeText(wert)) === SONSTIGES;
 }
 
 export type StudiengangAenderung =

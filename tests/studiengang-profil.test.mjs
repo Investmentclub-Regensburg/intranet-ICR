@@ -74,12 +74,15 @@ test("Altwert-Anzeige: Listenname, exakte andere Schreibweise, Freitext als „S
   // Tippfehler nie still umgedeutet: bleibt Text unter „Sonstiges“.
   assert.deepEqual(auswahlAusWert("Wirtschaftsinformatk"), { auswahl: SONSTIGES, freitext: "Wirtschaftsinformatk" });
   assert.deepEqual(auswahlAusWert("Diplom-Finanzwirt (FH)"), { auswahl: SONSTIGES, freitext: "Diplom-Finanzwirt (FH)" });
-  assert.deepEqual(auswahlAusWert("Sonstiges"), { auswahl: SONSTIGES, freitext: "" });
-  for (const leer of [null, undefined, "", "   ", "-"]) assert.deepEqual(auswahlAusWert(leer), { auswahl: "", freitext: "" });
+  // „Sonstiges“/„Sonstige“ ohne Text: keine Angabe, leeres Auswahlfeld (Review M1, Entscheidung Hannes).
+  for (const leer of [null, undefined, "", "   ", "-", "Sonstiges", "Sonstige", " sonstiges "]) {
+    assert.deepEqual(auswahlAusWert(leer), { auswahl: "", freitext: "" }, String(leer));
+  }
   // Lesesicht und Abfrage: dieselbe Zuordnung als Text.
   assert.equal(studiengangAnzeige("Bwl"), "BWL");
   assert.equal(studiengangAnzeige("Diplom-Finanzwirt (FH)"), "Diplom-Finanzwirt (FH)");
   assert.equal(studiengangAnzeige(null), "");
+  assert.equal(studiengangAnzeige("Sonstiges"), "");
   assert.equal(studiengangAnzeige(KEIN_STUDIUM), KEIN_STUDIUM);
 });
 
@@ -196,9 +199,13 @@ test("Regel „Studiengang Pflicht“: leer = Mangel, kein Später, auch bei Alu
   assert.equal(studiengangFehlt(null), true);
   assert.equal(studiengangFehlt(" - "), true);
   assert.equal(studiengangFehlt("BWL"), false);
+  assert.equal(studiengangFehlt("Sonstiges"), true);
+  assert.equal(studiengangFehlt("Sonstige"), true);
+  assert.equal(studiengangFehlt("Diplom-Finanzwirt (FH)"), false);
+  assert.equal(studiengangFehlt(KEIN_STUDIUM), false);
   assert.equal(studiengangFehlt(undefined), false); // nicht gelesen: nicht bewertet
 
-  for (const leer of [null, "", "  ", "-"]) {
+  for (const leer of [null, "", "  ", "-", "Sonstiges", "Sonstige"]) {
     const b = bewerteBestand(gut({ studiengang: leer }), false, HEUTE);
     assert.equal(b.gueltig, false, String(leer));
     assert.deepEqual(b.fehler, { studiengang: STUDIENGANG_FEHLT });
@@ -336,12 +343,14 @@ test("Vorstandsübersicht: „Studiengang“ in den Mängeln (auch Alumni), nur 
     { id: "b", Vorname: "B", Nachname: "B", "Studiengang / Fach": "  ", Rolle: "alumni", Status: "active" },
     { id: "c", Vorname: "C", Nachname: "C", "Studiengang / Fach": "Wirtschaftsrecht", Rolle: "member", Status: "active" },
     { id: "d", Vorname: "D", Nachname: "D", "Studiengang / Fach": null, Rolle: "member", Status: "cancelled" },
+    { id: "e", Vorname: "E", Nachname: "E", "Studiengang / Fach": "Sonstige", Rolle: "member", Status: "active" },
   ];
   const secrets = new Map(profile.map((p) => [p.id, gueltigeSecrets()]));
   const rows = Object.fromEntries(adminMitgliederZeilen(profile, secrets, { vorstand: true, jetzt: JETZT, heute: HEUTE }).map((r) => [r.id, r]));
   assert.deepEqual(rows.a.datenMaengel, [STUDIENGANG_NAME]);
   assert.deepEqual(rows.b.datenMaengel, [STUDIENGANG_NAME]);
   assert.deepEqual(rows.c.datenMaengel, []);
+  assert.deepEqual(rows.e.datenMaengel, [STUDIENGANG_NAME]);
   assert.equal(Object.hasOwn(rows.d, "datenMaengel"), false);
   for (const row of adminMitgliederZeilen(profile, secrets, { vorstand: false, jetzt: JETZT, heute: HEUTE })) {
     assert.equal(Object.hasOwn(row, "datenMaengel"), false);
@@ -355,6 +364,8 @@ test("Skript datenqualitaet: zählt den fehlenden Studiengang (Code fehlt), repa
   assert.deepEqual(leer.aenderungen, {});
   const alumni = bewerteProfil({ profil: { Status: "active", Rolle: "alumni", "Studiengang / Fach": null }, werte, hatZeile: true, heute: HEUTE });
   assert.deepEqual(alumni.maengel, [{ feld: "studiengang", code: "fehlt" }]);
+  const sonstiges = bewerteProfil({ profil: { Status: "active", Rolle: "member", "Studiengang / Fach": "Sonstiges" }, werte, hatZeile: true, heute: HEUTE });
+  assert.deepEqual(sonstiges.maengel, [{ feld: "studiengang", code: "fehlt" }]);
   const gesetzt = bewerteProfil({ profil: { Status: "active", Rolle: "member", "Studiengang / Fach": "Geheimfach-XYZ" }, werte, hatZeile: true, heute: HEUTE });
   assert.deepEqual(gesetzt.maengel, []);
   // Ohne die Spalte (ältere Aufrufer): keine Aussage.
@@ -366,4 +377,53 @@ test("Skript datenqualitaet: zählt den fehlenden Studiengang (Code fehlt), repa
   assert.match(text, /studiengang\s+fehlt\s+2/);
   assert.equal(text.includes("Geheimfach"), false);
   assert.match(lies("scripts/datenqualitaet.mjs"), /select\('id, "Status", "Rolle", "Studiengang \/ Fach"'/);
+});
+
+// ---------------------------------------------------------------------------------------------------
+// Nachtrag: „Ich studiere nicht (mehr)“ und „Sonstiges“ ohne Text
+// ---------------------------------------------------------------------------------------------------
+
+test("„Ich studiere nicht (mehr)“: ganz oben, gespeichert wird „Kein Studium“, Suche findet es", async () => {
+  const { sucheStudiengaenge, studiengangLabel, pruefeStudiengang, normalisiereStudiengang } = await import("../lib/studiengaenge.ts");
+  assert.equal(studiengangLabel(KEIN_STUDIUM), "Ich studiere nicht (mehr)");
+  assert.equal(studiengangLabel("BWL"), "BWL");
+  // Ohne Suche: erster Eintrag; „Sonstiges“ bleibt erreichbar.
+  const alle = sucheStudiengaenge("");
+  assert.equal(alle[0].name, KEIN_STUDIUM);
+  assert.ok(alle.some((x) => x.name === SONSTIGES));
+  for (const q of ["nicht", "Nicht mehr", "kein", "fertig", "abgeschlossen", "alumni", "berufstätig", "studiere"]) {
+    assert.equal(sucheStudiengaenge(q)[0].name, KEIN_STUDIUM, q);
+    assert.equal(sucheStudiengaenge(q).at(-1).name, SONSTIGES, q);
+  }
+  // Andere Suchen unverändert, Registrierung („Ja, ich studiere“) ohne den Eintrag.
+  assert.equal(sucheStudiengaenge("bwl")[0].name, "BWL");
+  assert.ok(!sucheStudiengaenge("", { ohneKeinStudium: true }).some((x) => x.name === KEIN_STUDIUM));
+  assert.ok(!sucheStudiengaenge("nicht", { ohneKeinStudium: true }).some((x) => x.name === KEIN_STUDIUM));
+  // Speichern und Normalisierung (Insights) unverändert: „Kein Studium“; die neuen Suchbegriffe ordnen nichts zu.
+  assert.deepEqual(pruefeStudiengang(KEIN_STUDIUM, ""), { ok: true, wert: KEIN_STUDIUM });
+  assert.deepEqual(studiengangAenderung("BWL", KEIN_STUDIUM, ""), { art: "neu", wert: KEIN_STUDIUM });
+  assert.equal(studiengangAnzeige(KEIN_STUDIUM), KEIN_STUDIUM);
+  for (const alt of ["Alumni", "fertig", "berufstätig", "Ich studiere nicht (mehr)"]) {
+    assert.notEqual(normalisiereStudiengang(alt).sicherheit, "sicher", alt);
+  }
+  // Wer einen Studiengang hat, behält ihn (nichts erzwingt einen Wechsel).
+  assert.equal(studiengangFehlt("BWL"), false);
+});
+
+test("„Sonstiges“ ohne Text: Abfrage fällig, Feld leer und markiert, unverändert speichern schreibt nichts", () => {
+  const b = gut({ studiengang: "Sonstiges" });
+  const a = ansicht(b);
+  assert.equal(a.gueltig, false);
+  assert.equal(a.spaeterErlaubt, false);
+  assert.equal(a.formular.studiengang, "");
+  assert.equal(a.formular.studiengangSonstiges, "");
+  assert.equal(a.formularFehler.studiengang, STUDIENGANG_FEHLT);
+  assert.deepEqual(a.zeilen.find((z) => z.key === "studiengang").wert, []);
+  assert.equal(istAbfrageFaellig({ eingeschaltet: true, aktiv: true, bestaetigtAm: "2026-11-20T14:00:00Z", erinnernAb: null, jetzt: JETZT, pflichtLuecke: studiengangFehlt(profilStudiengang({ "Studiengang / Fach": "Sonstige" })) }), true);
+  // Profil/Vorstand: Feld unangetastet → nichts schreiben, nicht blockieren; Auswahl → neuer Wert.
+  assert.deepEqual(studiengangAenderung("Sonstiges", "", ""), { art: "unveraendert" });
+  assert.deepEqual(studiengangAenderung("Sonstiges", "VWL", ""), { art: "neu", wert: "VWL" });
+  const r = pruefeDatenCheckAenderung(eingabeMitBestand((f) => (f === "studiengang" ? KEIN_STUDIUM : f === "studiengangSonstiges" ? "" : null), b), b, false, false, HEUTE);
+  assert.equal(r.gueltig, true, r.ersterFehler ?? "");
+  assert.equal(r.studiengang, KEIN_STUDIUM);
 });

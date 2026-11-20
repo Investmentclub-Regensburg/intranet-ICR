@@ -17,7 +17,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FeldFehler } from "@/components/member/MemberInputs";
-import { SONSTIGES, eindeutigerTreffer, sucheStudiengaenge } from "@/lib/studiengaenge";
+import { KEIN_STUDIUM, SONSTIGES, eindeutigerTreffer, studiengangLabel, sucheStudiengaenge } from "@/lib/studiengaenge";
 import { cn } from "@/lib/utils";
 
 export type StudiengangWert = { auswahl: string; freitext: string };
@@ -71,7 +71,8 @@ export function StudiengangAuswahl({
   /** Nach der Wahl von „Sonstiges“ einmal ins Textfeld springen. */
   const [zumFreitext, setZumFreitext] = useState(false);
 
-  const text = suche ?? wert.auswahl;
+  // „Kein Studium“ steht in der Auswahl als „Ich studiere nicht (mehr)“ (gespeichert wird der Name).
+  const text = suche ?? studiengangLabel(wert.auswahl);
   const treffer = useMemo(
     () => sucheStudiengaenge(suche ?? "", { ohneKeinStudium }),
     [suche, ohneKeinStudium]
@@ -227,11 +228,16 @@ export function StudiengangAuswahl({
                     className={cn(
                       // Am Handy mindestens 44 px hoch (Touch), am Desktop kompakter.
                       "flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm md:min-h-0 md:py-2",
+                      // „Ich studiere nicht (mehr)“ oben angeheftet, auch beim Blättern sichtbar.
+                      s.name === KEIN_STUDIUM &&
+                        i === 0 &&
+                        treffer.length > 1 &&
+                        "sticky top-0 z-10 mb-1 rounded-b-none border-b border-border bg-popover",
                       i === aktiv && "bg-muted",
                       s.name === SONSTIGES && i > 0 && "mt-1 border-t border-border"
                     )}
                   >
-                    <span>{s.name}</span>
+                    <span>{s.label ?? s.name}</span>
                     {gewaehlt && <Check className="size-4 shrink-0 text-primary" aria-label="gewählt" />}
                   </li>
                 );
