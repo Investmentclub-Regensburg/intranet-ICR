@@ -91,3 +91,72 @@ export function debitorBic(iban: string, bic: string | null | undefined): string
   const b = String(bic ?? "").replace(/\s/g, "").toUpperCase();
   return b && validateBICFormat(b) ? b : "";
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Einordnung direkt aus einer profiles-Zeile (eine Stelle für Finanzexport und Insights, Klickrunde 20.11.2026)
+// ---------------------------------------------------------------------------------------------------
+
+export type FinanceSemester = "SoSe" | "WiSe";
+
+/** Semesterbeginn = Stichtag des Einzugs (YYYY-MM-DD): SoSe 15.03., WiSe 01.10. */
+export function financeStichtag(semester: FinanceSemester, year: number): string {
+  return semester === "SoSe" ? `${year}-03-15` : `${year}-10-01`;
+}
+
+function textWert(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** Datumsspalte als YYYY-MM-DD (UTC-Tag wie bisher im Export) oder null. */
+export function financeDatum(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+/** IBAN wie im Export: ohne Leerraum, Großbuchstaben (leer = keine). */
+export function financeIban(value: unknown): string {
+  return textWert(value).replace(/\s/g, "").toUpperCase();
+}
+
+/** Spalten einer profiles-Zeile, die die Einordnung braucht. */
+export type FinanceProfilZeile = {
+  Status?: unknown;
+  Rolle?: unknown;
+  Datum_Antrag?: unknown;
+  "Datum_Kündigung"?: unknown;
+};
+
+/**
+ * `financeKategorie` für eine profiles-Zeile („Status“, „Rolle“, „Datum_Antrag“, „Datum_Kündigung“) und die
+ * entschlüsselte IBAN. Genau so ordnet der Finanzexport (Vorschau und SEPA) ein; die Insights-Kachel „Nächster
+ * Einzug“ nutzt dieselbe Funktion.
+ */
+export function financeKategorieFuerProfil(
+  profil: FinanceProfilZeile,
+  iban: unknown,
+  override: FinanceOverrideAction | null,
+  periodStartDay: string,
+): FinanceCategory {
+  return financeKategorie({
+    override,
+    status: textWert(profil.Status).toLowerCase(),
+    role: textWert(profil.Rolle).toLowerCase(),
+    joinedAt: financeDatum(profil.Datum_Antrag),
+    cancelledAt: financeDatum(profil["Datum_Kündigung"]),
+    periodStartDay,
+    iban: financeIban(iban),
+  });
+}
+
+/**
+ * Hängt die Einordnung von der IBAN ab? Nur dann muss sie entschlüsselt werden (Anpassung, Alumni, Kündigung und
+ * Freisemester entscheiden vorher).
+ */
+export function financeBrauchtIban(
+  profil: FinanceProfilZeile,
+  override: FinanceOverrideAction | null,
+  periodStartDay: string,
+): boolean {
+  return financeKategorieFuerProfil(profil, "", override, periodStartDay) === "no_iban";
+}

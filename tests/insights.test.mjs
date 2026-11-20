@@ -2,11 +2,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MEMBERSHIP_FEE_PER_SEMESTER } from "../lib/membership-fee.ts";
+import { readFileSync } from "node:fs";
 import {
   FEE_PER_SEMESTER,
-  budgetHerleitung,
-  budgetJahr,
-  budgetNaechstesJahr,
+  einzugHerleitung,
+  einzugIbanBedarf,
+  naechsterEinzug,
+  naechstesEinzugsSemester,
+  nextPeriod,
   eintritteImSemester,
   istMitglied,
   mitgliedsart,
@@ -20,7 +23,6 @@ import {
   periodOf,
   periodShort,
   semesterSaeulen,
-  zahltBeitrag,
 } from "../lib/insights.ts";
 
 test("Semester nach den Stichtagen 15.03. und 01.10.", () => {
@@ -94,43 +96,83 @@ const base = {
   altersgruppe: null,
 };
 
-test("Beitragspflicht je Semester wie im Finanzexport", () => {
-  const start = "2026-10-01";
-  const p = (x) => ({ ...base, id: "x", status: "active", datumAntrag: "2025-01-10", ...x });
-  assert.equal(zahltBeitrag(p({}), start, null), true);
-  assert.equal(zahltBeitrag(p({ datumAntrag: "2026-10-01" }), start, null), false); // Freisemester
-  assert.equal(zahltBeitrag(p({ rolle: "alumni" }), start, null), false);
-  assert.equal(zahltBeitrag(p({ status: "alumni" }), start, null), false);
-  assert.equal(zahltBeitrag(p({ rolle: "alumni" }), start, "include"), true);
-  assert.equal(zahltBeitrag(p({}), start, "exclude"), false);
-  assert.equal(zahltBeitrag(p({}), start, "free_semester"), false);
-  assert.equal(zahltBeitrag(p({ status: "cancelled", datumKuendigung: "2026-10-01" }), start, null), true); // am Stichtag
-  assert.equal(zahltBeitrag(p({ status: "cancelled", datumKuendigung: "2026-09-30" }), start, null), false);
+// Nächster Einzug (Klickrunde 20.11.2026): profiles-Zeilen wie im Finanzexport gelesen, erfundene Daten.
+const IBAN_DE = "DE89370400440532013000";
+const IBAN_CH = "CH9300762011623852957";
+const zeile = (id, x = {}) => ({ id, Status: "active", Rolle: "member", Datum_Antrag: "2025-01-10", "Datum_Kündigung": null, ...x });
+
+test("Nächstes Einzugs-Semester: das Semester nach dem laufenden, Stichtag selbst schon das folgende", () => {
+  assert.deepEqual(naechstesEinzugsSemester("2026-11-20"), { semester: "SoSe", year: 2027 });
+  assert.deepEqual(naechstesEinzugsSemester("2027-01-10"), { semester: "SoSe", year: 2027 });
+  assert.deepEqual(naechstesEinzugsSemester("2027-03-14"), { semester: "SoSe", year: 2027 });
+  assert.deepEqual(naechstesEinzugsSemester("2027-03-15"), { semester: "WiSe", year: 2027 });
+  assert.deepEqual(naechstesEinzugsSemester("2027-09-30"), { semester: "WiSe", year: 2027 });
+  assert.deepEqual(naechstesEinzugsSemester("2027-10-01"), { semester: "SoSe", year: 2028 });
+  assert.deepEqual(nextPeriod({ semester: "SoSe", year: 2027 }), { semester: "WiSe", year: 2027 });
 });
 
-test("Budget nächstes Jahr: 2 Semester × zahlende × Beitrag", () => {
+test("Nächster Einzug: nur, was der Finanzexport als Lastschrift führen würde", () => {
+  const semester = naechstesEinzugsSemester("2026-11-20"); // SoSe 2027, Stichtag 15.03.2027
   const profiles = [
-    { ...base, id: "a", status: "active", datumAntrag: "2025-01-10" },
-    { ...base, id: "b", status: "active", datumAntrag: "2026-10-05" }, // heute Freisemester, nächstes Jahr zahlend
-    { ...base, id: "c", status: "cancelled", datumAntrag: "2024-05-01", datumKuendigung: "2026-10-10" },
-    { ...base, id: "d", status: "cancelled", datumAntrag: "2024-05-01" }, // ohne Datum: zählt nicht
-    { ...base, id: "e", status: "active", rolle: "alumni", datumAntrag: "2020-01-01" },
-    { ...base, id: "f", status: "applicant", datumAntrag: "2026-11-01" }, // offener Antrag: zählt nicht
-    { ...base, id: "g", status: "active", datumAntrag: "2025-06-01" }, // Freisemester SoSe 2027 per Anpassung
+    zeile("a"), // zahlend
+    zeile("b", { Datum_Antrag: "2026-10-05" }), // heute im Freisemester, ab SoSe 2027 zahlend
+    zeile("c", { Datum_Antrag: "2027-03-15" }), // Eintritt am Stichtag: erstes Semester frei
+    zeile("d", { Rolle: "alumni" }), // Alumni zahlen nicht
+    zeile("e", { Status: "alumni" }), // Altstatus Alumni
+    zeile("f", { Status: "cancelled", "Datum_Kündigung": "2027-03-14" }), // vor dem Stichtag gekündigt
+    zeile("g", { Status: "cancelled", "Datum_Kündigung": "2027-03-15" }), // am Stichtag gekündigt: zahlt noch
+    zeile("h"), // keine IBAN
+    zeile("i"), // ungültige IBAN
+    zeile("j"), // Konto außerhalb des EWR: manuell, nicht in der Lastschrift
+    zeile("k"), // Anpassung „Freisemester“ für SoSe 2027
+    zeile("l", { Rolle: "alumni" }), // Anpassung „aufnehmen“
+    zeile("m"), // Anpassung „entfernen“
+    zeile("n"), // keine member_secrets-Zeile (nicht in der IBAN-Liste)
   ];
-  const overrides = new Map([["2027-SoSe", new Map([["g", "free_semester"]])]]);
-  const b = budgetNaechstesJahr(profiles, "2026-11-19", overrides);
-  assert.equal(b.year, 2027);
-  assert.deepEqual(b.semester, [
-    { label: "SoSe 2027", zahlend: 2 },
-    { label: "WiSe 2027/28", zahlend: 3 },
+  const anpassungen = new Map([
+    ["k", "free_semester"],
+    ["l", "include"],
+    ["m", "exclude"],
   ]);
-  assert.equal(b.total, 5 * FEE_PER_SEMESTER);
-  assert.equal(budgetHerleitung(b), "SoSe 2027: 2 × 15 € + WiSe 2027/28: 3 × 15 €");
+  // Entschlüsselt wird nur, wo die IBAN entscheidet.
+  const bedarf = einzugIbanBedarf(profiles, semester, anpassungen);
+  assert.deepEqual(bedarf, ["a", "b", "g", "h", "i", "j", "l", "n"]);
+  const ibans = new Map([
+    ["a", IBAN_DE],
+    ["b", "de89 3704 0044 0532 0130 00"],
+    ["g", IBAN_DE],
+    ["h", null],
+    ["i", "DE89370400440532013001"],
+    ["j", IBAN_CH],
+    ["l", IBAN_DE],
+  ]);
+  const e = naechsterEinzug(profiles, semester, anpassungen, ibans);
+  assert.deepEqual(e, { label: "SoSe 2027", stichtag: "2027-03-15", zahlend: 4, total: 4 * FEE_PER_SEMESTER, nichtLesbar: 0 });
+  assert.equal(
+    einzugHerleitung(e),
+    "4 Lastschriften × 15 € zum 15.03.2027, wie im Finanzexport: ohne Alumni, Gekündigte, Erstsemester (erstes Semester frei), fehlende oder ungültige IBAN und Konten außerhalb des EWR",
+  );
+  // Nicht lesbare IBAN: Betrag unbekannt (der Export bricht dann ab).
+  const kaputt = naechsterEinzug(profiles, semester, anpassungen, new Map([...ibans, ["a", "unreadable"]]));
+  assert.equal(kaputt.nichtLesbar, 1);
+  assert.match(einzugHerleitung(kaputt), /Bankdaten von 1 Mitglied nicht lesbar/);
+  assert.match(einzugHerleitung(null), /Bankdaten nicht lesbar/);
+});
 
-  const gleich = budgetNaechstesJahr(profiles, "2026-11-19");
-  assert.equal(gleich.total, 2 * 3 * FEE_PER_SEMESTER);
-  assert.equal(budgetHerleitung(gleich), "2 Semester × 3 zahlende Mitglieder × 15 €");
+test("Nächster Einzug nutzt dieselbe Einordnung wie der Finanzexport (keine Nachbildung)", () => {
+  const insights = readFileSync(new URL("../lib/insights.ts", import.meta.url), "utf8");
+  assert.match(insights, /financeKategorieFuerProfil\(/);
+  assert.doesNotMatch(insights, /function zahltBeitrag|budgetNaechstesJahr|budgetJahr/);
+  const finance = readFileSync(new URL("../app/(intranet)/admin/actions/finance.ts", import.meta.url), "utf8");
+  assert.match(finance, /financeKategorieFuerProfil\(profile, ibanClean, override, periodStartDay\)/);
+  const action = readFileSync(new URL("../app/(intranet)/insights/actions.ts", import.meta.url), "utf8");
+  // IBAN nur für die Profile, bei denen sie entscheidet, und nur als Zählung weiter.
+  assert.match(action, /readMemberSecretFieldMany\(admin, einzugIbanBedarf\(/);
+  assert.match(action, /ibans\.clear\(\)/);
+  const ansicht = readFileSync(new URL("../components/insights/InsightsView.tsx", import.meta.url), "utf8");
+  assert.match(ansicht, /`Nächster Einzug \$\{einzug\.label\}`/);
+  assert.match(ansicht, /title=\{einzugHerleitung\(einzug\)\}/);
+  assert.doesNotMatch(ansicht, /Budget/);
 });
 
 test("Säulen je Semester; Austritte vor dem ersten Wert gelten als nicht erfasst", () => {
@@ -221,25 +263,10 @@ test("Kennzahlen aus den Profilen", () => {
   assert.equal(d.alter.length, 6);
   assert.deepEqual(d.alter[1], { label: "20 bis 22", n: 1 });
   assert.deepEqual(d.alter[5], { label: "ohne Angabe", n: 2, grau: true });
-  assert.equal(d.budget.total, 2 * 2 * FEE_PER_SEMESTER); // a, b
+  assert.equal(d.einzug, null); // vom Server gezählt (mit IBAN), hier nicht übergeben
 });
 
-test("Budgetjahr: ab 01.10. das kommende, sonst das laufende Kalenderjahr", () => {
-  assert.equal(budgetJahr("2026-09-30"), 2026);
-  assert.equal(budgetJahr("2026-10-01"), 2027);
-  assert.equal(budgetJahr("2026-11-19"), 2027);
-  assert.equal(budgetJahr("2026-12-31"), 2027);
-  assert.equal(budgetJahr("2027-01-01"), 2027);
-  assert.equal(budgetJahr("2027-03-15"), 2027);
-  const p = [{ ...base, id: "a", status: "active", datumAntrag: "2025-01-10" }];
-  assert.equal(budgetNaechstesJahr(p, "2027-01-20").year, 2027);
-  assert.deepEqual(
-    budgetNaechstesJahr(p, "2027-01-20").semester.map((s) => s.label),
-    ["SoSe 2027", "WiSe 2027/28"],
-  );
-});
-
-test("Mitgliedsart: eine Regel für Kacheln, Verteilungen und Budget", () => {
+test("Mitgliedsart: eine Regel für Kacheln und Verteilungen", () => {
   assert.equal(mitgliedsart({ status: "cancelled", rolle: "alumni" }), "ausgetreten");
   assert.equal(mitgliedsart({ status: " Applicant ", rolle: "member" }), "antrag");
   assert.equal(mitgliedsart({ status: "active", rolle: "Alumni" }), "alumni");
@@ -250,17 +277,16 @@ test("Mitgliedsart: eine Regel für Kacheln, Verteilungen und Budget", () => {
   assert.equal(istMitglied({ status: "", rolle: "" }), true);
   assert.equal(istMitglied({ status: "cancelled", rolle: "" }), false);
 
-  // Unbekannter Status zählt in der Kachel UND im Budget, damit der Tooltip zur Kachel passt.
+  // Unbekannter Status zählt in der Kachel; im nächsten Einzug wie im Finanzexport (zahlend mit gültiger IBAN).
   const profiles = [
     { ...base, id: "a", status: "active", datumAntrag: "2025-01-10" },
     { ...base, id: "b", status: "", datumAntrag: "2025-01-10" },
   ];
   const d = computeInsights(profiles, "2026-11-19");
   assert.equal(d.studierende, 2);
-  assert.deepEqual(
-    d.budget.semester.map((s) => s.zahlend),
-    [2, 2],
-  );
+  const zeilen = [zeile("a"), zeile("b", { Status: "" })];
+  const ibans = new Map([["a", IBAN_DE], ["b", IBAN_DE]]);
+  assert.equal(naechsterEinzug(zeilen, naechstesEinzugsSemester("2026-11-19"), new Map(), ibans).zahlend, 2);
 });
 
 test("Eintritte im Semester (auch Startseite): ohne offene Anträge, Ausgetretene zählen", () => {

@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { PageHeader } from "@/components/kit/PageHeader";
 import { useReducedMotionSafe } from "@/lib/use-reduced-motion";
 import { cn } from "@/lib/utils";
-import { budgetHerleitung, gruendeBalken, type InsightsData } from "@/lib/insights";
+import { einzugHerleitung, gruendeBalken, type InsightsData } from "@/lib/insights";
 import { cancellationReasonLabel } from "@/lib/cancellation-reasons";
 import type { CancellationRow } from "@/app/(intranet)/insights/actions";
 import { INSIGHTS_TABS, naechsterTab, type InsightsTab } from "./insights-tabs";
@@ -122,18 +122,29 @@ export function InsightsView({
   );
 }
 
+/**
+ * Nächster Einzug <Semester>: Betrag der Lastschriften zum nächsten Stichtag (Herleitung als title). Ohne lesbare
+ * Bankdaten „–“ statt einer zu kleinen Zahl.
+ */
+function EinzugKennzahl({ einzug }: { einzug: InsightsData["einzug"] }) {
+  const bekannt = einzug !== null && einzug.nichtLesbar === 0;
+  return (
+    <Kennzahl
+      label={einzug ? `Nächster Einzug ${einzug.label}` : "Nächster Einzug"}
+      value={bekannt ? ZAHL.format(einzug.total) : "–"}
+      unit={bekannt ? "€" : undefined}
+      title={einzugHerleitung(einzug)}
+    />
+  );
+}
+
 function Ueberblick({ data }: { data: InsightsData }) {
   const semester = data.period.label;
   return (
     <>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kennzahl label="Aktive Mitglieder" value={ZAHL.format(data.studierende)} />
-        <Kennzahl
-          label={`Budget ${data.budget.year}`}
-          value={ZAHL.format(data.budget.total)}
-          unit="€"
-          title={budgetHerleitung(data.budget)}
-        />
+        <EinzugKennzahl einzug={data.einzug} />
         <Kennzahl label={`Eintritte ${semester}`} value={ZAHL.format(data.eintritteAktuell)} />
         <Kennzahl label={`Austritte ${semester}`} value={ZAHL.format(data.austritteAktuell)} />
       </div>

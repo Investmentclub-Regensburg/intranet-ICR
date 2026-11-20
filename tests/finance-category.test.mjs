@@ -3,7 +3,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FINANCE_CATEGORIES, debitorBic, financeKategorie } from "../lib/finance-category.ts";
+import {
+  FINANCE_CATEGORIES,
+  debitorBic,
+  financeBrauchtIban,
+  financeDatum,
+  financeIban,
+  financeKategorie,
+  financeKategorieFuerProfil,
+  financeStichtag,
+} from "../lib/finance-category.ts";
 import { NICHT_EWR_SEPA_LAENDER, istNichtEwrIban } from "../lib/iban.ts";
 import { NICHT_EWR_SEPA_LAENDER as AUS_DEN_REGELN } from "../lib/member-rules.ts";
 
@@ -79,4 +88,27 @@ test("Nicht-EWR-Liste liegt in lib/iban.ts, die Regeln exportieren dieselbe", ()
   assert.equal(istNichtEwrIban(" ch93 0076"), true);
   assert.equal(istNichtEwrIban(IBAN_DE), false);
   assert.equal(istNichtEwrIban(""), false);
+});
+
+test("Einordnung direkt aus der profiles-Zeile (Finanzexport und Insights, eine Funktion)", () => {
+  const start = financeStichtag("WiSe", 2026);
+  assert.equal(start, "2026-10-01");
+  assert.equal(financeStichtag("SoSe", 2027), "2027-03-15");
+  const zeile = (x = {}) => ({ Status: " Active ", Rolle: "Member", Datum_Antrag: "2025-01-10", "Datum_Kündigung": null, ...x });
+  assert.equal(financeKategorieFuerProfil(zeile(), " de89 3704 0044 0532 0130 00 ", null, start), "debit");
+  assert.equal(financeKategorieFuerProfil(zeile({ Rolle: "ALUMNI" }), IBAN_DE, null, start), "alumni");
+  assert.equal(financeKategorieFuerProfil(zeile({ Datum_Antrag: "2026-10-01T08:00:00Z" }), IBAN_DE, null, start), "free_semester");
+  assert.equal(financeKategorieFuerProfil(zeile({ "Datum_Kündigung": "2026-09-30" }), IBAN_DE, null, start), "cancelled");
+  assert.equal(financeKategorieFuerProfil(zeile(), IBAN_CH, null, start), "non_eea");
+  assert.equal(financeKategorieFuerProfil(zeile(), null, null, start), "no_iban");
+  assert.equal(financeKategorieFuerProfil(zeile(), IBAN_DE, "exclude", start), "removed");
+  // IBAN nur nötig, wenn sie entscheidet.
+  assert.equal(financeBrauchtIban(zeile(), null, start), true);
+  assert.equal(financeBrauchtIban(zeile({ Rolle: "alumni" }), null, start), false);
+  assert.equal(financeBrauchtIban(zeile({ Rolle: "alumni" }), "include", start), true);
+  assert.equal(financeBrauchtIban(zeile(), "free_semester", start), false);
+  assert.equal(financeDatum("2026-10-01"), "2026-10-01");
+  assert.equal(financeDatum(""), null);
+  assert.equal(financeDatum("kein Datum"), null);
+  assert.equal(financeIban(" at61 1904 3002 3457 3201 "), IBAN_AT);
 });

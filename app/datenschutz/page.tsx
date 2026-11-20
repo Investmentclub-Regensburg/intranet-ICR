@@ -408,7 +408,8 @@ export default function DatenschutzPage() {
         (siehe unten). Bei Korrekturen protokollieren wir, wer wann welche Felder geändert hat; die Werte selbst nicht.
         Für interne Statistiken wertet der Vorstand Angaben wie Alter, Studiengang, Hochschule und Abschluss nur
         zusammengefasst aus, als Anzahl je Gruppe und ohne Namen; das Geburtsdatum wird dafür nur in eine Altersgruppe
-        umgerechnet. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
+        umgerechnet. Für den nächsten Beitragseinzug wird ebenso nur gezählt, wie viele Lastschriften anfallen würden; die
+        Bankverbindung wird dafür nur auf Gültigkeit geprüft. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.
       </p>
 
       <h3>Veranstaltungen</h3>

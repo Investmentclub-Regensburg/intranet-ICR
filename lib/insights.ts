@@ -7,6 +7,13 @@
  */
 
 import { normalisiereStudiengang } from "./studiengaenge";
+import {
+  financeBrauchtIban,
+  financeKategorieFuerProfil,
+  financeStichtag,
+  type FinanceOverrideAction,
+  type FinanceProfilZeile,
+} from "./finance-category";
 import { CANCELLATION_REASONS } from "./cancellation-reasons";
 import {
   ABSCHLUESSE,
@@ -40,8 +47,6 @@ export type InsightsProfile = {
   altersgruppe: Altersgruppe | null;
 };
 
-export type FeeOverride = "include" | "exclude" | "free_semester";
-
 export type Period = { semester: "SoSe" | "WiSe"; year: number };
 
 /** Zeile einer Balkenliste. `grau` = „ohne Angabe“. */
@@ -57,7 +62,8 @@ export type InsightsData = {
   alumni: number;
   /** Studierende + Alumni (ohne Gekündigte und offene Anträge). */
   mitglieder: number;
-  budget: { year: number; total: number; semester: { label: string; zahlend: number }[] };
+  /** Kachel „Nächster Einzug“; null = Bankdaten konnten gar nicht gelesen werden. */
+  einzug: NaechsterEinzug | null;
   eintritteAktuell: number;
   austritteAktuell: number;
   eintritte: SemesterSaeule[];
@@ -113,30 +119,7 @@ export function lastPeriods(current: Period, n: number): Period[] {
 }
 
 /**
- * Beitragspflicht in einem Semester, gleiche Reihenfolge wie im Finanzexport (getFinanceExportData), nur
- * ohne IBAN-Prüfung: Anpassung „entfernen“/„Freisemester“ gewinnt, „aufnehmen“ zählt immer; sonst fallen
- * Alumni, vor dem Stichtag Gekündigte und Eintritte ab dem Stichtag (Freisemester) heraus.
- */
-export function zahltBeitrag(p: InsightsProfile, start: string, override: FeeOverride | null): boolean {
-  if (override === "exclude" || override === "free_semester") return false;
-  if (override === "include") return true;
-  const status = p.status.trim().toLowerCase();
-  const rolle = p.rolle.trim().toLowerCase();
-  if (rolle === "alumni" || status === "alumni") return false;
-  const cancelledAt = day(p.datumKuendigung);
-  if (cancelledAt && cancelledAt < start) return false;
-  const joinedAt = day(p.datumAntrag);
-  if (joinedAt && joinedAt >= start) return false;
-  return true;
-}
-
-/** Schlüssel für Anpassungen eines Semesters (finance_export_overrides). */
-export function overrideKey(p: Period): string {
-  return periodKey(p);
-}
-
-/**
- * Art eines Profils, eine Regel für alle Kennzahlen (Kacheln, Verteilungen, Budget, Startseite):
+ * Art eines Profils, eine Regel für alle Kennzahlen (Kacheln, Verteilungen, Startseite):
  * gekündigt geht vor allem anderen, dann offener Antrag, dann Alumni (Rolle oder Altstatus „alumni“).
  * Alles andere, auch leerer oder unbekannter Altstatus, zählt als studierendes Mitglied
  * (wie lib/profile-status.ts isActiveMemberProfile und admin/format.ts statusGroup).
@@ -158,43 +141,100 @@ export function istMitglied(p: { status: string; rolle: string }): boolean {
   return art === "studierend" || art === "alumni";
 }
 
-/**
- * Jahr der Budget-Kachel (Entscheidung Koordinator, 19.11.2026): ab dem 01.10. das kommende Kalenderjahr,
- * vom 01.01. bis 30.09. das laufende. Im November 2026 also „Budget 2027“, im Januar 2027 ebenfalls 2027.
- */
-export function budgetJahr(today: string): number {
-  const year = Number(today.slice(0, 4));
-  return today.slice(5) >= "10-01" ? year + 1 : year;
+/** Semester nach `p` (WiSe 2026/27 → SoSe 2027 → WiSe 2027/28). */
+export function nextPeriod(p: Period): Period {
+  return p.semester === "WiSe" ? { semester: "SoSe", year: p.year + 1 } : { semester: "WiSe", year: p.year };
 }
 
 /**
- * Budget eines Kalenderjahres (budgetJahr) bei heutigem Stand: SoSe und WiSe dieses Jahres, je zahlende
- * Mitglieder × Beitrag. Zahlend wie im Finanzexport (zahltBeitrag) mit den Anpassungen des jeweiligen
- * Semesters. Nur Mitglieder (istMitglied) zählen: Ausgetretene und offene Anträge nicht, außer per Anpassung
- * „aufnehmen“. Wer heute im Freisemester ist, zahlt in späteren Semestern.
+ * Semester des nächsten Lastschrift-Einzugs: das Semester nach dem laufenden. Eingezogen wird zum Semesterbeginn
+ * (Stichtag 15.03. bzw. 01.10., die Datenabfrage läuft etwa zwei Wochen vorher); am Stichtag selbst gilt schon das
+ * folgende Semester als „nächstes“. Im November 2026 also SoSe 2027.
  */
-export function budgetNaechstesJahr(
-  profiles: InsightsProfile[],
-  today: string,
-  overrides: Map<string, Map<string, FeeOverride>> = new Map(),
-): InsightsData["budget"] {
-  const year = budgetJahr(today);
-  const semester: Period[] = [
-    { semester: "SoSe", year },
-    { semester: "WiSe", year },
-  ];
-  const zeilen = semester.map((s) => {
-    const start = periodStart(s);
-    const anpassungen = overrides.get(overrideKey(s)) ?? new Map<string, FeeOverride>();
-    let zahlend = 0;
-    for (const p of profiles) {
-      const override = anpassungen.get(p.id) ?? null;
-      if (override !== "include" && !istMitglied(p)) continue;
-      if (zahltBeitrag(p, start, override)) zahlend++;
+export function naechstesEinzugsSemester(today: string): Period {
+  return nextPeriod(periodOf(today));
+}
+
+/**
+ * Kachel „Nächster Einzug <Semester>“ (Klickrunde 20.11.2026, ersetzt „Budget <Jahr>“): nur, was beim nächsten
+ * Stichtag tatsächlich eingezogen würde. Nur Zählungen, keine Werte (liegt im Insights-Cache).
+ */
+export type NaechsterEinzug = {
+  /** z. B. „SoSe 2027“ */
+  label: string;
+  /** Stichtag YYYY-MM-DD */
+  stichtag: string;
+  /** Lastschriften (Kategorie „debit“ des Finanzexports) */
+  zahlend: number;
+  /** zahlend × Beitrag */
+  total: number;
+  /** Profile mit nicht lesbarer IBAN: > 0 → Betrag unbekannt (der Finanzexport bricht dann ab). */
+  nichtLesbar: number;
+};
+
+/** Anpassungen eines Semesters (finance_export_overrides): Profil-ID → Aktion. */
+export type EinzugAnpassungen = ReadonlyMap<string, FinanceOverrideAction>;
+
+/** profiles-Zeile mit den Spalten der Einordnung (wie im Finanzexport gelesen). */
+export type EinzugProfil = FinanceProfilZeile & { id?: unknown };
+
+function profilId(p: EinzugProfil): string {
+  return typeof p.id === "string" ? p.id : String(p.id ?? "");
+}
+
+/**
+ * Profile, deren Einordnung von der IBAN abhängt (`financeBrauchtIban`): nur deren IBAN wird entschlüsselt. Alle
+ * anderen entscheiden Anpassung, Alumni, Kündigung oder Freisemester vorher.
+ */
+export function einzugIbanBedarf(profiles: readonly EinzugProfil[], semester: Period, anpassungen: EinzugAnpassungen): string[] {
+  const start = financeStichtag(semester.semester, semester.year);
+  return profiles
+    .filter((p) => financeBrauchtIban(p, anpassungen.get(profilId(p)) ?? null, start))
+    .map(profilId)
+    .filter(Boolean);
+}
+
+/**
+ * Nächster Einzug: Anzahl der Profile, die der Finanzexport für dieses Semester als Lastschrift führen würde, mal
+ * Beitrag. Dieselbe Funktion wie Finanzvorschau und SEPA-Export (`financeKategorieFuerProfil`, alle Profile wie
+ * dort): zahlend, keine Alumni, nicht vor dem Stichtag gekündigt, kein Freisemester (Eintritt ab dem Stichtag:
+ * erstes Semester kostenlos), gültige IBAN im EWR (Konten außerhalb des EWR zieht der Vorstand manuell ein, sie
+ * zählen hier nicht), Anpassungen dieses Semesters. `ibans` = entschlüsselte IBANs der Profile aus
+ * `einzugIbanBedarf` (fehlend/null = keine IBAN, "unreadable" = nicht lesbar).
+ */
+export function naechsterEinzug(
+  profiles: readonly EinzugProfil[],
+  semester: Period,
+  anpassungen: EinzugAnpassungen,
+  ibans: ReadonlyMap<string, string | null | "unreadable">,
+): NaechsterEinzug {
+  const stichtag = financeStichtag(semester.semester, semester.year);
+  let zahlend = 0;
+  let nichtLesbar = 0;
+  for (const p of profiles) {
+    const id = profilId(p);
+    const iban = ibans.get(id);
+    if (iban === "unreadable") {
+      nichtLesbar++;
+      continue;
     }
-    return { label: periodLabel(s), zahlend };
-  });
-  return { year, total: zeilen.reduce((s, z) => s + z.zahlend * FEE_PER_SEMESTER, 0), semester: zeilen };
+    if (financeKategorieFuerProfil(p, iban ?? "", anpassungen.get(id) ?? null, stichtag) === "debit") zahlend++;
+  }
+  return { label: periodLabel(semester), stichtag, zahlend, total: zahlend * FEE_PER_SEMESTER, nichtLesbar };
+}
+
+/** Herleitung für den Tooltip der Kachel „Nächster Einzug“. */
+export function einzugHerleitung(einzug: NaechsterEinzug | null): string {
+  if (!einzug) return "Bankdaten nicht lesbar, Betrag unbekannt. Bitte IT-Vorstand informieren.";
+  if (einzug.nichtLesbar > 0) {
+    const wer = einzug.nichtLesbar === 1 ? "1 Mitglied" : `${einzug.nichtLesbar} Mitgliedern`;
+    return `Bankdaten von ${wer} nicht lesbar, Betrag unbekannt (der Finanzexport bricht dann ebenfalls ab). Bitte IT-Vorstand informieren.`;
+  }
+  const [j, m, t] = einzug.stichtag.split("-");
+  return (
+    `${einzug.zahlend} Lastschriften × ${FEE_PER_SEMESTER} € zum ${t}.${m}.${j}, wie im Finanzexport: ` +
+    "ohne Alumni, Gekündigte, Erstsemester (erstes Semester frei), fehlende oder ungültige IBAN und Konten außerhalb des EWR"
+  );
 }
 
 /**
@@ -210,15 +250,6 @@ export function eintritteImSemester(profiles: { status: string; rolle: string; d
     if (joinedAt && joinedAt >= start && joinedAt <= today) n++;
   }
   return n;
-}
-
-/** Herleitung des Budgets für den Tooltip. */
-export function budgetHerleitung(budget: InsightsData["budget"]): string {
-  const [a, b] = budget.semester;
-  if (a && b && a.zahlend === b.zahlend) {
-    return `2 Semester × ${a.zahlend} zahlende Mitglieder × ${FEE_PER_SEMESTER} €`;
-  }
-  return budget.semester.map((s) => `${s.label}: ${s.zahlend} × ${FEE_PER_SEMESTER} €`).join(" + ");
 }
 
 /**
@@ -330,7 +361,8 @@ export function semesterSaeulen(
 export function computeInsights(
   profiles: InsightsProfile[],
   today: string,
-  budgetOverrides: Map<string, Map<string, FeeOverride>> = new Map(),
+  /** Kachel „Nächster Einzug“, vom Server mit entschlüsselten IBANs gezählt (`naechsterEinzug`). */
+  einzug: NaechsterEinzug | null = null,
 ): InsightsData {
   const period = periodOf(today);
   const perioden = lastPeriods(period, SEMESTER_IN_SAEULEN);
@@ -377,7 +409,7 @@ export function computeInsights(
     studierende,
     alumni,
     mitglieder: studierende + alumni,
-    budget: budgetNaechstesJahr(profiles, today, budgetOverrides),
+    einzug,
     eintritteAktuell: eintritte[eintritte.length - 1].n ?? 0,
     austritteAktuell: austritte[austritte.length - 1].n ?? 0,
     eintritte,

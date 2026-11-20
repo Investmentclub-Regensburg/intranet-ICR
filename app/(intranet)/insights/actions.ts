@@ -6,14 +6,16 @@ import { createServiceClient } from "@/utils/supabase/service";
 import { berlinToday } from "@/lib/berlin-date";
 import { readMemberSecretFieldMany } from "@/lib/member-secrets-server";
 import { altersgruppe } from "@/lib/insights-merkmale";
+import type { FinanceOverrideAction } from "@/lib/finance-category";
 import {
-  budgetJahr,
   computeInsights,
+  einzugIbanBedarf,
   istMitglied,
-  overrideKey,
-  type FeeOverride,
+  naechsterEinzug,
+  naechstesEinzugsSemester,
   type InsightsData,
   type InsightsProfile,
+  type NaechsterEinzug,
 } from "@/lib/insights";
 
 function text(value: unknown): string {
@@ -21,21 +23,26 @@ function text(value: unknown): string {
 }
 
 // Nur Zählungen im Cache (keine Namen, keine Werte): das Geburtsdatum wird hier entschlüsselt, sofort auf
-// die Altersgruppe reduziert und nicht weitergegeben oder protokolliert.
+// die Altersgruppe reduziert und nicht weitergegeben oder protokolliert. Ebenso die IBAN (Kachel „Nächster
+// Einzug“): nur für Profile, deren Einordnung davon abhängt, nur zum Zählen der Lastschriften, danach verworfen.
 // Der Berliner Tag ist Argument und damit Teil des Cache-Schlüssels (unstable_cache nimmt die Argumente in den
 // Schlüssel auf): Nach einem Tages- oder Semesterwechsel wird immer neu gerechnet, statt im Hintergrund
 // erneuerte alte Zahlen auszuliefern.
 const getInsightsDataCached = unstable_cache(
   async (today: string): Promise<InsightsData | null> => {
     const admin = createServiceClient();
-    const jahr = budgetJahr(today);
+    const einzugSemester = naechstesEinzugsSemester(today);
 
     const [profilesRes, overridesRes] = await Promise.all([
       admin
         .from("profiles")
         .select('id, "Status", "Rolle", "Datum_Antrag", "Datum_Kündigung", "Studiengang / Fach", "Hochschulart", "Abschluss"')
         .range(0, 9999),
-      admin.from("finance_export_overrides").select("profile_id, action, semester, year").eq("year", jahr),
+      admin
+        .from("finance_export_overrides")
+        .select("profile_id, action")
+        .eq("semester", einzugSemester.semester)
+        .eq("year", einzugSemester.year),
     ]);
 
     if (profilesRes.error || !profilesRes.data) {
@@ -44,8 +51,8 @@ const getInsightsDataCached = unstable_cache(
     }
     const rows = profilesRes.data as Record<string, unknown>[];
 
-    // Altersgruppen nur für Mitglieder (gleiche Regel wie die Zählung). Entschlüsselt wird nur das Feld
-    // Geburtsdatum, keine IBAN, Anschrift oder Handynummer. Nicht lesbar → ohne Angabe.
+    // Altersgruppen nur für Mitglieder (gleiche Regel wie die Zählung). Entschlüsselt wird hier nur das Feld
+    // Geburtsdatum, keine Anschrift oder Handynummer (die IBAN nur unten für den Einzug). Nicht lesbar → ohne Angabe.
     let geburtsdaten = new Map<string, string | null | "unreadable">();
     try {
       const ids = rows
@@ -73,20 +80,26 @@ const getInsightsDataCached = unstable_cache(
     });
     geburtsdaten.clear();
 
-    // Anpassungen (Freisemester, entfernen, aufnehmen) der beiden Semester des Budgetjahres.
-    const overrides = new Map<string, Map<string, FeeOverride>>();
+    // Nächster Einzug: Anpassungen dieses Semesters (fehlt die Tabelle, wie im Export ohne Anpassungen), dann
+    // dieselbe Einordnung wie der Finanzexport. Entschlüsselt wird nur die IBAN, nur wo sie entscheidet.
+    const anpassungen = new Map<string, FinanceOverrideAction>();
     for (const o of overridesRes.data ?? []) {
-      if (o.action !== "include" && o.action !== "exclude" && o.action !== "free_semester") continue;
-      if (o.semester !== "SoSe" && o.semester !== "WiSe") continue;
-      const key = overrideKey({ semester: o.semester, year: Number(o.year) });
-      const map = overrides.get(key) ?? new Map<string, FeeOverride>();
-      map.set(String(o.profile_id), o.action);
-      overrides.set(key, map);
+      if (o.action === "include" || o.action === "exclude" || o.action === "free_semester") {
+        anpassungen.set(String(o.profile_id), o.action);
+      }
+    }
+    let einzug: NaechsterEinzug | null = null;
+    try {
+      const ibans = await readMemberSecretFieldMany(admin, einzugIbanBedarf(rows, einzugSemester, anpassungen), "iban");
+      einzug = naechsterEinzug(rows, einzugSemester, anpassungen, ibans);
+      ibans.clear();
+    } catch (err) {
+      console.error("getInsightsData: member_secrets (IBAN)", err instanceof Error ? err.name : "unbekannt");
     }
 
-    return computeInsights(profiles, today, overrides);
+    return computeInsights(profiles, today, einzug);
   },
-  ["insights-data-v5"],
+  ["insights-data-v6"],
   { revalidate: 60 }
 );
 

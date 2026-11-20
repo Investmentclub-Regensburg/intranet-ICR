@@ -79,7 +79,7 @@ export type FeeStop = {
 
 /**
  * Ab welchem Semester nach einer Kündigung heute kein Beitrag mehr eingezogen wird.
- * Gleiche Regel wie Finanzexport (getPeriodStartDay in app/(intranet)/admin/actions/finance.ts)
+ * Gleiche Regel wie Finanzexport (financeStichtag in lib/finance-category.ts)
  * und cancel_membership() in der Datenbank: SoSe ab 15.03., WiSe ab 01.10., Vergleich des Berliner
  * Datums; wer vor dem Stichtag gekündigt hat, fällt aus dem Einzug dieses Semesters heraus.
  * Gesucht ist also der erste Stichtag nach heute.

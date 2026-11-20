@@ -8,7 +8,10 @@ import { validateIBAN, validateBICFormat } from "@/lib/iban";
 import { readMemberSecretsMany } from "@/lib/member-secrets-server";
 import {
   debitorBic,
-  financeKategorie,
+  financeDatum,
+  financeIban,
+  financeKategorieFuerProfil,
+  financeStichtag,
   type FinanceCategory,
   type FinanceOverrideAction,
 } from "@/lib/finance-category";
@@ -112,11 +115,6 @@ function maskIban(iban: string): string {
  */
 export type FinanceExportMode = "preview" | "export";
 
-/** Semesterbeginn als YYYY-MM-DD – Vergleich mit Datumsspalten als Text, unabhängig von der Zeitzone. */
-function getPeriodStartDay(semester: Semester, year: number): string {
-  return semester === "SoSe" ? `${year}-03-15` : `${year}-10-01`;
-}
-
 const FEE_PER_SEMESTER = MEMBERSHIP_FEE_PER_SEMESTER;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OVERRIDE_ACTIONS: readonly FinanceOverrideAction[] = ["include", "exclude", "free_semester"];
@@ -135,15 +133,9 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Datum als YYYY-MM-DD oder null. */
-function day(value: unknown): string | null {
-  if (typeof value !== "string" || !value) return null;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
-
 /**
- * Einordnung je Profil: `financeKategorie` (lib/finance-category.ts): Anpassungen, Alumni, Kündigung,
+ * Einordnung je Profil: `financeKategorieFuerProfil` (lib/finance-category.ts, dieselbe Funktion nutzt die
+ * Insights-Kachel „Nächster Einzug“): Anpassungen, Alumni, Kündigung,
  * Freisemester, ohne/ungültige IBAN, Konto außerhalb des EWR (`non_eea`, nicht in der Datei), sonst Lastschrift
  * über FEE_PER_SEMESTER.
  * BIC: wird seit 20.11.2026 nicht mehr abgefragt. Bei EWR-IBANs geht nie eine gespeicherte BIC in CSV/XML
@@ -172,7 +164,8 @@ export async function getFinanceExportData(
   }
 
   const supabase = createServiceClient();
-  const periodStartDay = getPeriodStartDay(semester, year);
+  // Semesterbeginn als YYYY-MM-DD – Vergleich mit Datumsspalten als Text, unabhängig von der Zeitzone.
+  const periodStartDay = financeStichtag(semester, year);
 
   const [profilesRes, overridesRes, lastXmlRes] = await Promise.all([
     supabase
@@ -251,19 +244,18 @@ export async function getFinanceExportData(
     const id = String(profile["id"] ?? "");
     const override = overrides.get(id) ?? null;
     const status = text(profile["Status"]).toLowerCase();
-    const role = text(profile["Rolle"]).toLowerCase();
     const bank = secrets.get(id);
     const bankValues = bank && bank !== "unreadable" ? bank : null;
-    const ibanClean = text(bankValues?.iban).replace(/\s/g, "").toUpperCase();
+    const ibanClean = financeIban(bankValues?.iban);
     // BIC für CSV/XML: bei EWR-IBANs nie (NOTPROVIDED), sonst nur im gültigen Format (lib/finance-category.ts).
     const bicClean = debitorBic(ibanClean, text(bankValues?.bic));
-    const joinedAt = day(profile["Datum_Antrag"]);
-    const cancelledAt = day(profile["Datum_Kündigung"]);
+    const joinedAt = financeDatum(profile["Datum_Antrag"]);
+    const cancelledAt = financeDatum(profile["Datum_Kündigung"]);
     const ibanChangedAt = typeof profile["iban_changed_at"] === "string" ? profile["iban_changed_at"] : null;
     // Ohne bisherigen XML-Export zählt jede erfasste Änderung (erster Einzug nach der Umstellung).
     const amended = Boolean(ibanChangedAt) && (!lastXmlExportAt || ibanChangedAt! > lastXmlExportAt);
 
-    const category = financeKategorie({ override, status, role, joinedAt, cancelledAt, periodStartDay, iban: ibanClean });
+    const category = financeKategorieFuerProfil(profile, ibanClean, override, periodStartDay);
     stats[category]++;
 
     const firstName = sanitizeForSEPA(text(profile["Vorname"]));
