@@ -338,6 +338,14 @@ export default function DatenschutzPage() {
         ändern.
       </p>
 
+      <h3>Bestätigung Ihrer Angaben</h3>
+      <p>
+        Zweimal im Jahr, ab dem 1. März und ab dem 15. September, bitten wir Sie im Intranet, Ihre Angaben zu bestätigen
+        oder zu korrigieren. Wir speichern, wann Sie sie zuletzt bestätigt haben, und bei „Später“, bis wann wir nicht
+        erneut fragen. Zweck ist die Richtigkeit Ihrer Daten (Art. 5 Abs. 1 lit. d DSGVO); Rechtsgrundlage ist Art. 6
+        Abs. 1 lit. b DSGVO.
+      </p>
+
       <h3>Prüfung der IBAN</h3>
       <p>
         Wenn Sie im Mitgliedsantrag Ihre IBAN eingeben, prüfen wir sie über den öffentlichen Prüfdienst openiban.com auf
@@ -405,7 +413,8 @@ export default function DatenschutzPage() {
       <p>
         Der Vorstand sieht zusätzlich Anschrift (sofern angegeben) und Geburtsdatum, kann Angaben im Auftrag eines Mitglieds korrigieren,
         sieht Kündigungen mit Kündigungsgrund und erstellt die Dateien für den Beitragseinzug und den Zeitschriftenzugang
-        (siehe unten). Bei Korrekturen protokollieren wir, wer wann welche Felder geändert hat; die Werte selbst nicht.
+        (siehe unten). Bei Korrekturen durch den Vorstand, auch wenn er Fehler in den Mitgliedsdaten gesammelt
+        bereinigt, protokollieren wir, wer wann welche Felder geändert hat; die Werte selbst nicht.
         Für interne Statistiken wertet der Vorstand Angaben wie Alter, Studiengang, Hochschule und Abschluss nur
         zusammengefasst aus, als Anzahl je Gruppe und ohne Namen; das Geburtsdatum wird dafür nur in eine Altersgruppe
         umgerechnet. Für den nächsten Beitragseinzug wird ebenso nur gezählt, wie viele Lastschriften anfallen würden; die
